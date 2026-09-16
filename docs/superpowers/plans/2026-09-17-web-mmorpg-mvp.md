@@ -365,7 +365,40 @@ export function hexDistance(a: HexCoord, b: HexCoord): number {
 }
 ```
 
-Add BFS `findPath` that excludes blocked keys and returns a path not including the start cell.
+Implement BFS pathing in the same file:
+
+```ts
+export function findPath(
+  start: HexCoord,
+  goal: HexCoord,
+  blocked: ReadonlySet<string>
+): HexCoord[] | null {
+  const queue: HexCoord[] = [start];
+  const cameFrom = new Map<string, HexCoord | null>([[hexKey(start), null]]);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (hexKey(current) === hexKey(goal)) break;
+
+    for (const next of hexNeighbors(current)) {
+      const key = hexKey(next);
+      if (blocked.has(key) || cameFrom.has(key)) continue;
+      cameFrom.set(key, current);
+      queue.push(next);
+    }
+  }
+
+  if (!cameFrom.has(hexKey(goal))) return null;
+
+  const path: HexCoord[] = [];
+  let current: HexCoord | null = goal;
+  while (current && hexKey(current) !== hexKey(start)) {
+    path.push(current);
+    current = cameFrom.get(hexKey(current)) ?? null;
+  }
+  return path.reverse();
+}
+```
 
 - [ ] **Step 4: Add failing line-of-sight tests**
 
@@ -391,7 +424,55 @@ describe("line of sight", () => {
 
 - [ ] **Step 5: Implement cube-interpolation line of sight**
 
-Convert axial to cube coordinates, lerp across `hexDistance(start, end)`, cube-round each sample, and ignore the origin/endpoints when checking blockers.
+Implement cube interpolation and rounding:
+
+```ts
+import type { HexCoord } from "@web-mmorpg/shared";
+import { hexDistance, hexKey } from "./hex";
+
+type Cube = { x: number; y: number; z: number };
+
+const toCube = ({ q, r }: HexCoord): Cube => ({ x: q, z: r, y: -q - r });
+const toAxial = ({ x, z }: Cube): HexCoord => ({ q: x, r: z });
+
+function cubeRound(cube: Cube): Cube {
+  let rx = Math.round(cube.x);
+  let ry = Math.round(cube.y);
+  let rz = Math.round(cube.z);
+  const xDiff = Math.abs(rx - cube.x);
+  const yDiff = Math.abs(ry - cube.y);
+  const zDiff = Math.abs(rz - cube.z);
+
+  if (xDiff > yDiff && xDiff > zDiff) rx = -ry - rz;
+  else if (yDiff > zDiff) ry = -rx - rz;
+  else rz = -rx - ry;
+
+  return { x: rx, y: ry, z: rz };
+}
+
+export function hasLineOfSight(
+  start: HexCoord,
+  end: HexCoord,
+  blockers: ReadonlySet<string>
+): boolean {
+  const distance = hexDistance(start, end);
+  if (distance <= 1) return true;
+
+  const a = toCube(start);
+  const b = toCube(end);
+
+  for (let i = 1; i < distance; i += 1) {
+    const t = i / distance;
+    const rounded = cubeRound({
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+      z: a.z + (b.z - a.z) * t
+    });
+    if (blockers.has(hexKey(toAxial(rounded)))) return false;
+  }
+  return true;
+}
+```
 
 - [ ] **Step 6: Run tests**
 
@@ -473,7 +554,49 @@ Expected: FAIL because generator is missing.
 
 - [ ] **Step 4: Implement seeded RNG and arena generation**
 
-Use a tiny deterministic `mulberry32(seed)` helper local to the module. Build a radius-based axial arena, reserve two opposite start zones, shuffle remaining cells using the seeded RNG, then allocate blocked and cover cells without overlap.
+Implement deterministic generation:
+
+```ts
+import type { ArenaProfile, GeneratedArena, HexCoord } from "@web-mmorpg/shared";
+import { hexKey } from "./hex";
+
+function mulberry32(seed: number) {
+  return () => {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function generateArena(profile: ArenaProfile, seed: number): GeneratedArena {
+  const cells: HexCoord[] = [];
+  for (let q = -profile.radius; q <= profile.radius; q += 1) {
+    const minR = Math.max(-profile.radius, -q - profile.radius);
+    const maxR = Math.min(profile.radius, -q + profile.radius);
+    for (let r = minR; r <= maxR; r += 1) cells.push({ q, r });
+  }
+
+  const playerStartCells = cells.filter((c) => c.q <= -profile.radius + 1);
+  const enemyStartCells = cells.filter((c) => c.q >= profile.radius - 1);
+  const reserved = new Set([...playerStartCells, ...enemyStartCells].map(hexKey));
+  const rng = mulberry32(seed);
+  const candidates = cells.filter((c) => !reserved.has(hexKey(c)));
+
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+
+  const blockedCells = candidates.slice(0, profile.obstacleCount);
+  const coverCells = candidates.slice(
+    profile.obstacleCount,
+    profile.obstacleCount + profile.coverCount
+  );
+
+  return { cells, blockedCells, coverCells, playerStartCells, enemyStartCells };
+}
+```
 
 - [ ] **Step 5: Run tests**
 
@@ -575,7 +698,30 @@ Cover:
 
 - [ ] **Step 5: Implement attack validation and damage**
 
-Keep random critical hits out of MVP. Damage is deterministic so multiplayer tests stay reproducible.
+Implement deterministic attack resolution:
+
+```ts
+function applyAttack(
+  state: BattleState,
+  attacker: CombatantState,
+  target: CombatantState,
+  damage: number,
+  apCost: number
+): BattleState {
+  return {
+    ...state,
+    combatants: {
+      ...state.combatants,
+      [attacker.id]: { ...attacker, ap: attacker.ap - apCost },
+      [target.id]: applyDamageWithInjuries(target, damage, state.seed + state.round)
+    }
+  };
+}
+```
+
+For `meleeAttack`, require `hexDistance(attacker.position, target.position) === 1`.
+For `rangedAttack`, require distance `<= 6` and `hasLineOfSight(...) === true`.
+Do not add critical hits or client-provided damage values.
 
 - [ ] **Step 6: Add failing injury tests**
 
@@ -589,15 +735,39 @@ it("marks a combatant severely injured when reduced to zero HP", () => {
 
 - [ ] **Step 7: Implement deterministic injuries**
 
-For MVP, injury count is 1-2 based on seeded RNG. Select from:
-`brokenArm`, `legTrauma`, `bleeding`, `concussion`, `chestWound`.
+Use this deterministic injury application:
 
-Apply representative modifiers in battle snapshots:
-- `legTrauma`: movement AP cost +1 per hex
-- `concussion`: -2 initiative
+```ts
+const INJURIES: InjuryKind[] = [
+  "brokenArm",
+  "legTrauma",
+  "bleeding",
+  "concussion",
+  "chestWound"
+];
+
+export function applyDamageWithInjuries(
+  combatant: CombatantState,
+  damage: number,
+  seed: number
+): CombatantState {
+  const hp = Math.max(0, combatant.hp - damage);
+  if (hp > 0) return { ...combatant, hp };
+
+  const first = INJURIES[Math.abs(seed) % INJURIES.length];
+  const second = INJURIES[Math.abs(seed * 31 + 7) % INJURIES.length];
+  const injuries = first === second ? [first] : [first, second];
+
+  return { ...combatant, hp: 0, severelyInjured: true, injuries };
+}
+```
+
+Apply modifiers in command validation:
+- `legTrauma`: movement AP cost +1 per traversed hex
+- `concussion`: effective initiative -2
 - `brokenArm`: ranged attack cost +1 AP
-- `chestWound`: max HP -20% until treated
-- `bleeding`: 5 HP damage when turn ends
+- `chestWound`: effective max HP is `Math.floor(baseMaxHp * 0.8)`
+- `bleeding`: subtract 5 HP on `endTurn`, clamped at 0
 
 - [ ] **Step 8: Run battle and injury tests**
 
@@ -702,16 +872,50 @@ Use one location:
 - one encounter: `wolf-pack-01` at 1050,450
 - encounter activation radius: 90 pixels
 
-The server validates desired movement using elapsed time and a maximum speed of 220 px/s.
+Implement movement validation as:
+
+```ts
+const MAX_SPEED = 220;
+
+movePlayer(playerId: PlayerId, intent: { x: number; y: number }, now = Date.now()) {
+  const player = this.players.get(playerId);
+  if (!player) throw new Error("PLAYER_NOT_FOUND");
+
+  const elapsed = Math.max(0, (now - player.lastMoveAt) / 1000);
+  const maxDistance = MAX_SPEED * elapsed;
+  const dx = intent.x - player.x;
+  const dy = intent.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  const scale = distance > maxDistance && distance > 0 ? maxDistance / distance : 1;
+
+  player.x = Math.min(1600, Math.max(0, player.x + dx * scale));
+  player.y = Math.min(900, Math.max(0, player.y + dy * scale));
+  player.lastMoveAt = now;
+  return { x: player.x, y: player.y };
+}
+```
 
 - [ ] **Step 4: Implement ephemeral nickname login**
 
-Rules:
-- trim nickname
-- require 3-20 characters
-- reject duplicate active nickname
-- create UUID-backed `PlayerId`
-- spawn player into `meadow-01`
+Implement login validation:
+
+```ts
+import { randomUUID } from "node:crypto";
+
+login(nicknameInput: string): LoginResult {
+  const nickname = nicknameInput.trim();
+  if (nickname.length < 3 || nickname.length > 20) {
+    return { ok: false, code: "INVALID_NICKNAME", message: "Nickname must be 3-20 characters." };
+  }
+  if ([...this.sessions.values()].some((s) => s.nickname.toLowerCase() === nickname.toLowerCase())) {
+    return { ok: false, code: "NICKNAME_IN_USE", message: "Nickname is already active." };
+  }
+
+  const playerId = randomUUID();
+  this.sessions.set(playerId, { playerId, nickname, locationId: "meadow-01" });
+  return { ok: true, playerId, locationId: "meadow-01" };
+}
+```
 
 - [ ] **Step 5: Implement inventory and deterministic loot**
 
@@ -773,13 +977,37 @@ npm test -w @web-mmorpg/server -- socketFlow.test.ts
 
 ```ts
 export function createGameServer(httpServer: HttpServer) {
+  const sessions = new SessionStore();
+  const world = new WorldService();
+  const inventory = new InventoryService();
+  const loot = new LootService();
+  const battles = new BattleService();
+
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: true, credentials: false }
   });
 
-  // construct services once
-  // register socket handlers
-  // return { io, services }
+  io.on("connection", (socket) => {
+    let playerId: PlayerId | null = null;
+
+    socket.on("login", ({ nickname }, ack) => {
+      const result = sessions.login(nickname);
+      if (!result.ok) return ack(result);
+      playerId = result.playerId;
+      world.addPlayer({ id: result.playerId, nickname });
+      socket.join(`location:${result.locationId}`);
+      ack(result);
+      io.to(`location:${result.locationId}`).emit("worldState", world.snapshot(result.locationId));
+    });
+
+    socket.on("moveIntent", (intent) => {
+      if (!playerId) return;
+      world.movePlayer(playerId, intent);
+      io.to("location:meadow-01").emit("worldState", world.snapshot("meadow-01"));
+    });
+  });
+
+  return { io, services: { sessions, world, inventory, loot, battles } };
 }
 ```
 
@@ -805,11 +1033,16 @@ Also verify world-position input is clamped by the server.
 
 - [ ] **Step 6: Implement battle resolution flow**
 
-When battle finishes:
-1. award encounter loot
-2. emit `battleEnded` with inventory snapshot
-3. move player back to world state
-4. broadcast the world snapshot
+When `BattleService.applyCommand(...)` returns a finished battle, execute this exact order:
+
+```ts
+const loot = lootService.rollEncounterLoot(battle.encounterId, battle.seed);
+inventoryService.addItems(playerId, loot);
+socket.emit("battleEnded", { inventory: inventoryService.getSnapshot(playerId) });
+battleService.removeBattleForPlayer(playerId);
+socket.join("location:meadow-01");
+io.to("location:meadow-01").emit("worldState", worldService.snapshot("meadow-01"));
+```
 
 - [ ] **Step 7: Run all server tests**
 
@@ -886,34 +1119,78 @@ const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001
 
 - [ ] **Step 4: Implement login UI**
 
-`LoginScene` renders a minimal HTML overlay:
-- nickname field
-- Join button
-- inline validation/error text
+Create a DOM overlay from the scene:
 
-On successful login, transition to `WorldScene`.
+```ts
+const form = document.createElement("form");
+form.className = "login-panel";
+form.innerHTML = `
+  <input name="nickname" minlength="3" maxlength="20" autocomplete="nickname" />
+  <button type="submit">Join</button>
+  <p data-error></p>
+`;
+document.body.appendChild(form);
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = new FormData(form);
+  const nickname = String(data.get("nickname") ?? "");
+  const result = await gameSocket.login(nickname);
+  if (!result.ok) {
+    form.querySelector<HTMLElement>("[data-error]")!.textContent = result.message;
+    return;
+  }
+  form.remove();
+  this.scene.start("WorldScene", { playerId: result.playerId });
+});
+```
 
 - [ ] **Step 5: Implement world rendering**
 
-Render:
-- neutral background/grid placeholder art
-- local player as a colored circle or simple sprite placeholder
-- remote players with nickname labels
-- encounter marker for `wolf-pack-01`
+Render snapshots with Phaser primitives:
 
-Keep final art out of scope.
+```ts
+private renderWorld(snapshot: WorldStateSnapshot) {
+  for (const player of snapshot.players) {
+    const entry = this.playerViews.get(player.id) ?? this.createPlayerView(player.id);
+    entry.body.setPosition(player.x, player.y);
+    entry.label.setPosition(player.x, player.y - 26).setText(player.nickname);
+  }
+
+  for (const encounter of snapshot.encounters) {
+    if (this.encounterViews.has(encounter.id)) continue;
+    const marker = this.add.circle(encounter.x, encounter.y, 24, 0x777777)
+      .setInteractive({ useHandCursor: true });
+    marker.on("pointerup", () => gameSocket.startEncounter(encounter.id));
+    this.encounterViews.set(encounter.id, marker);
+  }
+}
+```
+
+Use only placeholder geometry/text in MVP; final art remains out of scope.
 
 - [ ] **Step 6: Implement desktop and touch movement**
 
-Desktop:
-- WASD/arrow keys produce a desired velocity
-- pointer click sets a target and the local prediction moves toward it
+Normalize input with:
 
-Mobile:
-- touch-and-hold virtual directional pad or touch target
-- tap encounter to start it
+```ts
+export function resolveKeyboardIntent(keys: {
+  left: boolean; right: boolean; up: boolean; down: boolean;
+}) {
+  const dx = Number(keys.right) - Number(keys.left);
+  const dy = Number(keys.down) - Number(keys.up);
+  const length = Math.hypot(dx, dy) || 1;
+  return { dx: dx / length, dy: dy / length };
+}
+```
 
-Every client tick sends intent only; the server world snapshots correct local prediction.
+In `WorldScene.update`, convert keyboard direction or pointer/touch target into a desired world position and emit:
+
+```ts
+gameSocket.sendMoveIntent({ x: desiredX, y: desiredY });
+```
+
+Use the same pointer target logic for mouse clicks and touch taps. Server snapshots remain authoritative and overwrite local prediction.
 
 - [ ] **Step 7: Run client tests and build**
 
@@ -972,34 +1249,80 @@ export function axialToPixel({ q, r }: HexCoord, size: number) {
 
 - [ ] **Step 3: Render the arena from server snapshot**
 
-Visual rules:
-- walkable cell: neutral hex outline
-- blocker: solid obstacle placeholder
-- cover: distinct low-cover placeholder
-- active combatant: highlighted ring
-- player-owned units: one placeholder color
-- enemies: another placeholder color
+Render server state with Phaser graphics:
+
+```ts
+for (const cell of snapshot.cells) {
+  const p = axialToPixel(cell, HEX_SIZE);
+  graphics.lineStyle(1, 0x666666).strokePoints(hexPolygon(p.x, p.y, HEX_SIZE), true);
+}
+for (const cell of snapshot.blockedCells) {
+  const p = axialToPixel(cell, HEX_SIZE);
+  this.add.circle(p.x, p.y, HEX_SIZE * 0.45, 0x333333);
+}
+for (const combatant of snapshot.combatants) {
+  const p = axialToPixel(combatant.position, HEX_SIZE);
+  const owned = combatant.ownerPlayerId === this.playerId;
+  this.add.circle(p.x, p.y, HEX_SIZE * 0.35, owned ? 0x88aaff : 0xaa8888);
+}
+```
+
+Cover cells use a shorter rectangle/rock placeholder so the player can visually distinguish cover from fully blocking obstacles.
 
 - [ ] **Step 4: Implement command interaction**
 
-Click/tap behavior:
-- clicking a reachable empty hex sends `move`
-- selecting an enemy at distance 1 offers `meleeAttack`
-- selecting an enemy within ranged range offers `rangedAttack`
-- HUD button sends `endTurn`
+Bind interaction to commands only:
 
-The client may preview range/path but never decides command validity.
+```ts
+private requestMove(target: HexCoord) {
+  gameSocket.sendBattleCommand({
+    type: "move",
+    combatantId: this.activeOwnedCombatantId(),
+    target
+  });
+}
+
+private requestAttack(targetId: EntityId, mode: "meleeAttack" | "rangedAttack") {
+  gameSocket.sendBattleCommand({
+    type: mode,
+    combatantId: this.activeOwnedCombatantId(),
+    targetId
+  });
+}
+
+private requestEndTurn() {
+  gameSocket.sendBattleCommand({
+    type: "endTurn",
+    combatantId: this.activeOwnedCombatantId()
+  });
+}
+```
+
+The client can highlight candidate cells/targets, but it never applies AP, damage, range, path, or LOS results locally.
 
 - [ ] **Step 5: Implement responsive battle HUD**
 
-Show:
-- active combatant
-- HP / max HP
-- AP / max AP
-- injuries
-- buttons: Melee, Ranged, End Turn
+Render a DOM HUD from the latest snapshot:
 
-For mobile, buttons must be at least 44 CSS pixels tall.
+```html
+<div class="battle-hud">
+  <div data-name></div>
+  <div>HP <span data-hp></span></div>
+  <div>AP <span data-ap></span></div>
+  <div data-injuries></div>
+  <button data-action="melee">Melee</button>
+  <button data-action="ranged">Ranged</button>
+  <button data-action="end">End turn</button>
+</div>
+```
+
+CSS must include:
+
+```css
+.battle-hud button { min-height: 44px; min-width: 44px; }
+```
+
+`BattleHud.update(combatant)` writes name, `hp/maxHp`, `ap/maxAp`, and joined injury labels into these elements.
 
 - [ ] **Step 6: Build client**
 

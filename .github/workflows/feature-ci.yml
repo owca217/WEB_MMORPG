@@ -6,7 +6,7 @@ on:
       - feature/mvp-vertical-slice
 
 jobs:
-  shared:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,5 +14,5 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm test -w @web-mmorpg/shared
-      - run: npm run build -w @web-mmorpg/shared
+      - run: npm test
+      - run: npm run build

@@ -1,0 +1,17 @@
+{
+  "name": "@web-mmorpg/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@web-mmorpg/shared": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "5.0.1"
+  }
+}

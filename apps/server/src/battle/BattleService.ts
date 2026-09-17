@@ -131,7 +131,9 @@ export class BattleService {
       coverCells: state.arena.coverCells.map((cell) => ({ ...cell })),
       combatants: Object.values(state.combatants).map((combatant) => ({
         id: combatant.id,
-        ownerPlayerId: combatant.ownerPlayerId,
+        ...(combatant.ownerPlayerId !== undefined
+          ? { ownerPlayerId: combatant.ownerPlayerId }
+          : {}),
         name: combatant.name,
         hp: combatant.hp,
         maxHp: combatant.maxHp,

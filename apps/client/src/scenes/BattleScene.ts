@@ -15,6 +15,7 @@ import {
 } from "../battle/BattlePreview";
 import { gameSocket } from "../net/GameSocket";
 import { BattleHud } from "../ui/BattleHud";
+import { LootSummary } from "../ui/LootSummary";
 
 interface BattleSceneData {
   playerId: PlayerId;
@@ -63,9 +64,11 @@ export class BattleScene extends Phaser.Scene {
   private playerId: PlayerId = "";
   private snapshot: BattleSnapshot | null = null;
   private hud: BattleHud | undefined;
+  private lootSummary: LootSummary | undefined;
   private actionMode: BattleActionMode = "move";
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
   private unsubscribeState: (() => void) | undefined;
+  private unsubscribeEnded: (() => void) | undefined;
   private unsubscribeRejected: (() => void) | undefined;
 
   constructor() {
@@ -94,6 +97,18 @@ export class BattleScene extends Phaser.Scene {
       this.actionMode = "move";
       this.renderSnapshot();
     });
+    this.unsubscribeEnded = gameSocket.onBattleEnded((payload) => {
+      this.hud?.setStatus(
+        payload.outcome === "victory" ? "Zwycięstwo!" : "Walka przegrana."
+      );
+      this.lootSummary?.destroy();
+      this.lootSummary = new LootSummary(() => {
+        this.lootSummary?.destroy();
+        this.lootSummary = undefined;
+        this.scene.start("WorldScene", { playerId: this.playerId });
+      });
+      this.lootSummary.show(payload);
+    });
     this.unsubscribeRejected = gameSocket.onCommandRejected(({ code, message }) => {
       this.hud?.setStatus(
         SERVER_ERROR_LABELS[code] ?? message ?? "Akcja została odrzucona przez serwer."
@@ -106,8 +121,11 @@ export class BattleScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", this.handleResize, this);
       this.unsubscribeState?.();
+      this.unsubscribeEnded?.();
       this.unsubscribeRejected?.();
+      this.lootSummary?.destroy();
       this.hud?.destroy();
+      this.lootSummary = undefined;
       this.hud = undefined;
       this.clearRenderObjects();
     });

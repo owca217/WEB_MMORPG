@@ -110,6 +110,69 @@
   box-shadow: inset 0 0 0 1px rgba(243, 218, 143, 0.22);
 }
 
+.loot-summary {
+  width: min(460px, calc(100vw - 28px));
+  display: grid;
+  gap: 12px;
+}
+
+.loot-summary h2,
+.loot-summary h3,
+.loot-summary p {
+  margin: 0;
+}
+
+.loot-summary h2 {
+  color: #e5c878;
+  font-size: 26px;
+}
+
+.loot-summary h3 {
+  margin-top: 5px;
+  color: #d8c39a;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.loot-summary__lead {
+  color: #d6cdbb;
+  line-height: 1.45;
+}
+
+.loot-summary__hp {
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: rgba(60, 76, 52, 0.38);
+  font-weight: 700;
+}
+
+.loot-summary__items {
+  display: grid;
+  gap: 7px;
+}
+
+.loot-summary__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(156, 132, 83, 0.38);
+  border-radius: 8px;
+  background: rgba(75, 68, 47, 0.32);
+}
+
+.loot-summary__item span {
+  color: #d5ba7d;
+  font-weight: 800;
+}
+
+.loot-summary__return {
+  width: 100%;
+  margin-top: 5px;
+  font-weight: 800;
+}
+
 @media (max-width: 600px) {
   .battle-hud--mvp2 {
     bottom: max(6px, env(safe-area-inset-bottom));
@@ -147,5 +210,9 @@
   .battle-hud--mvp2 button {
     min-height: 44px;
     padding: 5px 6px;
+  }
+
+  .loot-summary h2 {
+    font-size: 22px;
   }
 }

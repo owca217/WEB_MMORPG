@@ -1,6 +1,11 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { BattleSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type {
+  BattleSnapshot,
+  NpcInteractionPayload,
+  PlayerStateSnapshot,
+  WorldStateSnapshot
+} from "@web-mmorpg/shared";
 import { io as createClient, type Socket } from "socket.io-client";
 import { afterEach, describe, expect, it } from "vitest";
 import { createGameServer } from "../src/server/createGameServer";
@@ -48,7 +53,46 @@ function once<T>(socket: Socket, event: string): Promise<T> {
   return new Promise<T>((resolve) => socket.once(event, resolve));
 }
 
+function onceWithTimeout<T>(socket: Socket, event: string, timeoutMs = 500): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), timeoutMs);
+    socket.once(event, (payload: T) => {
+      clearTimeout(timer);
+      resolve(payload);
+    });
+  });
+}
+
 describe("Socket.IO game flow", () => {
+  it("emits player state after login and routes NPC interaction", async () => {
+    const game = await startTestServer();
+    const playerStatePromise = onceWithTimeout<PlayerStateSnapshot>(client!, "playerState");
+
+    const loginResult = await client!.emitWithAck("login", { nickname: "Owczy" });
+    expect(loginResult).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
+    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+
+    const playerState = await playerStatePromise;
+    expect(playerState.character).toMatchObject({ nickname: "Owczy", hp: 100, maxHp: 100 });
+
+    game.services.world.movePlayer(
+      loginResult.playerId,
+      { x: 610, y: 420 },
+      Date.now() + 10_000
+    );
+
+    const interactionPromise = onceWithTimeout<NpcInteractionPayload>(client!, "npcInteraction");
+    client!.emit("interactNpc", { npcId: "guide-boran" });
+
+    const interaction = await interactionPromise;
+    expect(interaction).toMatchObject({
+      npcId: "guide-boran",
+      kind: "guide",
+      npcName: "Boran",
+      canHeal: false
+    });
+  });
+
   it("logs in, broadcasts forest world state, starts battle and rejects cheating", async () => {
     const game = await startTestServer();
     const worldPromise = once<WorldStateSnapshot>(client!, "worldState");

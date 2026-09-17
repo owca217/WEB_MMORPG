@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { gameSocket } from "../net/GameSocket";
 
 export class LoginScene extends Phaser.Scene {
-  private form?: HTMLFormElement;
+  private form: HTMLFormElement | undefined;
 
   constructor() {
     super("LoginScene");

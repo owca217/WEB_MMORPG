@@ -5,15 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "test": "vitest run",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "start": "npm run db:migrate && tsx src/index.ts",
+    "test": "vitest run --fileParallelism=false",
     "build": "tsc --noEmit"
   },
   "dependencies": {
     "@web-mmorpg/shared": "*",
+    "argon2": "^0.44.0",
+    "pg": "^8.16.3",
     "socket.io": "4.8.3"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",
+    "@types/pg": "^8.15.5",
     "socket.io-client": "4.8.3",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",

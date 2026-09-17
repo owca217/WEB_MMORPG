@@ -45,3 +45,17 @@ export type BattleCommand =
   | { type: "meleeAttack"; combatantId: EntityId; targetId: EntityId }
   | { type: "rangedAttack"; combatantId: EntityId; targetId: EntityId }
   | { type: "endTurn"; combatantId: EntityId };
+
+export interface ArenaProfile {
+  radius: number;
+  obstacleCount: number;
+  coverCount: number;
+}
+
+export interface GeneratedArena {
+  cells: HexCoord[];
+  blockedCells: HexCoord[];
+  coverCells: HexCoord[];
+  playerStartCells: HexCoord[];
+  enemyStartCells: HexCoord[];
+}

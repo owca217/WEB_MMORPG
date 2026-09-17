@@ -170,11 +170,12 @@ Add to `apps/server/package.json` scripts:
 ```json
 {
   "db:migrate": "tsx src/db/migrate.ts",
-  "start": "npm run db:migrate && tsx src/index.ts"
+  "start": "npm run db:migrate && tsx src/index.ts",
+  "test": "vitest run --fileParallelism=false"
 }
 ```
 
-Keep the existing `dev`, `test`, and `build` scripts.
+Keep the existing `dev` and `build` scripts. Server test files intentionally run serially because database integration tests reset the shared `TEST_DATABASE_URL` schema between files.
 
 - [ ] **Step 4: Add the pool and transaction helpers**
 
@@ -878,6 +879,24 @@ await expect(service.validateToken(login.token)).resolves.toBeNull();
 
 Add recovery assertions: old password fails after recovery, new password succeeds, and the old recovery code no longer works.
 
+Add a simultaneous-login assertion:
+
+```ts
+const [a, b] = await Promise.all([
+  service.login("Owczy217", "correct horse battery"),
+  service.login("Owczy217", "correct horse battery")
+]);
+
+const valid = await Promise.all([
+  service.validateToken(a.token),
+  service.validateToken(b.token)
+]);
+
+expect(valid.filter(Boolean)).toHaveLength(1);
+```
+
+This verifies the account-row lock + partial unique index leave exactly one current session after a race.
+
 - [ ] **Step 3: Implement `AuthService`**
 
 Use a constructor that accepts `Pool`, `AccountRepository`, `CharacterLifecycleService | null`, and a session TTL. A null character lifecycle is allowed only in this intermediate task; Task 6 makes it required.
@@ -925,7 +944,20 @@ Implement `login` in `withTransaction`. Reject `account.status !== "active"` wit
 
 Keep `accountId` internal to the service result so the HTTP layer can later notify the live connection registry; expose only `token` and `session` to the client.
 
-Implement `validateToken` by hashing the bearer token and resolving a non-revoked, non-expired session plus account. Reject disabled accounts, and call `SessionRepository.touch(session.id, now)` after validation. Implement `logout` by token hash. Implement `recover` transactionally: verify account + recovery hash, replace password/recovery hash, revoke all sessions, return a new recovery code. Translate duplicate-username PostgreSQL code `23505` during registration to HTTP-level `USERNAME_TAKEN` / 409 rather than leaking SQL details.
+Implement `validateToken` by hashing the bearer token and resolving a non-revoked, non-expired session plus account. Reject disabled accounts, and call `SessionRepository.touch(session.id, now)` after validation. Implement `logout` by token hash.
+
+Implement `recover` transactionally and return an internal result:
+
+```ts
+{
+  accountId: account.id,
+  response: { recoveryCode: newRecoveryCode }
+}
+```
+
+The HTTP layer sends only `result.response`; Task 8 uses the internal `accountId` to close any live socket after credential recovery. Recovery verifies account + recovery hash, replaces password/recovery hash, and revokes all sessions.
+
+Translate duplicate-username PostgreSQL code `23505` during registration to HTTP-level `USERNAME_TAKEN` / 409 rather than leaking SQL details.
 
 - [ ] **Step 4: Add bounded JSON helpers**
 
@@ -1012,6 +1044,17 @@ Use rate-limit key:
 const ip = request.socket.remoteAddress ?? "unknown";
 const rateKey = `${ip}:${request.url}`;
 ```
+
+Before calling AuthService, the router compares confirmation fields exactly:
+
+```ts
+if (body.password !== body.passwordConfirmation) {
+  sendJson(response, 400, { code: "PASSWORD_MISMATCH", message: "Passwords do not match." });
+  return;
+}
+```
+
+Use the same check for `newPassword` / `passwordConfirmation` in recovery.
 
 On `/api/auth/register`, `/api/auth/login`, and `/api/auth/recover`, reject when `!limiter.consume(rateKey)`:
 
@@ -1742,6 +1785,7 @@ git commit -m "feat: add first-login character creator"
 - Modify: `apps/client/src/ui/WorldHud.ts`
 - Modify: `apps/server/tests/socketFlow.test.ts`
 - Create: `apps/server/tests/helpers/testApp.ts`
+- Create: `apps/server/tests/helpers/battleTestHelpers.ts`
 - Create: `apps/server/tests/activeConnectionRegistry.test.ts`
 
 **Interfaces:**
@@ -1868,7 +1912,25 @@ Before hydrating the new socket:
 await deps.activeConnections.closeAccount(accountId, "sessionReplaced");
 ```
 
-Task 9 supplies the durable hydration/flush implementation. For this task, use existing runtime creation but stable character ID and persisted nickname/appearance from CharacterRepository.
+Attach the socket to the registry with a concrete close implementation:
+
+```ts
+const activeConnection: ActiveConnection = {
+  async close(reason) {
+    if (reason === "sessionReplaced") socket.emit("sessionReplaced");
+    battles.removeBattleForPlayer(playerId);
+    world.removePlayer(playerId);
+    inventory.removePlayer(playerId);
+    characters.removePlayer(playerId);
+    socket.disconnect(true);
+  }
+};
+deps.activeConnections.attach(accountId, activeConnection);
+```
+
+On normal disconnect call `deps.activeConnections.detach(accountId, activeConnection)`.
+
+Task 9 inserts the durable position flush before runtime removal in this same `close` method. For this task, use existing runtime creation but stable character ID and persisted nickname/appearance from CharacterRepository.
 
 - [ ] **Step 5: Make login REST actively replace the previous live session**
 
@@ -1885,7 +1947,7 @@ This satisfies "new login logs out previous device" even before the new device o
 
 For `POST /api/auth/logout`, validate the token first, call `closeAccount(account.id, "logout")` so the socket flushes/removes the player, then revoke the token and return 204.
 
-For successful `POST /api/auth/recover`, call `closeAccount(account.id, "credentialsChanged")` after the recovery transaction commits so any old live socket is removed immediately. Do not emit `sessionReplaced` for intentional logout; only the `sessionReplaced` reason emits that client event.
+For successful `POST /api/auth/recover`, call `closeAccount(result.accountId, "credentialsChanged")` after the recovery transaction commits, then send only `result.response`, so any old live socket is removed immediately. Do not emit `sessionReplaced` for intentional logout; only the `sessionReplaced` reason emits that client event.
 
 - [ ] **Step 6: Change the client socket to bearer authentication**
 
@@ -1956,7 +2018,43 @@ await new Promise<void>((resolve, reject) => {
 return socket;
 ```
 
-Update `socketFlow.test.ts` to use `startTestApp()` rather than nickname login.
+In `apps/server/tests/helpers/testApp.ts`, also export:
+
+```ts
+export const defaultAppearance: AppearanceSelection = {
+  bodyType: "body-01",
+  skinTone: "skin-01",
+  face: "face-01",
+  eyes: "eyes-01",
+  hair: "hair-01",
+  hairColor: "hair-color-01",
+  facialHair: "facial-hair-none",
+  marking: "marking-none",
+  startingOutfit: "outfit-01"
+};
+```
+
+Create `apps/server/tests/helpers/battleTestHelpers.ts` and move/export the existing concrete `onceWithTimeout`, `choosePlayerCommand`, and `winBattle` helpers from `socketFlow.test.ts` without changing their battle logic:
+
+```ts
+export function onceWithTimeout<T>(
+  socket: Socket,
+  event: string,
+  timeoutMs = 1000
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), timeoutMs);
+    socket.once(event, (payload: T) => {
+      clearTimeout(timer);
+      resolve(payload);
+    });
+  });
+}
+```
+
+`choosePlayerCommand` keeps the exact current hex-distance/LOS/path logic, and `winBattle` keeps the current 40-step guard and waits for `battleEnded`.
+
+Update `socketFlow.test.ts` to import these helpers and use `startTestApp()` rather than nickname login.
 
 Preserve the existing multiplayer assertion that two different accounts see both characters.
 
@@ -2195,7 +2293,14 @@ const checkpointMs = Number(process.env.POSITION_CHECKPOINT_MS ?? 2000);
 positions.start();
 ```
 
-Use `CharacterRepository.updatePosition` as the write function.
+Use `CharacterRepository.updatePosition` as the write function. Include `positions` in `createGameServer`'s returned `services` object so integration tests and graceful shutdown can flush deterministically:
+
+```ts
+return {
+  io,
+  services: { world, inventory, loot, battles, characters, positions }
+};
+```
 
 - [ ] **Step 8: Add reconnect persistence E2E**
 
@@ -2305,6 +2410,7 @@ expect(restored.inventory.items[0]).toMatchObject({
   itemId: "wolf-pelt",
   quantity: 2
 });
+expect(restored.equipment).toEqual({ items: [] });
 ```
 
 - [ ] **Step 3: Implement inventory replacement transaction primitive**
@@ -2428,6 +2534,8 @@ await withTransaction(this.pool, async (client) => {
   await new InventoryRepository(client).replaceAll(character.playerId, inventory);
 });
 ```
+
+Add `saveEquipment(characterId, equipment)` using a transaction-scoped `EquipmentRepository.replaceAll`. There is no equip command in this milestone, so current characters load `{ items: [] }`; the persistence contract is established now so future equipment mutations do not require a schema redesign.
 
 - [ ] **Step 8: Hydrate durable state on socket connection**
 
@@ -2694,7 +2802,7 @@ git commit -m "feat: add delayed character deletion and nickname reservation"
 
 - [ ] **Step 1: Add the full RED account/persistence E2E**
 
-Create `accountPersistence.e2e.test.ts` using `startTestApp` from Task 8, `onceWithTimeout` and `winBattle` copied as concrete local helpers from the existing `socketFlow.test.ts`, and the shared `defaultAppearance` fixture used by character tests. It performs this exact sequence against a real PostgreSQL test database:
+Create `accountPersistence.e2e.test.ts` importing `startTestApp` and `defaultAppearance` from `tests/helpers/testApp.ts`, plus `onceWithTimeout` and `winBattle` from `tests/helpers/battleTestHelpers.ts`. It performs this exact sequence against a real PostgreSQL test database:
 
 ```ts
 const app = await startTestApp();
@@ -2797,7 +2905,7 @@ Ensure `apps/server/package.json` contains:
     "dev": "npm run db:migrate && tsx watch src/index.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "start": "npm run db:migrate && tsx src/index.ts",
-    "test": "vitest run",
+    "test": "vitest run --fileParallelism=false",
     "build": "tsc --noEmit"
   }
 }

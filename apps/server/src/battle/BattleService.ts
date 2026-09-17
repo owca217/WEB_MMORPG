@@ -6,10 +6,12 @@ import type {
 import { generateArena } from "./arenaGenerator";
 import {
   applyBattleCommand,
+  applyNpcBattleCommand,
   createBattleState,
   type BattleResult,
   type BattleState
 } from "./BattleEngine";
+import { chooseWolfCommand } from "./NpcBattleAi";
 
 interface ActiveBattle {
   encounterId: string;
@@ -95,12 +97,13 @@ export class BattleService {
       };
     }
 
-    const result = applyBattleCommand(active.state, playerId, command);
-    if (!result.ok) {
-      return { result, finished: false, victory: false };
+    const playerResult = applyBattleCommand(active.state, playerId, command);
+    if (!playerResult.ok) {
+      return { result: playerResult, finished: false, victory: false };
     }
 
-    active.state = result.state;
+    active.state = this.runNpcTurns(playerResult.state);
+    const result: BattleResult = { ok: true, state: active.state };
     const snapshot = this.toSnapshot(active.state);
     const victory = active.state.finished && Object.values(active.state.combatants).some(
       (combatant) => combatant.side === "player" && combatant.hp > 0
@@ -118,6 +121,27 @@ export class BattleService {
 
   removeBattleForPlayer(playerId: PlayerId): void {
     this.battlesByPlayer.delete(playerId);
+  }
+
+  private runNpcTurns(state: BattleState): BattleState {
+    let next = state;
+
+    for (let guard = 0; guard < 32 && !next.finished; guard += 1) {
+      const active = next.combatants[next.activeCombatantId];
+      if (!active || active.ownerPlayerId !== undefined || active.side !== "enemy") {
+        break;
+      }
+
+      const command = chooseWolfCommand(next, active.id);
+      const result = applyNpcBattleCommand(next, command);
+      if (!result.ok) {
+        throw new Error(`NPC_COMMAND_REJECTED:${result.code}`);
+      }
+
+      next = result.state;
+    }
+
+    return next;
   }
 
   private toSnapshot(state: BattleState): BattleSnapshot {

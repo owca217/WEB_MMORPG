@@ -45,6 +45,16 @@ describe("WorldService", () => {
       "ENCOUNTER_OUT_OF_RANGE"
     );
   });
+
+  it("requires the authored forest settlement and NPC interaction API", () => {
+    const sessions = new SessionStore();
+    const login = sessions.login("Owczy");
+
+    expect(login).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
+    expect(typeof (createTestWorld() as unknown as { interactNpc?: unknown }).interactNpc).toBe(
+      "function"
+    );
+  });
 });
 
 describe("SessionStore", () => {

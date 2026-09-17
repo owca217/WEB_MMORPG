@@ -1245,7 +1245,7 @@ this.showRecoveryCode(result.recoveryCode, "New recovery code");
 
 The one-time-code screen must render the code as text content, never via dynamic `innerHTML`, and require an explicit `I saved this code` button before returning to login.
 
-For this task, `routeSession` sends `none` to a temporary message in AuthScene and `active` to `WorldScene`; Task 6 replaces `none` with CharacterCreatorScene.
+For this task, `routeSession` sends `none` to a temporary message in AuthScene and `active` to `WorldScene`; Task 8 replaces `none` with CharacterCreatorScene after stable character identity and authenticated sockets are available.
 
 - [ ] **Step 5: Make Boot restore or reject the saved session**
 
@@ -1526,254 +1526,7 @@ git commit -m "feat: add persistent single-character lifecycle"
 
 ---
 
-### Task 7: Character Creator UI and Shared Appearance Rendering
-
-**Files:**
-- Create: `apps/client/src/appearance/appearanceVisuals.ts`
-- Create: `apps/client/src/appearance/CharacterPreview.ts`
-- Create: `apps/client/src/scenes/CharacterCreatorScene.ts`
-- Modify: `apps/client/src/net/ApiClient.ts`
-- Modify: `apps/client/src/scenes/BootScene.ts`
-- Modify: `apps/client/src/scenes/AuthScene.ts`
-- Modify: `apps/client/src/game/config.ts`
-- Modify: `apps/client/src/world/WorldEntitiesRenderer.ts`
-- Modify: `apps/client/src/style.css`
-- Create: `apps/client/tests/appearanceVisuals.test.ts`
-
-**Interfaces:**
-- Produces `appearanceVisuals(selection)` used by both creator preview and world avatars.
-- Adds `apiClient.createCharacter`.
-- Routes `character.state === "none"` to `CharacterCreatorScene`.
-
-- [ ] **Step 1: Add RED appearance-visual mapping tests**
-
-Create `appearanceVisuals.test.ts`:
-
-```ts
-import { describe, expect, it } from "vitest";
-import { appearanceVisuals } from "../src/appearance/appearanceVisuals";
-
-it("maps saved appearance IDs to stable creator/world visuals", () => {
-  expect(appearanceVisuals({
-    bodyType: "body-01",
-    skinTone: "skin-02",
-    face: "face-01",
-    eyes: "eyes-01",
-    hair: "hair-04",
-    hairColor: "hair-color-03",
-    facialHair: "facial-hair-none",
-    marking: "scar-01",
-    startingOutfit: "outfit-02"
-  })).toEqual({
-    bodyScale: 1,
-    faceScaleX: 1,
-    eyeSpacing: 8,
-    eyeRadius: 2,
-    skin: "#c98f65",
-    hairColor: "#8b5a2b",
-    hairStyle: "hair-04",
-    facialHairStyle: "facial-hair-none",
-    outfit: "#405a74",
-    marking: "scar-01"
-  });
-});
-```
-
-- [ ] **Step 2: Implement one visual mapping shared by both renderers**
-
-Create `appearanceVisuals.ts` with fixed maps:
-
-```ts
-const skin = {
-  "skin-01": "#f0c7a5",
-  "skin-02": "#c98f65",
-  "skin-03": "#9b6548",
-  "skin-04": "#684331"
-} as const;
-
-const hair = {
-  "hair-color-01": "#2a211d",
-  "hair-color-02": "#6a4329",
-  "hair-color-03": "#8b5a2b",
-  "hair-color-04": "#d1b06f"
-} as const;
-
-const outfit = {
-  "outfit-01": "#56634f",
-  "outfit-02": "#405a74",
-  "outfit-03": "#694957"
-} as const;
-
-const faceScaleX = {
-  "face-01": 1,
-  "face-02": 0.9,
-  "face-03": 1.08,
-  "face-04": 0.96
-} as const;
-
-const eyes = {
-  "eyes-01": { spacing: 8, radius: 2 },
-  "eyes-02": { spacing: 10, radius: 2 },
-  "eyes-03": { spacing: 8, radius: 3 }
-} as const;
-
-export function appearanceVisuals(selection: AppearanceSelection) {
-  const eye = eyes[selection.eyes as keyof typeof eyes] ?? eyes["eyes-01"];
-  return {
-    bodyScale: selection.bodyType === "body-02" ? 1.08 : 1,
-    faceScaleX: faceScaleX[selection.face as keyof typeof faceScaleX] ?? 1,
-    eyeSpacing: eye.spacing,
-    eyeRadius: eye.radius,
-    skin: skin[selection.skinTone as keyof typeof skin] ?? skin["skin-01"],
-    hairColor: hair[selection.hairColor as keyof typeof hair] ?? hair["hair-color-01"],
-    hairStyle: selection.hair,
-    facialHairStyle: selection.facialHair,
-    outfit: outfit[selection.startingOutfit as keyof typeof outfit] ?? outfit["outfit-01"],
-    marking: selection.marking
-  };
-}
-```
-
-- [ ] **Step 3: Add the creator REST call**
-
-Add to `ApiClient`:
-
-```ts
-async createCharacter(input: {
-  nickname: string;
-  appearance: AppearanceSelection;
-}): Promise<CharacterProfile> {
-  return requestJson<CharacterProfile>("/api/character", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
-}
-```
-
-Add `CharacterProfile` to shared contracts if not already included in Task 6:
-
-```ts
-export interface CharacterProfile {
-  id: string;
-  nickname: string;
-  appearance: AppearanceSelection;
-}
-```
-
-- [ ] **Step 4: Build `CharacterPreview` with safe DOM nodes**
-
-Create `CharacterPreview.ts` that uses `appearanceVisuals` and sets CSS custom properties:
-
-```ts
-export class CharacterPreview {
-  readonly element = document.createElement("div");
-
-  constructor() {
-    this.element.className = "character-preview";
-    const body = document.createElement("div");
-    body.className = "character-preview__body";
-    const hair = document.createElement("div");
-    hair.className = "character-preview__hair";
-    this.element.append(body, hair);
-  }
-
-  render(selection: AppearanceSelection): void {
-    const visuals = appearanceVisuals(selection);
-    this.element.style.setProperty("--avatar-skin", visuals.skin);
-    this.element.style.setProperty("--avatar-hair", visuals.hairColor);
-    this.element.style.setProperty("--avatar-outfit", visuals.outfit);
-    this.element.style.setProperty("--avatar-scale", String(visuals.bodyScale));
-    this.element.style.setProperty("--avatar-face-scale-x", String(visuals.faceScaleX));
-    this.element.style.setProperty("--avatar-eye-spacing", `${visuals.eyeSpacing}px`);
-    this.element.style.setProperty("--avatar-eye-radius", `${visuals.eyeRadius}px`);
-    this.element.dataset.hairStyle = visuals.hairStyle;
-    this.element.dataset.facialHairStyle = visuals.facialHairStyle;
-    this.element.dataset.marking = visuals.marking;
-  }
-}
-```
-
-- [ ] **Step 5: Build `CharacterCreatorScene`**
-
-Initialize the default selection from the first value of every `APPEARANCE_CATALOG` list.
-
-For each catalog field, render Previous/Next controls that cycle only through allowed IDs. The submit handler is:
-
-```ts
-try {
-  const character = await apiClient.createCharacter({
-    nickname: nicknameInput.value,
-    appearance: { ...this.selection }
-  });
-  this.destroyForm();
-  this.scene.start("WorldScene", { playerId: character.id });
-} catch (error) {
-  errorElement.textContent = error instanceof Error ? error.message : "Could not create character.";
-}
-```
-
-Use `textContent` for all dynamic text.
-
-- [ ] **Step 6: Route authenticated users correctly**
-
-In both Boot and AuthScene:
-
-```ts
-if (session.character.state === "none") {
-  this.scene.start("CharacterCreatorScene");
-  return;
-}
-if (session.character.state === "active") {
-  this.scene.start("WorldScene", { playerId: session.character.characterId });
-  return;
-}
-this.scene.start("CharacterDeletionScene", { session });
-```
-
-Task 11 creates the deletion scene; until then route pending deletion back to AuthScene with a clear non-playable message.
-
-Register `CharacterCreatorScene` in game config.
-
-- [ ] **Step 7: Make in-world avatars reflect persisted appearance**
-
-Update `WorldEntitiesRenderer.createPlayer` to call `appearanceVisuals(player.appearance)`.
-
-Body type, skin tone, face shape, eye style, hairstyle, hair color, facial hair, marking, and outfit must each create a visible difference. Preserve the existing local-vs-remote outline distinction. Add small focused helpers `createHairGraphic`, `createFacialHairGraphic`, and `createMarkingGraphic` in `appearanceVisuals.ts` or a sibling renderer helper; each helper switches only over the finite catalog IDs and returns Phaser display objects. Use:
-
-```ts
-const visuals = appearanceVisuals(player.appearance);
-const face = this.scene.add.ellipse(
-  0,
-  -6,
-  34 * visuals.bodyScale * visuals.faceScaleX,
-  36 * visuals.bodyScale,
-  visuals.skin
-);
-const outfit = this.scene.add.rectangle(0, 18, 30 * visuals.bodyScale, 22, visuals.outfit);
-const leftEye = this.scene.add.circle(-visuals.eyeSpacing, -8, visuals.eyeRadius, 0x1b1b1b);
-const rightEye = this.scene.add.circle(visuals.eyeSpacing, -8, visuals.eyeRadius, 0x1b1b1b);
-const hair = createHairGraphic(this.scene, visuals.hairStyle, visuals.hairColor, visuals.bodyScale);
-const facialHair = createFacialHairGraphic(
-  this.scene,
-  visuals.facialHairStyle,
-  visuals.hairColor,
-  visuals.bodyScale
-);
-const marking = createMarkingGraphic(this.scene, visuals.marking, visuals.bodyScale);
-```
-
-- [ ] **Step 8: Verify and commit**
-
-```bash
-npm run test -w @web-mmorpg/client -- appearanceVisuals.test.ts
-npm run build -w @web-mmorpg/client
-git add apps/client/src apps/client/tests/appearanceVisuals.test.ts packages/shared/src
-git commit -m "feat: add first-login character creator"
-```
-
----
-
-### Task 8: Authenticated Socket.IO and Single Live Character Session
+### Task 7: Authenticated Socket.IO and Single Live Character Session
 
 **Files:**
 - Modify: `packages/shared/src/protocol.ts`
@@ -2081,6 +1834,253 @@ npm run test -w @web-mmorpg/shared
 npm run build
 git add packages/shared/src/protocol.ts apps/server/src/server apps/server/src/http/createApiHandler.ts apps/server/src/index.ts apps/server/tests apps/client/src/net/GameSocket.ts
 git commit -m "feat: authenticate game sockets with account sessions"
+```
+
+---
+
+### Task 8: Character Creator UI and Shared Appearance Rendering
+
+**Files:**
+- Create: `apps/client/src/appearance/appearanceVisuals.ts`
+- Create: `apps/client/src/appearance/CharacterPreview.ts`
+- Create: `apps/client/src/scenes/CharacterCreatorScene.ts`
+- Modify: `apps/client/src/net/ApiClient.ts`
+- Modify: `apps/client/src/scenes/BootScene.ts`
+- Modify: `apps/client/src/scenes/AuthScene.ts`
+- Modify: `apps/client/src/game/config.ts`
+- Modify: `apps/client/src/world/WorldEntitiesRenderer.ts`
+- Modify: `apps/client/src/style.css`
+- Create: `apps/client/tests/appearanceVisuals.test.ts`
+
+**Interfaces:**
+- Produces `appearanceVisuals(selection)` used by both creator preview and world avatars.
+- Adds `apiClient.createCharacter`.
+- Routes `character.state === "none"` to `CharacterCreatorScene`.
+
+- [ ] **Step 1: Add RED appearance-visual mapping tests**
+
+Create `appearanceVisuals.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { appearanceVisuals } from "../src/appearance/appearanceVisuals";
+
+it("maps saved appearance IDs to stable creator/world visuals", () => {
+  expect(appearanceVisuals({
+    bodyType: "body-01",
+    skinTone: "skin-02",
+    face: "face-01",
+    eyes: "eyes-01",
+    hair: "hair-04",
+    hairColor: "hair-color-03",
+    facialHair: "facial-hair-none",
+    marking: "scar-01",
+    startingOutfit: "outfit-02"
+  })).toEqual({
+    bodyScale: 1,
+    faceScaleX: 1,
+    eyeSpacing: 8,
+    eyeRadius: 2,
+    skin: "#c98f65",
+    hairColor: "#8b5a2b",
+    hairStyle: "hair-04",
+    facialHairStyle: "facial-hair-none",
+    outfit: "#405a74",
+    marking: "scar-01"
+  });
+});
+```
+
+- [ ] **Step 2: Implement one visual mapping shared by both renderers**
+
+Create `appearanceVisuals.ts` with fixed maps:
+
+```ts
+const skin = {
+  "skin-01": "#f0c7a5",
+  "skin-02": "#c98f65",
+  "skin-03": "#9b6548",
+  "skin-04": "#684331"
+} as const;
+
+const hair = {
+  "hair-color-01": "#2a211d",
+  "hair-color-02": "#6a4329",
+  "hair-color-03": "#8b5a2b",
+  "hair-color-04": "#d1b06f"
+} as const;
+
+const outfit = {
+  "outfit-01": "#56634f",
+  "outfit-02": "#405a74",
+  "outfit-03": "#694957"
+} as const;
+
+const faceScaleX = {
+  "face-01": 1,
+  "face-02": 0.9,
+  "face-03": 1.08,
+  "face-04": 0.96
+} as const;
+
+const eyes = {
+  "eyes-01": { spacing: 8, radius: 2 },
+  "eyes-02": { spacing: 10, radius: 2 },
+  "eyes-03": { spacing: 8, radius: 3 }
+} as const;
+
+export function appearanceVisuals(selection: AppearanceSelection) {
+  const eye = eyes[selection.eyes as keyof typeof eyes] ?? eyes["eyes-01"];
+  return {
+    bodyScale: selection.bodyType === "body-02" ? 1.08 : 1,
+    faceScaleX: faceScaleX[selection.face as keyof typeof faceScaleX] ?? 1,
+    eyeSpacing: eye.spacing,
+    eyeRadius: eye.radius,
+    skin: skin[selection.skinTone as keyof typeof skin] ?? skin["skin-01"],
+    hairColor: hair[selection.hairColor as keyof typeof hair] ?? hair["hair-color-01"],
+    hairStyle: selection.hair,
+    facialHairStyle: selection.facialHair,
+    outfit: outfit[selection.startingOutfit as keyof typeof outfit] ?? outfit["outfit-01"],
+    marking: selection.marking
+  };
+}
+```
+
+- [ ] **Step 3: Add the creator REST call**
+
+Add to `ApiClient`:
+
+```ts
+async createCharacter(input: {
+  nickname: string;
+  appearance: AppearanceSelection;
+}): Promise<CharacterProfile> {
+  return requestJson<CharacterProfile>("/api/character", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+```
+
+Add `CharacterProfile` to shared contracts if not already included in Task 6:
+
+```ts
+export interface CharacterProfile {
+  id: string;
+  nickname: string;
+  appearance: AppearanceSelection;
+}
+```
+
+- [ ] **Step 4: Build `CharacterPreview` with safe DOM nodes**
+
+Create `CharacterPreview.ts` that uses `appearanceVisuals` and sets CSS custom properties:
+
+```ts
+export class CharacterPreview {
+  readonly element = document.createElement("div");
+
+  constructor() {
+    this.element.className = "character-preview";
+    const body = document.createElement("div");
+    body.className = "character-preview__body";
+    const hair = document.createElement("div");
+    hair.className = "character-preview__hair";
+    this.element.append(body, hair);
+  }
+
+  render(selection: AppearanceSelection): void {
+    const visuals = appearanceVisuals(selection);
+    this.element.style.setProperty("--avatar-skin", visuals.skin);
+    this.element.style.setProperty("--avatar-hair", visuals.hairColor);
+    this.element.style.setProperty("--avatar-outfit", visuals.outfit);
+    this.element.style.setProperty("--avatar-scale", String(visuals.bodyScale));
+    this.element.style.setProperty("--avatar-face-scale-x", String(visuals.faceScaleX));
+    this.element.style.setProperty("--avatar-eye-spacing", `${visuals.eyeSpacing}px`);
+    this.element.style.setProperty("--avatar-eye-radius", `${visuals.eyeRadius}px`);
+    this.element.dataset.hairStyle = visuals.hairStyle;
+    this.element.dataset.facialHairStyle = visuals.facialHairStyle;
+    this.element.dataset.marking = visuals.marking;
+  }
+}
+```
+
+- [ ] **Step 5: Build `CharacterCreatorScene`**
+
+Initialize the default selection from the first value of every `APPEARANCE_CATALOG` list.
+
+For each catalog field, render Previous/Next controls that cycle only through allowed IDs. The submit handler is:
+
+```ts
+try {
+  const character = await apiClient.createCharacter({
+    nickname: nicknameInput.value,
+    appearance: { ...this.selection }
+  });
+  this.destroyForm();
+  this.scene.start("WorldScene", { playerId: character.id });
+} catch (error) {
+  errorElement.textContent = error instanceof Error ? error.message : "Could not create character.";
+}
+```
+
+Use `textContent` for all dynamic text.
+
+- [ ] **Step 6: Route authenticated users correctly**
+
+In both Boot and AuthScene:
+
+```ts
+if (session.character.state === "none") {
+  this.scene.start("CharacterCreatorScene");
+  return;
+}
+if (session.character.state === "active") {
+  this.scene.start("WorldScene", { playerId: session.character.characterId });
+  return;
+}
+this.scene.start("CharacterDeletionScene", { session });
+```
+
+Task 11 creates the deletion scene; until then route pending deletion back to AuthScene with a clear non-playable message.
+
+Register `CharacterCreatorScene` in game config.
+
+- [ ] **Step 7: Make in-world avatars reflect persisted appearance**
+
+Update `WorldEntitiesRenderer.createPlayer` to call `appearanceVisuals(player.appearance)`.
+
+Body type, skin tone, face shape, eye style, hairstyle, hair color, facial hair, marking, and outfit must each create a visible difference. Preserve the existing local-vs-remote outline distinction. Add small focused helpers `createHairGraphic`, `createFacialHairGraphic`, and `createMarkingGraphic` in `appearanceVisuals.ts` or a sibling renderer helper; each helper switches only over the finite catalog IDs and returns Phaser display objects. Use:
+
+```ts
+const visuals = appearanceVisuals(player.appearance);
+const face = this.scene.add.ellipse(
+  0,
+  -6,
+  34 * visuals.bodyScale * visuals.faceScaleX,
+  36 * visuals.bodyScale,
+  visuals.skin
+);
+const outfit = this.scene.add.rectangle(0, 18, 30 * visuals.bodyScale, 22, visuals.outfit);
+const leftEye = this.scene.add.circle(-visuals.eyeSpacing, -8, visuals.eyeRadius, 0x1b1b1b);
+const rightEye = this.scene.add.circle(visuals.eyeSpacing, -8, visuals.eyeRadius, 0x1b1b1b);
+const hair = createHairGraphic(this.scene, visuals.hairStyle, visuals.hairColor, visuals.bodyScale);
+const facialHair = createFacialHairGraphic(
+  this.scene,
+  visuals.facialHairStyle,
+  visuals.hairColor,
+  visuals.bodyScale
+);
+const marking = createMarkingGraphic(this.scene, visuals.marking, visuals.bodyScale);
+```
+
+- [ ] **Step 8: Verify and commit**
+
+```bash
+npm run test -w @web-mmorpg/client -- appearanceVisuals.test.ts
+npm run build -w @web-mmorpg/client
+git add apps/client/src apps/client/tests/appearanceVisuals.test.ts packages/shared/src
+git commit -m "feat: add first-login character creator"
 ```
 
 ---
@@ -2802,7 +2802,7 @@ git commit -m "feat: add delayed character deletion and nickname reservation"
 
 - [ ] **Step 1: Add the full RED account/persistence E2E**
 
-Create `accountPersistence.e2e.test.ts` importing `startTestApp` and `defaultAppearance` from `tests/helpers/testApp.ts`, plus `onceWithTimeout` and `winBattle` from `tests/helpers/battleTestHelpers.ts`. It performs this exact sequence against a real PostgreSQL test database:
+Create `accountPersistence.e2e.test.ts` importing `startTestApp` and `defaultAppearance` from the Task 7 `tests/helpers/testApp.ts`, plus `onceWithTimeout` and `winBattle` from `tests/helpers/battleTestHelpers.ts`. It performs this exact sequence against a real PostgreSQL test database:
 
 ```ts
 const app = await startTestApp();
@@ -3020,12 +3020,12 @@ git commit -m "test: verify persistent account lifecycle end to end"
 Before execution, confirm the plan still matches the approved spec:
 
 - Account registration, login, logout, 30-day opaque sessions: Tasks 2–5.
-- One active session and old-device kick: Tasks 3, 4, 8.
+- One active session and old-device kick: Tasks 3, 4, 7.
 - Recovery code shown once, hashed, rotated after use: Tasks 2, 4, 5, 12.
 - One character per account and globally unique nickname: Tasks 1 and 6.
-- Full approved creator option set and server-side validation: Tasks 6 and 7.
-- Appearance persisted and visibly rendered in world: Tasks 6 and 7.
-- Authenticated server-authoritative Socket.IO identity: Task 8.
+- Full approved creator option set and server-side validation: Tasks 6 and 8.
+- Appearance persisted and visibly rendered in world: Tasks 6 and 8.
+- Authenticated server-authoritative Socket.IO identity: Task 7.
 - Persisted location and two-second checkpointing: Task 9.
 - HP/injuries/inventory/equipment persistence and transactional battle save: Task 10.
 - 24-hour deletion, cancellation, 7-day nickname reservation: Task 11.

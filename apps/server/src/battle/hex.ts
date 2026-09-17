@@ -49,6 +49,7 @@ export function findPath(
 
   while (queueIndex < queue.length) {
     const current = queue[queueIndex++];
+    if (!current) break;
 
     for (const next of hexNeighbors(current)) {
       const key = hexKey(next);

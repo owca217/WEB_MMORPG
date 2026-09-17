@@ -741,6 +741,7 @@ export class SessionRepository {
     tokenHash: string;
     expiresAt: Date;
   }): Promise<SessionRecord> {
+    await this.db.query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE", [input.accountId]);
     await this.db.query(
       "UPDATE account_sessions SET revoked_at = now() WHERE account_id = $1 AND revoked_at IS NULL",
       [input.accountId]
@@ -779,7 +780,18 @@ WHERE token_hash = $1
   AND expires_at > $2
 ```
 
-Implement `revokeByTokenHash` and `revokeAllForAccount` as updates setting `revoked_at = now()`.
+Add:
+
+```ts
+async touch(sessionId: string, now: Date): Promise<void> {
+  await this.db.query(
+    "UPDATE account_sessions SET last_seen_at = $2 WHERE id = $1",
+    [sessionId, now]
+  );
+}
+```
+
+Implement `revokeByTokenHash` and `revokeAllForAccount` as updates setting `revoked_at = now()`. The `SELECT ... FOR UPDATE` in `replaceActiveSession` serializes simultaneous logins for the same account so the partial unique index never leaves two current sessions.
 
 - [ ] **Step 6: Verify and commit**
 
@@ -825,7 +837,6 @@ export type CharacterLifecycleSummary =
     };
 
 export interface SessionView {
-  accountId: string;
   accountUsername: string;
   character: CharacterLifecycleSummary;
 }
@@ -848,9 +859,9 @@ Export it from `packages/shared/src/index.ts`.
 
 For this task, `AuthService` returns `character: { state: "none" }`; Task 6 replaces that stub with the character lifecycle lookup.
 
-- [ ] **Step 2: Add RED AuthService tests with fake repositories**
+- [ ] **Step 2: Add RED AuthService tests against the test PostgreSQL database**
 
-Create `apps/server/tests/authService.test.ts` using small in-test repository fakes and assert:
+Create `apps/server/tests/authService.test.ts`, reset the public schema, run migrations, and instantiate `AuthService` with a real `Pool` + `AccountRepository`. Assert:
 
 ```ts
 const registration = await service.register("Owczy217", "correct horse battery");
@@ -869,13 +880,15 @@ Add recovery assertions: old password fails after recovery, new password succeed
 
 - [ ] **Step 3: Implement `AuthService`**
 
-Use a constructor that accepts `Pool`, `AccountRepository`, and a factory for `SessionRepository` so login/recovery can use one transaction:
+Use a constructor that accepts `Pool`, `AccountRepository`, `CharacterLifecycleService | null`, and a session TTL. A null character lifecycle is allowed only in this intermediate task; Task 6 makes it required.
 
 ```ts
 export class AuthService {
   constructor(
     private readonly pool: Pool,
-    private readonly accounts: AccountRepository
+    private readonly accounts: AccountRepository,
+    private readonly characters: CharacterLifecycleService | null = null,
+    private readonly sessionTtlDays = 30
   ) {}
 
   async register(usernameInput: string, password: string): Promise<RegisterResponse> {
@@ -897,14 +910,13 @@ export class AuthService {
 }
 ```
 
-Implement `login` in `withTransaction` so it creates `new SessionRepository(client)`, revokes/replaces any active session, and returns:
+Implement `login` in `withTransaction`. Reject `account.status !== "active"` with `ACCOUNT_DISABLED`. Create `new SessionRepository(client)`, compute `expiresAt = new Date(Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000)`, revoke/replace any active session, and return:
 
 ```ts
 {
   accountId: account.id,
   token,
   session: {
-    accountId: account.id,
     accountUsername: account.username,
     character: { state: "none" }
   }
@@ -913,7 +925,7 @@ Implement `login` in `withTransaction` so it creates `new SessionRepository(clie
 
 Keep `accountId` internal to the service result so the HTTP layer can later notify the live connection registry; expose only `token` and `session` to the client.
 
-Implement `validateToken` by hashing the bearer token and resolving a non-revoked, non-expired session plus account. Implement `logout` by token hash. Implement `recover` transactionally: verify account + recovery hash, replace password/recovery hash, revoke all sessions, return a new recovery code.
+Implement `validateToken` by hashing the bearer token and resolving a non-revoked, non-expired session plus account. Reject disabled accounts, and call `SessionRepository.touch(session.id, now)` after validation. Implement `logout` by token hash. Implement `recover` transactionally: verify account + recovery hash, replace password/recovery hash, revoke all sessions, return a new recovery code. Translate duplicate-username PostgreSQL code `23505` during registration to HTTP-level `USERNAME_TAKEN` / 409 rather than leaking SQL details.
 
 - [ ] **Step 4: Add bounded JSON helpers**
 
@@ -1001,13 +1013,13 @@ const ip = request.socket.remoteAddress ?? "unknown";
 const rateKey = `${ip}:${request.url}`;
 ```
 
-On `/api/auth/login` and `/api/auth/recover`, reject when `!limiter.consume(rateKey)`:
+On `/api/auth/register`, `/api/auth/login`, and `/api/auth/recover`, reject when `!limiter.consume(rateKey)`:
 
 ```ts
 sendJson(response, 429, { code: "RATE_LIMITED", message: "Too many attempts. Try again shortly." });
 ```
 
-Map AuthError codes to JSON `{ code, message }` without exposing hashes, tokens, SQL, or stack traces.
+Map `REQUEST_TOO_LARGE` to HTTP 413, malformed JSON to HTTP 400, and AuthError codes to JSON `{ code, message }` without exposing hashes, tokens, SQL, or stack traces.
 
 - [ ] **Step 7: Wire HTTP + Socket.IO onto the same Node server**
 
@@ -1030,7 +1042,8 @@ const clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
 const pool = createPool(databaseUrl);
 await runMigrations(pool);
 
-const authService = new AuthService(pool, new AccountRepository(pool));
+const sessionTtlDays = Number(process.env.SESSION_TTL_DAYS ?? 30);
+const authService = new AuthService(pool, new AccountRepository(pool), null, sessionTtlDays);
 const httpServer = createServer(createApiHandler({ authService, clientOrigin }));
 createGameServer(httpServer);
 
@@ -1510,8 +1523,13 @@ it("maps saved appearance IDs to stable creator/world visuals", () => {
     startingOutfit: "outfit-02"
   })).toEqual({
     bodyScale: 1,
+    faceScaleX: 1,
+    eyeSpacing: 8,
+    eyeRadius: 2,
     skin: "#c98f65",
-    hair: "#8b5a2b",
+    hairColor: "#8b5a2b",
+    hairStyle: "hair-04",
+    facialHairStyle: "facial-hair-none",
     outfit: "#405a74",
     marking: "scar-01"
   });
@@ -1543,11 +1561,30 @@ const outfit = {
   "outfit-03": "#694957"
 } as const;
 
+const faceScaleX = {
+  "face-01": 1,
+  "face-02": 0.9,
+  "face-03": 1.08,
+  "face-04": 0.96
+} as const;
+
+const eyes = {
+  "eyes-01": { spacing: 8, radius: 2 },
+  "eyes-02": { spacing: 10, radius: 2 },
+  "eyes-03": { spacing: 8, radius: 3 }
+} as const;
+
 export function appearanceVisuals(selection: AppearanceSelection) {
+  const eye = eyes[selection.eyes as keyof typeof eyes] ?? eyes["eyes-01"];
   return {
     bodyScale: selection.bodyType === "body-02" ? 1.08 : 1,
+    faceScaleX: faceScaleX[selection.face as keyof typeof faceScaleX] ?? 1,
+    eyeSpacing: eye.spacing,
+    eyeRadius: eye.radius,
     skin: skin[selection.skinTone as keyof typeof skin] ?? skin["skin-01"],
-    hair: hair[selection.hairColor as keyof typeof hair] ?? hair["hair-color-01"],
+    hairColor: hair[selection.hairColor as keyof typeof hair] ?? hair["hair-color-01"],
+    hairStyle: selection.hair,
+    facialHairStyle: selection.facialHair,
     outfit: outfit[selection.startingOutfit as keyof typeof outfit] ?? outfit["outfit-01"],
     marking: selection.marking
   };
@@ -1600,9 +1637,14 @@ export class CharacterPreview {
   render(selection: AppearanceSelection): void {
     const visuals = appearanceVisuals(selection);
     this.element.style.setProperty("--avatar-skin", visuals.skin);
-    this.element.style.setProperty("--avatar-hair", visuals.hair);
+    this.element.style.setProperty("--avatar-hair", visuals.hairColor);
     this.element.style.setProperty("--avatar-outfit", visuals.outfit);
     this.element.style.setProperty("--avatar-scale", String(visuals.bodyScale));
+    this.element.style.setProperty("--avatar-face-scale-x", String(visuals.faceScaleX));
+    this.element.style.setProperty("--avatar-eye-spacing", `${visuals.eyeSpacing}px`);
+    this.element.style.setProperty("--avatar-eye-radius", `${visuals.eyeRadius}px`);
+    this.element.dataset.hairStyle = visuals.hairStyle;
+    this.element.dataset.facialHairStyle = visuals.facialHairStyle;
     this.element.dataset.marking = visuals.marking;
   }
 }
@@ -1653,13 +1695,28 @@ Register `CharacterCreatorScene` in game config.
 
 Update `WorldEntitiesRenderer.createPlayer` to call `appearanceVisuals(player.appearance)`.
 
-The body/outfit/hair graphics should visibly differ. Preserve the existing local-vs-remote outline distinction, but replace hard-coded fill colors with appearance colors:
+Body type, skin tone, face shape, eye style, hairstyle, hair color, facial hair, marking, and outfit must each create a visible difference. Preserve the existing local-vs-remote outline distinction. Add small focused helpers `createHairGraphic`, `createFacialHairGraphic`, and `createMarkingGraphic` in `appearanceVisuals.ts` or a sibling renderer helper; each helper switches only over the finite catalog IDs and returns Phaser display objects. Use:
 
 ```ts
 const visuals = appearanceVisuals(player.appearance);
-const body = this.scene.add.circle(0, 0, 18 * visuals.bodyScale, visuals.skin);
+const face = this.scene.add.ellipse(
+  0,
+  -6,
+  34 * visuals.bodyScale * visuals.faceScaleX,
+  36 * visuals.bodyScale,
+  visuals.skin
+);
 const outfit = this.scene.add.rectangle(0, 18, 30 * visuals.bodyScale, 22, visuals.outfit);
-const hair = this.scene.add.arc(0, -10, 16 * visuals.bodyScale, 180, 360, false, visuals.hair);
+const leftEye = this.scene.add.circle(-visuals.eyeSpacing, -8, visuals.eyeRadius, 0x1b1b1b);
+const rightEye = this.scene.add.circle(visuals.eyeSpacing, -8, visuals.eyeRadius, 0x1b1b1b);
+const hair = createHairGraphic(this.scene, visuals.hairStyle, visuals.hairColor, visuals.bodyScale);
+const facialHair = createFacialHairGraphic(
+  this.scene,
+  visuals.facialHairStyle,
+  visuals.hairColor,
+  visuals.bodyScale
+);
+const marking = createMarkingGraphic(this.scene, visuals.marking, visuals.bodyScale);
 ```
 
 - [ ] **Step 8: Verify and commit**
@@ -1682,14 +1739,16 @@ git commit -m "feat: add first-login character creator"
 - Modify: `apps/server/src/index.ts`
 - Modify: `apps/client/src/net/GameSocket.ts`
 - Modify: `apps/client/src/scenes/BootScene.ts`
+- Modify: `apps/client/src/ui/WorldHud.ts`
 - Modify: `apps/server/tests/socketFlow.test.ts`
+- Create: `apps/server/tests/helpers/testApp.ts`
 - Create: `apps/server/tests/activeConnectionRegistry.test.ts`
 
 **Interfaces:**
 - Removes the nickname-based Socket.IO `login` event.
 - Socket handshake consumes `auth: { token: string }`.
 - Adds `sessionReplaced: () => void`.
-- `ActiveConnectionRegistry.replace(accountId)` flushes/removes the previous live character before a replacement attaches.
+- `ActiveConnectionRegistry.closeAccount(accountId, reason)` flushes/removes the previous live character for replacement, logout, recovery, or deletion before state changes complete.
 
 - [ ] **Step 1: Change the shared socket protocol**
 
@@ -1719,13 +1778,13 @@ it("flushes and closes the previous live connection before replacement", async (
   const registry = new ActiveConnectionRegistry();
 
   registry.attach("account-1", {
-    async closeForReplacement() {
-      calls.push("old:flush");
+    async close(reason) {
+      calls.push(`old:flush:${reason}`);
     }
   });
 
-  await registry.replace("account-1");
-  expect(calls).toEqual(["old:flush"]);
+  await registry.closeAccount("account-1", "sessionReplaced");
+  expect(calls).toEqual(["old:flush:sessionReplaced"]);
   expect(registry.has("account-1")).toBe(false);
 });
 ```
@@ -1733,8 +1792,10 @@ it("flushes and closes the previous live connection before replacement", async (
 - [ ] **Step 3: Implement `ActiveConnectionRegistry`**
 
 ```ts
+export type CloseReason = "sessionReplaced" | "logout" | "credentialsChanged" | "characterDeletion";
+
 export interface ActiveConnection {
-  closeForReplacement(): Promise<void>;
+  close(reason: CloseReason): Promise<void>;
 }
 
 export class ActiveConnectionRegistry {
@@ -1748,10 +1809,10 @@ export class ActiveConnectionRegistry {
     if (this.connections.get(accountId) === connection) this.connections.delete(accountId);
   }
 
-  async replace(accountId: string): Promise<void> {
+  async closeAccount(accountId: string, reason: CloseReason): Promise<void> {
     const existing = this.connections.get(accountId);
     if (!existing) return;
-    await existing.closeForReplacement();
+    await existing.close(reason);
     if (this.connections.get(accountId) === existing) this.connections.delete(accountId);
   }
 
@@ -1804,7 +1865,7 @@ On connection, resolve the account's active character. If lifecycle is not `acti
 Before hydrating the new socket:
 
 ```ts
-await deps.activeConnections.replace(accountId);
+await deps.activeConnections.closeAccount(accountId, "sessionReplaced");
 ```
 
 Task 9 supplies the durable hydration/flush implementation. For this task, use existing runtime creation but stable character ID and persisted nickname/appearance from CharacterRepository.
@@ -1816,11 +1877,15 @@ Pass `ActiveConnectionRegistry` into `createApiHandler`.
 After `authService.login` successfully commits the replacement session and before sending HTTP 200:
 
 ```ts
-await activeConnections.replace(result.accountId);
+await activeConnections.closeAccount(result.accountId, "sessionReplaced");
 sendJson(response, 200, { token: result.token, session: result.session });
 ```
 
 This satisfies "new login logs out previous device" even before the new device opens a socket.
+
+For `POST /api/auth/logout`, validate the token first, call `closeAccount(account.id, "logout")` so the socket flushes/removes the player, then revoke the token and return 204.
+
+For successful `POST /api/auth/recover`, call `closeAccount(account.id, "credentialsChanged")` after the recovery transaction commits so any old live socket is removed immediately. Do not emit `sessionReplaced` for intentional logout; only the `sessionReplaced` reason emits that client event.
 
 - [ ] **Step 6: Change the client socket to bearer authentication**
 
@@ -1853,17 +1918,45 @@ connect(token = authSessionStore.getToken()): GameClientSocket {
 
 Add `disconnect()` that disconnects and clears `this.socket`.
 
+Add a `Wyloguj` action to `WorldHud`. Its handler calls `apiClient.logout()`; the server-side logout route flushes/closes the live socket before revoking the session, and the client then clears local auth state and reloads to Boot/AuthScene.
+
 - [ ] **Step 7: Rewrite Socket.IO E2E setup around real accounts/characters**
 
-The socket test helper must create the account and character through service/repository helpers, login to obtain a token, then connect:
+Create `apps/server/tests/helpers/testApp.ts` exporting this concrete harness interface:
 
 ```ts
-const socket = createClient(serverUrl, {
+export interface TestApp {
+  baseUrl: string;
+  pool: Pool;
+  game: ReturnType<typeof createGameServer>;
+  register(username: string, password?: string): Promise<RegisterResponse>;
+  login(username: string, password?: string): Promise<LoginResponse>;
+  createCharacter(token: string, nickname: string, appearance?: AppearanceSelection): Promise<CharacterProfile>;
+  connectSocket(token: string): Promise<Socket>;
+  close(): Promise<void>;
+}
+
+export async function startTestApp(): Promise<TestApp>;
+```
+
+`startTestApp` resets the test schema, runs migrations, composes the same AuthService/CharacterLifecycleService/ActiveConnectionRegistry/API/GameServer dependencies as production, listens on an ephemeral port, and tracks sockets for cleanup.
+
+Its `connectSocket` implementation is:
+
+```ts
+const socket = createClient(baseUrl, {
   transports: ["websocket"],
   forceNew: true,
   auth: { token }
 });
+await new Promise<void>((resolve, reject) => {
+  socket.once("connect", resolve);
+  socket.once("connect_error", reject);
+});
+return socket;
 ```
+
+Update `socketFlow.test.ts` to use `startTestApp()` rather than nickname login.
 
 Preserve the existing multiplayer assertion that two different accounts see both characters.
 
@@ -2133,6 +2226,8 @@ git commit -m "feat: restore and checkpoint persistent world position"
 ### Task 10: Durable HP, Injuries, Inventory, Equipment, and Battle Outcomes
 
 **Files:**
+- Modify: `packages/shared/src/inventory.ts`
+- Modify: `packages/shared/src/character.ts`
 - Create: `apps/server/src/persistence/InventoryRepository.ts`
 - Create: `apps/server/src/persistence/InjuryRepository.ts`
 - Create: `apps/server/src/persistence/EquipmentRepository.ts`
@@ -2143,13 +2238,41 @@ git commit -m "feat: restore and checkpoint persistent world position"
 - Modify: `apps/server/tests/socketFlow.test.ts`
 
 **Interfaces:**
+- Adds shared `EquipmentEntry` and `EquipmentSnapshot`; `PlayerStateSnapshot` includes `equipment`.
 - `PlayerPersistenceService.loadPlayer(characterId): Promise<PlayerStateSnapshot>`.
 - `saveCharacterState(character: CharacterSnapshot): Promise<void>`.
 - `saveBattleOutcome(character, inventory): Promise<void>` transactionally persists HP/injuries/items.
 - `saveInventory(characterId, inventory)` persists item stacks/instances.
 - Equipment table is loaded/saved even though the current MVP has no equip UI yet.
 
-- [ ] **Step 1: Add RED durable-player integration test**
+- [ ] **Step 1: Extend shared player state with equipment**
+
+In `packages/shared/src/inventory.ts` add:
+
+```ts
+export interface EquipmentEntry {
+  slot: string;
+  itemInstanceId: string;
+}
+
+export interface EquipmentSnapshot {
+  items: EquipmentEntry[];
+}
+```
+
+Change `PlayerStateSnapshot` in `packages/shared/src/character.ts`:
+
+```ts
+export interface PlayerStateSnapshot {
+  character: CharacterSnapshot;
+  inventory: InventorySnapshot;
+  equipment: EquipmentSnapshot;
+}
+```
+
+Update existing client/server fixtures to include `equipment: { items: [] }`.
+
+- [ ] **Step 2: Add RED durable-player integration test**
 
 Create `playerPersistence.test.ts`:
 
@@ -2184,7 +2307,7 @@ expect(restored.inventory.items[0]).toMatchObject({
 });
 ```
 
-- [ ] **Step 2: Implement inventory replacement transaction primitive**
+- [ ] **Step 3: Implement inventory replacement transaction primitive**
 
 `InventoryRepository.replaceAll(characterId, snapshot)` must:
 
@@ -2212,7 +2335,7 @@ for (const item of snapshot.items) {
 
 `load(characterId)` maps rows back to `InventorySnapshot`.
 
-- [ ] **Step 3: Implement injury replacement/load**
+- [ ] **Step 4: Implement injury replacement/load**
 
 `InjuryRepository.replaceAll`:
 
@@ -2228,7 +2351,7 @@ for (const injury of injuries) {
 
 `load` returns `InjuryKind[]`.
 
-- [ ] **Step 4: Implement equipment repository**
+- [ ] **Step 5: Implement equipment repository**
 
 Use:
 
@@ -2249,7 +2372,7 @@ async load(characterId: string): Promise<EquipmentEntry[]> {
 
 Add `replaceAll(characterId, entries)` that deletes current rows then inserts each slot/item pair. No client equip command is added in this milestone.
 
-- [ ] **Step 5: Add character vitals persistence**
+- [ ] **Step 6: Add character vitals persistence**
 
 Add to `CharacterRepository`:
 
@@ -2273,9 +2396,9 @@ async updateVitals(character: CharacterSnapshot): Promise<void> {
 }
 ```
 
-- [ ] **Step 6: Implement `PlayerPersistenceService`**
+- [ ] **Step 7: Implement `PlayerPersistenceService`**
 
-`loadPlayer` combines CharacterRepository + InjuryRepository + InventoryRepository:
+`loadPlayer` combines CharacterRepository + InjuryRepository + InventoryRepository + EquipmentRepository:
 
 ```ts
 return {
@@ -2291,7 +2414,8 @@ return {
     severelyInjured: row.severelyInjured,
     injuries: await new InjuryRepository(this.pool).load(row.id)
   },
-  inventory: await new InventoryRepository(this.pool).load(row.id)
+  inventory: await new InventoryRepository(this.pool).load(row.id),
+  equipment: { items: await new EquipmentRepository(this.pool).load(row.id) }
 };
 ```
 
@@ -2305,7 +2429,7 @@ await withTransaction(this.pool, async (client) => {
 });
 ```
 
-- [ ] **Step 7: Hydrate durable state on socket connection**
+- [ ] **Step 8: Hydrate durable state on socket connection**
 
 When an authenticated active character connects:
 
@@ -2325,7 +2449,7 @@ world.addPlayer({
 
 Do not create default HP/inventory for returning characters.
 
-- [ ] **Step 8: Persist critical actions before emitting success**
+- [ ] **Step 9: Persist critical actions before emitting success**
 
 For healer:
 
@@ -2350,9 +2474,9 @@ socket.emit("battleEnded", {
 });
 ```
 
-If persistence throws, emit `commandRejected` with a generic `PERSISTENCE_FAILED` message and do not claim final success.
+If persistence throws after runtime state was tentatively mutated, reload the last durable state with `playerPersistence.loadPlayer(playerId)`, call `characters.hydratePlayer(restored.character)` and `inventory.hydratePlayer(playerId, restored.inventory)`, then emit `commandRejected` with generic code `PERSISTENCE_FAILED`. Never leave uncommitted loot/HP changes active in RAM.
 
-- [ ] **Step 9: Add reconnect-after-battle E2E**
+- [ ] **Step 10: Add reconnect-after-battle E2E**
 
 Extend `socketFlow.test.ts`:
 
@@ -2363,12 +2487,12 @@ Extend `socketFlow.test.ts`:
 - request player state;
 - assert wolf pelt/bandages and post-battle HP/injuries match the previous committed result.
 
-- [ ] **Step 10: Verify and commit**
+- [ ] **Step 11: Verify and commit**
 
 ```bash
 npm run test -w @web-mmorpg/server -- playerPersistence.test.ts socketFlow.test.ts characterService.test.ts
 npm run build
-git add apps/server/src/persistence apps/server/src/server/createGameServer.ts apps/server/tests
+git add packages/shared/src apps/server/src/persistence apps/server/src/server/createGameServer.ts apps/server/tests
 git commit -m "feat: persist character combat and inventory state"
 ```
 
@@ -2506,7 +2630,7 @@ Then mark:
 - `requestedAt = now`
 - `effectiveAt = new Date(now.getTime() + 24 * 60 * 60 * 1000)`
 
-If the character is currently online, the HTTP handler calls `activeConnections.replace(accountId)` after the request commits so it is removed from the world.
+If the character is currently online, the HTTP handler calls `activeConnections.closeAccount(accountId, "characterDeletion")` after the request commits so it is flushed and removed from the world.
 
 - [ ] **Step 6: Add the two deletion endpoints**
 
@@ -2570,40 +2694,60 @@ git commit -m "feat: add delayed character deletion and nickname reservation"
 
 - [ ] **Step 1: Add the full RED account/persistence E2E**
 
-Create `accountPersistence.e2e.test.ts` that performs this exact sequence against a real PostgreSQL test database:
+Create `accountPersistence.e2e.test.ts` using `startTestApp` from Task 8, `onceWithTimeout` and `winBattle` copied as concrete local helpers from the existing `socketFlow.test.ts`, and the shared `defaultAppearance` fixture used by character tests. It performs this exact sequence against a real PostgreSQL test database:
 
 ```ts
-const registration = await register("owczy217", "correct horse battery");
+const app = await startTestApp();
+const registration = await app.register("owczy217", "correct horse battery");
 expect(registration.recoveryCode).toBeTruthy();
 
-const firstLogin = await login("owczy217", "correct horse battery");
+const firstLogin = await app.login("owczy217", "correct horse battery");
 expect(firstLogin.session.character).toEqual({ state: "none" });
 
-const character = await createCharacter(firstLogin.token, {
-  nickname: "Owczy",
-  appearance: defaultAppearance
-});
+const character = await app.createCharacter(
+  firstLogin.token,
+  "Owczy",
+  defaultAppearance
+);
 
-const socket = await connectSocket(firstLogin.token);
-await moveAndFlush(socket, character.id, { x: 900, y: 500 });
-await winWolfBattle(socket, character.id);
+const socket = await app.connectSocket(firstLogin.token);
+const firstWorld = await onceWithTimeout<WorldStateSnapshot>(socket, "worldState");
+expect(firstWorld.players.some((player) => player.id === character.id)).toBe(true);
+
+app.game.services.world.movePlayer(
+  character.id,
+  { x: 900, y: 500 },
+  Date.now() + 10_000
+);
+app.game.services.positions.markDirty(character.id);
+await app.game.services.positions.flushPlayer(character.id);
+
+const startedPromise = onceWithTimeout<BattleSnapshot>(socket, "battleStarted");
+socket.emit("startEncounter", { encounterId: "wolf-pack-01" });
+const started = await startedPromise;
+await winBattle(socket, started, character.id);
 socket.disconnect();
 
-const secondLogin = await login("owczy217", "correct horse battery");
+const secondLogin = await app.login("owczy217", "correct horse battery");
 expect(secondLogin.session.character).toMatchObject({
   state: "active",
   characterId: character.id,
   nickname: "Owczy"
 });
 
-const restored = await connectSocket(secondLogin.token);
-const world = await requestWorld(restored);
+const restored = await app.connectSocket(secondLogin.token);
+restored.emit("requestWorldState");
+const world = await onceWithTimeout<WorldStateSnapshot>(restored, "worldState");
 const me = world.players.find((player) => player.id === character.id)!;
 expect(me.x).toBeCloseTo(900, 0);
 expect(me.y).toBeCloseTo(500, 0);
 
-const state = await requestPlayerState(restored);
+restored.emit("requestPlayerState");
+const state = await onceWithTimeout<PlayerStateSnapshot>(restored, "playerState");
 expect(state.inventory.items.some((item) => item.itemId === "wolf-pelt")).toBe(true);
+expect(state.equipment).toEqual({ items: [] });
+
+await app.close();
 ```
 
 - [ ] **Step 2: Add security E2E assertions**
@@ -2650,7 +2794,7 @@ Ensure `apps/server/package.json` contains:
 ```json
 {
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "npm run db:migrate && tsx watch src/index.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "start": "npm run db:migrate && tsx src/index.ts",
     "test": "vitest run",
@@ -2658,6 +2802,8 @@ Ensure `apps/server/package.json` contains:
   }
 }
 ```
+
+Remove the direct `await runMigrations(pool)` call from `index.ts` at this point so migrations run exactly once as the explicit dev/start pre-step.
 
 The Render service start command becomes:
 

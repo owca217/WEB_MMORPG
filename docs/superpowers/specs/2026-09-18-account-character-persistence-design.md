@@ -74,6 +74,7 @@ Fields include:
 
 - `id`
 - `username`
+- `username_normalized`
 - `password_hash`
 - `recovery_code_hash`
 - `status`
@@ -84,6 +85,7 @@ The account username is not the public player name.
 
 Account username rules:
 
+- normalized form is lowercase using a single shared normalization function;
 - 3–32 characters;
 - ASCII letters, digits, underscore, and hyphen;
 - compared case-insensitively for uniqueness;
@@ -103,6 +105,7 @@ A character contains:
 - stable `id`;
 - `account_id`;
 - globally unique `nickname`;
+- `nickname_normalized` used for uniqueness checks;
 - appearance;
 - current map/location;
 - current coordinates;
@@ -113,6 +116,7 @@ A character contains:
 
 Public character nickname rules preserve the current gameplay constraint:
 
+- normalized form is lowercase using a single shared normalization function;
 - 3–20 characters;
 - uniqueness is case-insensitive;
 - nickname ownership is checked by the server;
@@ -190,7 +194,7 @@ Because the production client and backend are currently on different origins, th
 
 ## 8. One active session per account
 
-Only one session for an account may be active.
+Only one session for an account may be active. The database enforces this with a uniqueness strategy for the active session state (for example a partial unique index where `revoked_at IS NULL`), in addition to application-level checks.
 
 When a valid new login succeeds:
 
@@ -319,7 +323,7 @@ The new character starts with:
 - location: `forest-settlement-01`;
 - canonical start spawn coordinates;
 - full start HP;
-- empty or explicitly defined starter inventory;
+- empty starter inventory for this iteration;
 - selected appearance;
 - default progression state.
 
@@ -375,7 +379,7 @@ Minimum fields:
 
 - normalized nickname;
 - original/display nickname;
-- former account ID if retained for audit;
+- `former_account_id` referencing the account that owned the deleted character;
 - `reserved_until`;
 - timestamps.
 
@@ -479,7 +483,7 @@ Coordinates are checkpointed to PostgreSQL approximately every 2 seconds for dir
 - manual logout;
 - disconnect;
 - map/location transition;
-- battle entry when required by the transition;
+- battle entry;
 - battle exit;
 - server-driven respawn/reset.
 
@@ -522,9 +526,9 @@ On a valid deletion request:
 
 During the 24-hour window the player may cancel deletion. Cancellation restores normal character access.
 
-After 24 hours the deletion becomes eligible for finalization.
+After 24 hours the deletion becomes eligible for finalization. Finalization is triggered whenever the owning account state is loaded and whenever nickname availability is checked; an optional periodic cleanup may also run, but correctness must not depend on a scheduler.
 
-Finalization removes character-owned persistent data according to foreign-key/cascade policy and creates a nickname reservation.
+Finalization removes character-owned persistent data according to foreign-key/cascade policy and creates a nickname reservation. The reservation expires at `deletion_effective_at + 7 days`, so delayed cleanup never extends the agreed reservation period.
 
 The account remains and returns to the `no character` state.
 
@@ -534,7 +538,7 @@ The next login then opens the character creator.
 
 After final deletion, the character nickname remains unavailable for 7 additional days.
 
-A reservation stores a normalized nickname and `reserved_until`.
+A reservation stores a normalized nickname and `reserved_until`. Availability checks must first finalize any overdue pending deletion for the same normalized nickname, then evaluate the reservation.
 
 Character creation checks both:
 
@@ -564,13 +568,13 @@ POST /api/character/delete-cancel
 GET  /api/character
 ```
 
-Exact path naming may follow existing server conventions, but responsibilities must remain separated.
+The endpoint paths above are the contract for this iteration; implementation may factor handlers internally, but clients use these paths.
 
 Socket.IO is used for authenticated live game traffic.
 
 The current nickname-based `login` socket event is removed/replaced. Socket authentication resolves the player from the session token; a client cannot select a player ID or nickname as its identity.
 
-Add a server event such as:
+Add the server event:
 
 ```text
 sessionReplaced

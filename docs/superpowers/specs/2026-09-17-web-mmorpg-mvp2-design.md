@@ -26,7 +26,7 @@ The first full location is a **forest settlement and its immediate surroundings*
 The location should include:
 - a compact safe settlement,
 - a tavern or common building,
-- a healer or trader NPC,
+- a healer NPC,
 - a guard or guide NPC,
 - paths leading outside the settlement,
 - fences, trees, rocks, grass, and other environmental props,
@@ -49,11 +49,11 @@ For MVP 2, coherent placeholders are acceptable where final assets do not yet ex
 
 ### 3.1 Map structure
 
-The existing single-location world becomes a authored forest-settlement map.
+The existing single-location world becomes an authored forest-settlement map.
 
-The initial map should be approximately the same technical size as the MVP 1 world so the existing movement/networking architecture can be reused. The exact art dimensions may change during implementation if required for camera framing, but server-authoritative coordinates remain the source of truth.
+The initial map should stay close enough to the MVP 1 technical dimensions that the existing movement/networking architecture can be reused. If art dimensions change during implementation, server-authoritative coordinates remain the source of truth and the client camera adapts to the authored map bounds.
 
-The map should contain three readable sub-areas:
+The map contains three readable sub-areas:
 
 1. **Settlement center** — safe, dense, contains NPCs and buildings.
 2. **Settlement edge** — gates/fences, transition from safe to unsafe area.
@@ -94,18 +94,15 @@ Movement should feel smoother than MVP 1 and the visual representation should in
 
 ### 4.2 Mobile controls
 
-Mobile supports touch-based movement.
+Mobile supports **both**:
+- tap-to-move / touch targeting,
+- a compact virtual joystick for continuous movement.
 
-MVP 2 may use either:
-- tap-to-move,
-- a compact virtual joystick,
-- or both,
-
-provided that interaction remains comfortable on a phone-sized screen.
+The two input methods feed the same movement-intent layer and remain subordinate to server-authoritative position correction.
 
 ### 4.3 Interaction model
 
-Interactive objects and NPCs must provide visible feedback when in range or selected.
+Interactive objects and NPCs provide visible feedback when in range or selected.
 
 MVP 2 introduces a generic interaction flow:
 - approach an interactable,
@@ -113,11 +110,11 @@ MVP 2 introduces a generic interaction flow:
 - activate it by click/tap or interaction button,
 - receive dialogue, service, or encounter action.
 
-The exact keybind for keyboard interaction may be chosen during implementation, but pointer/touch interaction is mandatory.
+Pointer/touch interaction is mandatory. A keyboard interaction shortcut may additionally be provided, but it is not required to use the feature.
 
 ## 5. NPCs and Settlement Functionality
 
-MVP 2 includes at least two NPC roles.
+MVP 2 includes two NPC roles.
 
 ### 5.1 Guard / guide
 
@@ -126,15 +123,15 @@ Purpose:
 - points the player toward the wolf encounter area,
 - proves the dialogue/interact system.
 
-Dialogue can be simple and linear in MVP 2.
+Dialogue is simple and linear in MVP 2.
 
-### 5.2 Healer or trader
+### 5.2 Healer
 
 Purpose:
 - gives the settlement a functional reason to exist,
-- provides a future integration point for injury treatment and consumables.
+- provides the first integration point for injury treatment and consumables.
 
-For MVP 2, the NPC may expose a minimal service panel rather than a full economy.
+For MVP 2, the healer exposes a minimal service panel. A full economy is not required.
 
 Long-term systems such as reputation, branching dialogue, faction logic, dynamic shops, and quest chains remain out of scope.
 
@@ -188,7 +185,7 @@ The game remains classless. MVP 2 must not introduce fixed character classes.
 
 ## 8. Encounter Presentation
 
-The current clickable technical encounter marker should be replaced by a world-space enemy/encounter representation.
+The current clickable technical encounter marker is replaced by a world-space enemy/encounter representation.
 
 For the wolf encounter:
 - a visible wolf or wolf-pack representation exists in the forest area,
@@ -206,7 +203,7 @@ MVP 2 focuses on making the existing system understandable and enjoyable to oper
 
 ### 9.1 Arena presentation
 
-The battle arena should visually resemble the biome the encounter came from.
+The battle arena visually resembles the biome the encounter came from.
 
 For the first encounter:
 - forest floor / clearing theme,
@@ -216,6 +213,8 @@ For the first encounter:
 - cover cells clearly distinguishable from hard blockers.
 
 The battle grid remains authoritative server data. Visuals adapt to the generated arena rather than deciding gameplay rules locally.
+
+MVP 2 does **not** invent a new numerical cover bonus or damage modifier. Cover is presented and respected only to the extent supported by the authoritative battle rules in this milestone; future balancing of partial/full cover remains a separate design decision.
 
 ### 9.2 Combatant presentation
 
@@ -252,7 +251,7 @@ For attacks, the UI should communicate:
 - AP cost,
 - valid/invalid range,
 - line-of-sight failure,
-- cover implications where applicable.
+- whether a world obstacle blocks the shot according to server rules.
 
 Damage continues to be resolved server-side.
 
@@ -307,7 +306,7 @@ After victory:
 
 The player should be able to immediately open the inventory and see the gained items.
 
-Defeat must also resolve cleanly rather than leaving the player in a dead battle state. Exact long-term death/respawn penalties remain outside MVP 2; for this vertical slice, the player should be returned safely to the settlement or another defined recovery position while preserving relevant injury state.
+Defeat also resolves cleanly rather than leaving the player in a dead battle state. For MVP 2, defeat returns the player to the settlement spawn while preserving relevant injury state. Long-term death/respawn penalties remain outside this milestone.
 
 ## 12. Multiplayer Behavior
 
@@ -467,8 +466,8 @@ MVP 2 is complete when all of the following are true:
 
 1. The player enters a visually coherent forest settlement rather than a debug grid.
 2. The camera follows the local player smoothly.
-3. WASD and click/touch movement work with server-authoritative correction.
-4. At least two NPC roles are visible and interactable.
+3. WASD, click-to-move, touch targeting, and a virtual joystick work with server-authoritative correction.
+4. The guard/guide and healer are visible and interactable.
 5. The HUD shows player HP and core status information.
 6. Inventory can be opened and displays current items.
 7. A visible wolf encounter exists in the forest outskirts.
@@ -482,7 +481,7 @@ MVP 2 is complete when all of the following are true:
 15. The wolf automatically performs a legal server-side turn.
 16. The fight can progress without manual enemy commands.
 17. Victory grants visible loot and updates inventory.
-18. Defeat resolves cleanly and does not leave the session stuck.
+18. Defeat returns the player to the settlement spawn without leaving the session stuck.
 19. Injury state is visible and survives battle resolution within the session.
 20. The player returns to the shared world after battle.
 21. Two simultaneous clients still see each other in the world.

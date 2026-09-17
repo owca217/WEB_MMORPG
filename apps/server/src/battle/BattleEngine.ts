@@ -147,12 +147,17 @@ function validatePlayerActor(
   actorPlayerId: PlayerId,
   combatantId: string
 ): ActorValidationResult {
-  const validation = validateCommonActor(state, combatantId);
-  if (!validation.ok) return validation;
-  if (validation.combatant.ownerPlayerId !== actorPlayerId) {
+  if (state.finished) return reject("BATTLE_FINISHED", "Battle is already finished.");
+  const combatant = state.combatants[combatantId];
+  if (!combatant) return reject("COMBATANT_NOT_FOUND", "Combatant does not exist.");
+  if (combatant.ownerPlayerId !== actorPlayerId) {
     return reject("NOT_OWNER", "You do not own this combatant.");
   }
-  return validation;
+  if (state.activeCombatantId !== combatantId) {
+    return reject("NOT_ACTIVE_TURN", "This combatant is not active.");
+  }
+  if (combatant.hp <= 0) return reject("COMBATANT_DOWN", "Combatant is incapacitated.");
+  return { ok: true, combatant };
 }
 
 function validateNpcActor(state: BattleState, combatantId: string): ActorValidationResult {

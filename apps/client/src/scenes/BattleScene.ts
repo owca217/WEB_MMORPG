@@ -271,7 +271,6 @@ export class BattleScene extends Phaser.Scene {
     const actorObjects = owned
       ? this.createHeroActor(x, y, hexSize, combatant.hp <= 0)
       : this.createWolfActor(x, y, hexSize, combatant.hp <= 0);
-    for (const object of actorObjects) object.setDepth(13);
     this.renderObjects.push(...actorObjects);
 
     const hitTarget = this.add.zone(x, y, Math.max(48, hexSize * 1.25), Math.max(48, hexSize * 1.25))
@@ -309,11 +308,11 @@ export class BattleScene extends Phaser.Scene {
     down: boolean
   ): Phaser.GameObjects.GameObject[] {
     const alpha = down ? 0.42 : 1;
-    const shadow = this.add.ellipse(x, y + hexSize * 0.42, hexSize * 0.8, hexSize * 0.28, 0x101610, 0.42);
-    const body = this.add.rectangle(x, y + 2, hexSize * 0.34, hexSize * 0.7, 0x477da4, alpha);
-    const cloak = this.add.triangle(x, y + 6, -hexSize * 0.3, hexSize * 0.25, hexSize * 0.3, hexSize * 0.25, 0, -hexSize * 0.34, 0x355d48, alpha);
-    const head = this.add.circle(x, y - hexSize * 0.38, hexSize * 0.18, 0xdfb68e, alpha);
-    const weapon = this.add.rectangle(x + hexSize * 0.27, y - hexSize * 0.02, 3, hexSize * 0.68, 0xb9a16a, alpha).setRotation(0.35);
+    const shadow = this.add.ellipse(x, y + hexSize * 0.42, hexSize * 0.8, hexSize * 0.28, 0x101610, 0.42).setDepth(13);
+    const body = this.add.rectangle(x, y + 2, hexSize * 0.34, hexSize * 0.7, 0x477da4, alpha).setDepth(13);
+    const cloak = this.add.triangle(x, y + 6, -hexSize * 0.3, hexSize * 0.25, hexSize * 0.3, hexSize * 0.25, 0, -hexSize * 0.34, 0x355d48, alpha).setDepth(13);
+    const head = this.add.circle(x, y - hexSize * 0.38, hexSize * 0.18, 0xdfb68e, alpha).setDepth(13);
+    const weapon = this.add.rectangle(x + hexSize * 0.27, y - hexSize * 0.02, 3, hexSize * 0.68, 0xb9a16a, alpha).setRotation(0.35).setDepth(13);
     return [shadow, cloak, body, head, weapon];
   }
 
@@ -324,12 +323,12 @@ export class BattleScene extends Phaser.Scene {
     down: boolean
   ): Phaser.GameObjects.GameObject[] {
     const alpha = down ? 0.38 : 1;
-    const shadow = this.add.ellipse(x, y + hexSize * 0.34, hexSize * 0.95, hexSize * 0.24, 0x101610, 0.4);
-    const body = this.add.ellipse(x - hexSize * 0.06, y + hexSize * 0.05, hexSize * 0.82, hexSize * 0.45, 0x7b7468, alpha);
-    const head = this.add.circle(x + hexSize * 0.34, y - hexSize * 0.08, hexSize * 0.24, 0x8b8274, alpha);
-    const earA = this.add.triangle(x + hexSize * 0.23, y - hexSize * 0.3, -5, 8, 0, -8, 7, 7, 0x625d55, alpha);
-    const earB = this.add.triangle(x + hexSize * 0.42, y - hexSize * 0.31, -5, 8, 0, -8, 7, 7, 0x625d55, alpha);
-    const tail = this.add.line(x - hexSize * 0.38, y, 0, 0, -hexSize * 0.34, -hexSize * 0.16, 0x777064, alpha).setLineWidth(5);
+    const shadow = this.add.ellipse(x, y + hexSize * 0.34, hexSize * 0.95, hexSize * 0.24, 0x101610, 0.4).setDepth(13);
+    const body = this.add.ellipse(x - hexSize * 0.06, y + hexSize * 0.05, hexSize * 0.82, hexSize * 0.45, 0x7b7468, alpha).setDepth(13);
+    const head = this.add.circle(x + hexSize * 0.34, y - hexSize * 0.08, hexSize * 0.24, 0x8b8274, alpha).setDepth(13);
+    const earA = this.add.triangle(x + hexSize * 0.23, y - hexSize * 0.3, -5, 8, 0, -8, 7, 7, 0x625d55, alpha).setDepth(13);
+    const earB = this.add.triangle(x + hexSize * 0.42, y - hexSize * 0.31, -5, 8, 0, -8, 7, 7, 0x625d55, alpha).setDepth(13);
+    const tail = this.add.line(x - hexSize * 0.38, y, 0, 0, -hexSize * 0.34, -hexSize * 0.16, 0x777064, alpha).setLineWidth(5).setDepth(13);
     return [shadow, tail, body, head, earA, earB];
   }
 

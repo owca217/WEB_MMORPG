@@ -28,12 +28,17 @@ export function normalizeAnalogIntent(
   const magnitude = Math.hypot(offset.x, offset.y);
   if (magnitude < 8 || radius <= 0) return { dx: 0, dy: 0 };
 
-  const clamped = Math.min(magnitude, radius);
-  const scale = clamped / magnitude / radius;
-  return {
-    dx: offset.x * scale,
-    dy: offset.y * scale
-  };
+  const normalizedMagnitude = Math.min(magnitude / radius, 1);
+  let dx = (offset.x / magnitude) * normalizedMagnitude;
+  let dy = (offset.y / magnitude) * normalizedMagnitude;
+  const outputMagnitude = Math.hypot(dx, dy);
+
+  if (outputMagnitude > 1) {
+    dx /= outputMagnitude;
+    dy /= outputMagnitude;
+  }
+
+  return { dx, dy };
 }
 
 export function moveTowardTarget(

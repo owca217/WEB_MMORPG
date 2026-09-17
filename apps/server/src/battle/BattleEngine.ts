@@ -33,6 +33,10 @@ export type BattleResult =
   | { ok: true; state: BattleState }
   | { ok: false; code: string; message: string };
 
+type ActorValidationResult =
+  | { ok: true; combatant: CombatantState }
+  | { ok: false; code: string; message: string };
+
 export interface CreateBattleStateInput {
   id: BattleId;
   seed: number;
@@ -40,7 +44,7 @@ export interface CreateBattleStateInput {
   combatants: CreateCombatantInput[];
 }
 
-function reject(code: string, message: string): BattleResult {
+function reject(code: string, message: string): { ok: false; code: string; message: string } {
   return { ok: false, code, message };
 }
 
@@ -131,7 +135,7 @@ function validateActor(
   state: BattleState,
   actorPlayerId: PlayerId,
   combatantId: string
-): BattleResult | { ok: true; combatant: CombatantState } {
+): ActorValidationResult {
   if (state.finished) return reject("BATTLE_FINISHED", "Battle is already finished.");
   const combatant = state.combatants[combatantId];
   if (!combatant) return reject("COMBATANT_NOT_FOUND", "Combatant does not exist.");

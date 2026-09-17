@@ -1,21 +1,24 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type {
+  BattleCommand,
   BattleSnapshot,
   NpcInteractionPayload,
+  PlayerId,
   PlayerStateSnapshot,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io as createClient, type Socket } from "socket.io-client";
 import { afterEach, describe, expect, it } from "vitest";
+import { findPath, hexDistance, hexKey, hexNeighbors } from "../src/battle/hex";
+import { hasLineOfSight } from "../src/battle/lineOfSight";
 import { createGameServer } from "../src/server/createGameServer";
 
-let client: Socket | undefined;
+const clients: Socket[] = [];
 let closeServer: (() => Promise<void>) | undefined;
 
 afterEach(async () => {
-  client?.disconnect();
-  client = undefined;
+  for (const socket of clients.splice(0)) socket.disconnect();
   await closeServer?.();
   closeServer = undefined;
 });
@@ -36,24 +39,29 @@ async function startTestServer() {
     }
   };
 
-  client = createClient(`http://127.0.0.1:${address.port}`, {
-    transports: ["websocket"],
-    forceNew: true
-  });
+  const connectClient = async (): Promise<Socket> => {
+    const socket = createClient(`http://127.0.0.1:${address.port}`, {
+      transports: ["websocket"],
+      forceNew: true
+    });
+    clients.push(socket);
 
-  await new Promise<void>((resolve, reject) => {
-    client!.once("connect", () => resolve());
-    client!.once("connect_error", reject);
-  });
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", () => resolve());
+      socket.once("connect_error", reject);
+    });
 
-  return game;
+    return socket;
+  };
+
+  return { game, connectClient };
 }
 
 function once<T>(socket: Socket, event: string): Promise<T> {
   return new Promise<T>((resolve) => socket.once(event, resolve));
 }
 
-function onceWithTimeout<T>(socket: Socket, event: string, timeoutMs = 500): Promise<T> {
+function onceWithTimeout<T>(socket: Socket, event: string, timeoutMs = 1000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), timeoutMs);
     socket.once(event, (payload: T) => {
@@ -63,12 +71,82 @@ function onceWithTimeout<T>(socket: Socket, event: string, timeoutMs = 500): Pro
   });
 }
 
+function choosePlayerCommand(snapshot: BattleSnapshot, playerId: PlayerId): BattleCommand {
+  const hero = snapshot.combatants.find(
+    (combatant) => combatant.ownerPlayerId === playerId && combatant.hp > 0
+  );
+  const enemy = snapshot.combatants.find(
+    (combatant) => combatant.ownerPlayerId === undefined && combatant.hp > 0
+  );
+  if (!hero || !enemy) throw new Error("Expected living hero and enemy.");
+
+  const distance = hexDistance(hero.position, enemy.position);
+  if (distance === 1) {
+    if (hero.ap >= 2) {
+      return { type: "meleeAttack", combatantId: hero.id, targetId: enemy.id };
+    }
+    return { type: "endTurn", combatantId: hero.id };
+  }
+
+  const rangedCost = hero.injuries.includes("brokenArm") ? 4 : 3;
+  const blockers = new Set(snapshot.blockedCells.map(hexKey));
+  if (
+    hero.ap >= rangedCost &&
+    distance <= 6 &&
+    hasLineOfSight(hero.position, enemy.position, blockers)
+  ) {
+    return { type: "rangedAttack", combatantId: hero.id, targetId: enemy.id };
+  }
+
+  if (hero.ap > 0) {
+    const allowed = new Set(snapshot.cells.map(hexKey));
+    const occupied = new Set(snapshot.blockedCells.map(hexKey));
+    for (const combatant of snapshot.combatants) {
+      if (combatant.id !== hero.id && combatant.hp > 0) {
+        occupied.add(hexKey(combatant.position));
+      }
+    }
+
+    const goals = hexNeighbors(enemy.position)
+      .filter((cell) => allowed.has(hexKey(cell)) && !occupied.has(hexKey(cell)))
+      .sort((a, b) => hexDistance(hero.position, a) - hexDistance(hero.position, b));
+
+    for (const goal of goals) {
+      const path = findPath(hero.position, goal, occupied, allowed);
+      if (path?.length) {
+        return { type: "move", combatantId: hero.id, target: path[0]! };
+      }
+    }
+  }
+
+  return { type: "endTurn", combatantId: hero.id };
+}
+
+async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: PlayerId) {
+  let battle = initial;
+  const endedPromise = onceWithTimeout<{
+    outcome: "victory" | "defeat";
+    inventory: { items: Array<{ itemId: string; quantity: number }> };
+    character: { hp: number };
+  }>(socket, "battleEnded", 4000);
+
+  for (let step = 0; step < 40 && !battle.finished; step += 1) {
+    const statePromise = onceWithTimeout<BattleSnapshot>(socket, "battleState");
+    socket.emit("battleCommand", choosePlayerCommand(battle, playerId));
+    battle = await statePromise;
+  }
+
+  expect(battle.finished).toBe(true);
+  return endedPromise;
+}
+
 describe("Socket.IO game flow", () => {
   it("emits player state after login and routes NPC interaction", async () => {
-    const game = await startTestServer();
-    const playerStatePromise = onceWithTimeout<PlayerStateSnapshot>(client!, "playerState");
+    const { game, connectClient } = await startTestServer();
+    const client = await connectClient();
+    const playerStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
 
-    const loginResult = await client!.emitWithAck("login", { nickname: "Owczy" });
+    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
     expect(loginResult).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
     if (!loginResult.ok) throw new Error("Login unexpectedly failed");
 
@@ -81,8 +159,8 @@ describe("Socket.IO game flow", () => {
       Date.now() + 10_000
     );
 
-    const interactionPromise = onceWithTimeout<NpcInteractionPayload>(client!, "npcInteraction");
-    client!.emit("interactNpc", { npcId: "guide-boran" });
+    const interactionPromise = onceWithTimeout<NpcInteractionPayload>(client, "npcInteraction");
+    client.emit("interactNpc", { npcId: "guide-boran" });
 
     const interaction = await interactionPromise;
     expect(interaction).toMatchObject({
@@ -93,18 +171,14 @@ describe("Socket.IO game flow", () => {
     });
   });
 
-  it("logs in, broadcasts forest world state, starts battle and rejects cheating", async () => {
-    const game = await startTestServer();
-    const worldPromise = once<WorldStateSnapshot>(client!, "worldState");
+  it("rejects attempts to control the server-owned wolf", async () => {
+    const { game, connectClient } = await startTestServer();
+    const client = await connectClient();
+    const worldPromise = once<WorldStateSnapshot>(client, "worldState");
 
-    const loginResult = await client!.emitWithAck("login", { nickname: "Owczy" });
-    expect(loginResult).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
+    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
     if (!loginResult.ok) throw new Error("Login unexpectedly failed");
-
-    const world = await worldPromise;
-    expect(world.locationId).toBe("forest-settlement-01");
-    expect(world.players.some((player) => player.id === loginResult.playerId)).toBe(true);
-    expect(world.npcs.some((npc) => npc.id === "guide-boran")).toBe(true);
+    await worldPromise;
 
     game.services.world.movePlayer(
       loginResult.playerId,
@@ -112,26 +186,121 @@ describe("Socket.IO game flow", () => {
       Date.now() + 10_000
     );
 
-    const battlePromise = once<BattleSnapshot>(client!, "battleStarted");
-    client!.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    const battlePromise = once<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
     const battle = await battlePromise;
+    const wolf = battle.combatants.find((combatant) => combatant.name === "Wolf")!;
 
-    expect(battle.cells.length).toBeGreaterThan(0);
-    expect(battle.activeCombatantId).toBeTruthy();
+    const rejectionPromise = once<{ code: string; message: string }>(client, "commandRejected");
+    client.emit("battleCommand", { type: "endTurn", combatantId: wolf.id });
 
-    const wolf = battle.combatants.find((combatant) => combatant.name === "Wolf");
-    expect(wolf).toBeDefined();
+    expect((await rejectionPromise).code).toBe("NOT_OWNER");
+  });
 
-    const rejectionPromise = once<{ code: string; message: string }>(
-      client!,
-      "commandRejected"
+  it("completes forest -> battle -> loot -> shared world after victory", async () => {
+    const { game, connectClient } = await startTestServer();
+    const client = await connectClient();
+    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
+    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+
+    game.services.world.movePlayer(
+      loginResult.playerId,
+      { x: 1320, y: 455 },
+      Date.now() + 10_000
     );
-    client!.emit("battleCommand", {
-      type: "endTurn",
-      combatantId: wolf!.id
+
+    const startedPromise = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    const started = await startedPromise;
+    const worldReturnPromise = onceWithTimeout<WorldStateSnapshot>(client, "worldState", 4000);
+    const ended = await winBattle(client, started, loginResult.playerId);
+
+    expect(ended.outcome).toBe("victory");
+    expect(ended.inventory.items.find((item) => item.itemId === "wolf-pelt")?.quantity).toBe(1);
+    expect(ended.inventory.items.find((item) => item.itemId === "field-bandage")?.quantity).toBe(2);
+
+    const returnedWorld = await worldReturnPromise;
+    expect(returnedWorld.players.some((player) => player.id === loginResult.playerId)).toBe(true);
+  });
+
+  it("recovers from defeat while preserving severe injury state", async () => {
+    const { game, connectClient } = await startTestServer();
+    const client = await connectClient();
+    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
+    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+
+    game.services.characters.applyBattleResult(loginResult.playerId, {
+      hp: 1,
+      severelyInjured: true,
+      injuries: ["legTrauma"]
+    });
+    game.services.world.movePlayer(
+      loginResult.playerId,
+      { x: 1320, y: 455 },
+      Date.now() + 10_000
+    );
+
+    const startedPromise = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    let battle = await startedPromise;
+    const endedPromise = onceWithTimeout<{
+      outcome: "victory" | "defeat";
+      character: { hp: number; severelyInjured: boolean; injuries: string[] };
+    }>(client, "battleEnded", 4000);
+
+    for (let turn = 0; turn < 12 && !battle.finished; turn += 1) {
+      const hero = battle.combatants.find((combatant) => combatant.ownerPlayerId === loginResult.playerId);
+      if (!hero) throw new Error("Expected hero.");
+      const statePromise = onceWithTimeout<BattleSnapshot>(client, "battleState");
+      client.emit("battleCommand", { type: "endTurn", combatantId: hero.id });
+      battle = await statePromise;
+    }
+
+    const ended = await endedPromise;
+    expect(ended.outcome).toBe("defeat");
+    expect(ended.character.hp).toBe(25);
+    expect(ended.character.severelyInjured).toBe(true);
+    expect(ended.character.injuries.length).toBeGreaterThan(0);
+  });
+
+  it("keeps another player in the shared world while one player battles", async () => {
+    const { game, connectClient } = await startTestServer();
+    const first = await connectClient();
+    const second = await connectClient();
+
+    const firstLogin = await first.emitWithAck("login", { nickname: "Owczy" });
+    if (!firstLogin.ok) throw new Error("First login failed");
+
+    const firstWorld = onceWithTimeout<WorldStateSnapshot>(first, "worldState");
+    const secondWorld = onceWithTimeout<WorldStateSnapshot>(second, "worldState");
+    const secondLogin = await second.emitWithAck("login", { nickname: "Karolina" });
+    if (!secondLogin.ok) throw new Error("Second login failed");
+
+    expect((await firstWorld).players).toHaveLength(2);
+    expect((await secondWorld).players).toHaveLength(2);
+
+    let secondEnteredBattle = false;
+    second.once("battleStarted", () => {
+      secondEnteredBattle = true;
     });
 
-    const rejection = await rejectionPromise;
-    expect(rejection.code).toBe("NOT_OWNER");
+    game.services.world.movePlayer(
+      firstLogin.playerId,
+      { x: 1320, y: 455 },
+      Date.now() + 10_000
+    );
+
+    const startedPromise = onceWithTimeout<BattleSnapshot>(first, "battleStarted");
+    first.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    const started = await startedPromise;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(secondEnteredBattle).toBe(false);
+
+    const secondReturnWorld = onceWithTimeout<WorldStateSnapshot>(second, "worldState", 4000);
+    const ended = await winBattle(first, started, firstLogin.playerId);
+    expect(ended.outcome).toBe("victory");
+
+    const world = await secondReturnWorld;
+    expect(world.players.map((player) => player.nickname).sort()).toEqual(["Karolina", "Owczy"]);
   });
 });

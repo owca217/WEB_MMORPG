@@ -1,25 +1,45 @@
 import type {
   BattleCommand,
   BattleSnapshot,
+  CharacterSnapshot,
   ClientToServerEvents,
   InventorySnapshot,
   LoginResult,
+  NpcInteractionPayload,
+  PlayerStateSnapshot,
   ServerToClientEvents,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+export type ConnectionState = "connected" | "connecting" | "disconnected";
+
+export interface BattleEndedPayload {
+  outcome: "victory" | "defeat";
+  inventory: InventorySnapshot;
+  character: CharacterSnapshot;
+}
 
 export class GameSocket {
   private socket: GameClientSocket | null = null;
+  private connectionState: ConnectionState = "connecting";
+  private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
 
   connect(): GameClientSocket {
     if (this.socket) return this.socket;
 
     const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
-    this.socket = io(serverUrl, { transports: ["websocket"] });
-    return this.socket;
+    const socket = io(serverUrl, { transports: ["websocket"] });
+    this.socket = socket;
+
+    socket.on("connect", () => this.setConnectionState("connected"));
+    socket.on("disconnect", () => this.setConnectionState("disconnected"));
+    socket.on("connect_error", () => this.setConnectionState("disconnected"));
+    socket.io.on("reconnect_attempt", () => this.setConnectionState("connecting"));
+    socket.io.on("reconnect_failed", () => this.setConnectionState("disconnected"));
+
+    return socket;
   }
 
   async login(nickname: string): Promise<LoginResult> {
@@ -29,6 +49,22 @@ export class GameSocket {
 
   sendMoveIntent(position: { x: number; y: number }): void {
     this.connect().emit("moveIntent", position);
+  }
+
+  requestPlayerState(): void {
+    this.connect().emit("requestPlayerState");
+  }
+
+  requestWorldState(): void {
+    this.connect().emit("requestWorldState");
+  }
+
+  interactNpc(npcId: string): void {
+    this.connect().emit("interactNpc", { npcId });
+  }
+
+  healAtNpc(npcId: string): void {
+    this.connect().emit("healAtNpc", { npcId });
   }
 
   startEncounter(encounterId: string): void {
@@ -45,6 +81,18 @@ export class GameSocket {
     return () => socket.off("worldState", handler);
   }
 
+  onPlayerState(handler: (snapshot: PlayerStateSnapshot) => void): () => void {
+    const socket = this.connect();
+    socket.on("playerState", handler);
+    return () => socket.off("playerState", handler);
+  }
+
+  onNpcInteraction(handler: (payload: NpcInteractionPayload) => void): () => void {
+    const socket = this.connect();
+    socket.on("npcInteraction", handler);
+    return () => socket.off("npcInteraction", handler);
+  }
+
   onBattleStarted(handler: (snapshot: BattleSnapshot) => void): () => void {
     const socket = this.connect();
     socket.on("battleStarted", handler);
@@ -57,7 +105,7 @@ export class GameSocket {
     return () => socket.off("battleState", handler);
   }
 
-  onBattleEnded(handler: (payload: { inventory: InventorySnapshot }) => void): () => void {
+  onBattleEnded(handler: (payload: BattleEndedPayload) => void): () => void {
     const socket = this.connect();
     socket.on("battleEnded", handler);
     return () => socket.off("battleEnded", handler);
@@ -69,6 +117,18 @@ export class GameSocket {
     const socket = this.connect();
     socket.on("commandRejected", handler);
     return () => socket.off("commandRejected", handler);
+  }
+
+  onConnectionState(handler: (state: ConnectionState) => void): () => void {
+    this.connectionHandlers.add(handler);
+    handler(this.connectionState);
+    return () => this.connectionHandlers.delete(handler);
+  }
+
+  private setConnectionState(state: ConnectionState): void {
+    if (this.connectionState === state) return;
+    this.connectionState = state;
+    for (const handler of this.connectionHandlers) handler(state);
   }
 }
 

@@ -23,16 +23,16 @@ describe("WorldService", () => {
     const world = createTestWorld();
     world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);
 
-    const result = world.movePlayer("p1", { x: 1000, y: 450 }, 1000);
+    const result = world.movePlayer("p1", { x: 1000, y: 470 }, 1000);
 
-    expect(result.x).toBeCloseTo(520, 5);
-    expect(result.y).toBeCloseTo(450, 5);
+    expect(result.x).toBeCloseTo(580, 5);
+    expect(result.y).toBeCloseTo(470, 5);
   });
 
   it("starts the wolf encounter only inside activation radius", () => {
     const world = createTestWorld();
     world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);
-    world.movePlayer("p1", { x: 1050, y: 450 }, 100000);
+    world.movePlayer("p1", { x: 1320, y: 455 }, 100000);
 
     expect(world.startEncounter("p1", "wolf-pack-01").id).toBe("wolf-pack-01");
   });
@@ -46,14 +46,25 @@ describe("WorldService", () => {
     );
   });
 
-  it("requires the authored forest settlement and NPC interaction API", () => {
-    const sessions = new SessionStore();
-    const login = sessions.login("Owczy");
+  it("exposes guide, healer and wolf encounter in the forest settlement", () => {
+    const snapshot = new WorldService().snapshot("forest-settlement-01");
 
-    expect(login).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
-    expect(typeof (createTestWorld() as unknown as { interactNpc?: unknown }).interactNpc).toBe(
-      "function"
-    );
+    expect(snapshot.npcs.map((npc) => npc.kind).sort()).toEqual(["guide", "healer"]);
+    expect(snapshot.encounters.some((encounter) => encounter.id === "wolf-pack-01")).toBe(true);
+  });
+
+  it("allows NPC interaction only inside the configured radius", () => {
+    const world = createTestWorld();
+    world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);
+
+    expect(() => world.interactNpc("p1", "healer-ada")).toThrow("NPC_OUT_OF_RANGE");
+
+    world.movePlayer("p1", { x: 720, y: 535 }, 100000);
+    expect(world.interactNpc("p1", "healer-ada")).toMatchObject({
+      id: "healer-ada",
+      kind: "healer",
+      name: "Ada"
+    });
   });
 });
 
@@ -62,7 +73,10 @@ describe("SessionStore", () => {
     const sessions = new SessionStore();
 
     expect(sessions.login("ab")).toMatchObject({ ok: false, code: "INVALID_NICKNAME" });
-    expect(sessions.login("Owczy")).toMatchObject({ ok: true, locationId: "meadow-01" });
+    expect(sessions.login("Owczy")).toMatchObject({
+      ok: true,
+      locationId: "forest-settlement-01"
+    });
     expect(sessions.login("owczy")).toMatchObject({ ok: false, code: "NICKNAME_IN_USE" });
   });
 });

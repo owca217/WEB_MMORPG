@@ -34,7 +34,7 @@ export class SessionStore {
     }
 
     const playerId = randomUUID();
-    const locationId: LocationId = "meadow-01";
+    const locationId: LocationId = "forest-settlement-01";
 
     this.sessions.set(playerId, { playerId, nickname, locationId });
 

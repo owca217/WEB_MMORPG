@@ -2,7 +2,7 @@ import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { PlayerStateSnapshot } from "./character";
 import type { InventorySnapshot } from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
-import type { WorldStateSnapshot } from "./world";
+import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
 export interface ClientToServerEvents {
   login: (
@@ -14,11 +14,14 @@ export interface ClientToServerEvents {
   battleCommand: (payload: BattleCommand) => void;
   requestPlayerState: () => void;
   requestWorldState: () => void;
+  interactNpc: (payload: { npcId: string }) => void;
+  healAtNpc: (payload: { npcId: string }) => void;
 }
 
 export interface ServerToClientEvents {
   worldState: (snapshot: WorldStateSnapshot) => void;
   playerState: (snapshot: PlayerStateSnapshot) => void;
+  npcInteraction: (payload: NpcInteractionPayload) => void;
   battleStarted: (snapshot: BattleSnapshot) => void;
   battleState: (snapshot: BattleSnapshot) => void;
   battleEnded: (payload: { inventory: InventorySnapshot }) => void;

@@ -1,14 +1,15 @@
 import type {
   EncounterSnapshot,
   LocationId,
+  NpcSnapshot,
   PlayerId,
   WorldPlayerSnapshot,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import {
   ENCOUNTER_ACTIVATION_RADIUS,
-  MAX_WORLD_SPEED,
-  MEADOW_01
+  FOREST_SETTLEMENT_01,
+  MAX_WORLD_SPEED
 } from "./worldFixtures";
 
 interface WorldPlayerState extends WorldPlayerSnapshot {
@@ -23,9 +24,9 @@ export class WorldService {
     const player: WorldPlayerState = {
       id: input.id,
       nickname: input.nickname,
-      x: MEADOW_01.spawn.x,
-      y: MEADOW_01.spawn.y,
-      locationId: MEADOW_01.id,
+      x: FOREST_SETTLEMENT_01.spawn.x,
+      y: FOREST_SETTLEMENT_01.spawn.y,
+      locationId: FOREST_SETTLEMENT_01.id,
       lastMoveAt: now
     };
 
@@ -42,9 +43,7 @@ export class WorldService {
     intent: { x: number; y: number },
     now = Date.now()
   ): WorldPlayerSnapshot {
-    const player = this.players.get(playerId);
-    if (!player) throw new Error("PLAYER_NOT_FOUND");
-
+    const player = this.requirePlayer(playerId);
     const elapsed = Math.max(0, (now - player.lastMoveAt) / 1000);
     const maxDistance = MAX_WORLD_SPEED * elapsed;
     const dx = intent.x - player.x;
@@ -52,18 +51,22 @@ export class WorldService {
     const distance = Math.hypot(dx, dy);
     const scale = distance > maxDistance && distance > 0 ? maxDistance / distance : 1;
 
-    player.x = Math.min(MEADOW_01.width, Math.max(0, player.x + dx * scale));
-    player.y = Math.min(MEADOW_01.height, Math.max(0, player.y + dy * scale));
+    player.x = Math.min(
+      FOREST_SETTLEMENT_01.width,
+      Math.max(0, player.x + dx * scale)
+    );
+    player.y = Math.min(
+      FOREST_SETTLEMENT_01.height,
+      Math.max(0, player.y + dy * scale)
+    );
     player.lastMoveAt = now;
 
     return this.toSnapshot(player);
   }
 
   startEncounter(playerId: PlayerId, encounterId: string): EncounterSnapshot {
-    const player = this.players.get(playerId);
-    if (!player) throw new Error("PLAYER_NOT_FOUND");
-
-    const encounter = MEADOW_01.encounters.find((item) => item.id === encounterId);
+    const player = this.requirePlayer(playerId);
+    const encounter = FOREST_SETTLEMENT_01.encounters.find((item) => item.id === encounterId);
     if (!encounter) throw new Error("ENCOUNTER_NOT_FOUND");
 
     const distance = Math.hypot(encounter.x - player.x, encounter.y - player.y);
@@ -71,7 +74,28 @@ export class WorldService {
       throw new Error("ENCOUNTER_OUT_OF_RANGE");
     }
 
-    return encounter;
+    return { ...encounter };
+  }
+
+  interactNpc(playerId: PlayerId, npcId: string): NpcSnapshot {
+    const player = this.requirePlayer(playerId);
+    const npc = FOREST_SETTLEMENT_01.npcs.find((item) => item.id === npcId);
+    if (!npc) throw new Error("NPC_NOT_FOUND");
+
+    const distance = Math.hypot(npc.x - player.x, npc.y - player.y);
+    if (distance > npc.interactionRadius) {
+      throw new Error("NPC_OUT_OF_RANGE");
+    }
+
+    return { ...npc };
+  }
+
+  resetPlayerToSpawn(playerId: PlayerId, now = Date.now()): WorldPlayerSnapshot {
+    const player = this.requirePlayer(playerId);
+    player.x = FOREST_SETTLEMENT_01.spawn.x;
+    player.y = FOREST_SETTLEMENT_01.spawn.y;
+    player.lastMoveAt = now;
+    return this.toSnapshot(player);
   }
 
   getPlayer(playerId: PlayerId): WorldPlayerSnapshot | undefined {
@@ -79,14 +103,27 @@ export class WorldService {
     return player ? this.toSnapshot(player) : undefined;
   }
 
-  snapshot(locationId: LocationId = MEADOW_01.id): WorldStateSnapshot {
+  snapshot(locationId: LocationId = FOREST_SETTLEMENT_01.id): WorldStateSnapshot {
+    const isForestSettlement = locationId === FOREST_SETTLEMENT_01.id;
+
     return {
       locationId,
       players: [...this.players.values()]
         .filter((player) => player.locationId === locationId)
         .map((player) => this.toSnapshot(player)),
-      encounters: locationId === MEADOW_01.id ? [...MEADOW_01.encounters] : []
+      encounters: isForestSettlement
+        ? FOREST_SETTLEMENT_01.encounters.map((encounter) => ({ ...encounter }))
+        : [],
+      npcs: isForestSettlement
+        ? FOREST_SETTLEMENT_01.npcs.map((npc) => ({ ...npc }))
+        : []
     };
+  }
+
+  private requirePlayer(playerId: PlayerId): WorldPlayerState {
+    const player = this.players.get(playerId);
+    if (!player) throw new Error("PLAYER_NOT_FOUND");
+    return player;
   }
 
   private toSnapshot(player: WorldPlayerState): WorldPlayerSnapshot {

@@ -49,20 +49,22 @@ function once<T>(socket: Socket, event: string): Promise<T> {
 }
 
 describe("Socket.IO game flow", () => {
-  it("logs in, broadcasts world state, starts battle and rejects cheating", async () => {
+  it("logs in, broadcasts forest world state, starts battle and rejects cheating", async () => {
     const game = await startTestServer();
     const worldPromise = once<WorldStateSnapshot>(client!, "worldState");
 
     const loginResult = await client!.emitWithAck("login", { nickname: "Owczy" });
-    expect(loginResult).toMatchObject({ ok: true, locationId: "meadow-01" });
+    expect(loginResult).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
     if (!loginResult.ok) throw new Error("Login unexpectedly failed");
 
     const world = await worldPromise;
+    expect(world.locationId).toBe("forest-settlement-01");
     expect(world.players.some((player) => player.id === loginResult.playerId)).toBe(true);
+    expect(world.npcs.some((npc) => npc.id === "guide-boran")).toBe(true);
 
     game.services.world.movePlayer(
       loginResult.playerId,
-      { x: 1050, y: 450 },
+      { x: 1320, y: 455 },
       Date.now() + 10_000
     );
 

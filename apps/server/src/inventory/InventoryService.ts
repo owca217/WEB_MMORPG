@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   InventoryItem,
   InventorySnapshot,
+  ItemCategory,
   PlayerId
 } from "@web-mmorpg/shared";
 
@@ -9,6 +10,8 @@ export interface LootItemDefinition {
   itemId: string;
   name: string;
   quantity: number;
+  category: ItemCategory;
+  description: string;
 }
 
 export class InventoryService {
@@ -26,7 +29,9 @@ export class InventoryService {
           instanceId: randomUUID(),
           itemId: item.itemId,
           name: item.name,
-          quantity: item.quantity
+          quantity: item.quantity,
+          category: item.category,
+          description: item.description
         });
       }
     }
@@ -39,5 +44,9 @@ export class InventoryService {
     return {
       items: (this.inventories.get(playerId) ?? []).map((item) => ({ ...item }))
     };
+  }
+
+  removePlayer(playerId: PlayerId): void {
+    this.inventories.delete(playerId);
   }
 }

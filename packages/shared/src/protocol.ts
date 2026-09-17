@@ -1,4 +1,5 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
+import type { PlayerStateSnapshot } from "./character";
 import type { InventorySnapshot } from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
 import type { WorldStateSnapshot } from "./world";
@@ -11,10 +12,13 @@ export interface ClientToServerEvents {
   moveIntent: (payload: { x: number; y: number }) => void;
   startEncounter: (payload: { encounterId: string }) => void;
   battleCommand: (payload: BattleCommand) => void;
+  requestPlayerState: () => void;
+  requestWorldState: () => void;
 }
 
 export interface ServerToClientEvents {
   worldState: (snapshot: WorldStateSnapshot) => void;
+  playerState: (snapshot: PlayerStateSnapshot) => void;
   battleStarted: (snapshot: BattleSnapshot) => void;
   battleState: (snapshot: BattleSnapshot) => void;
   battleEnded: (payload: { inventory: InventorySnapshot }) => void;

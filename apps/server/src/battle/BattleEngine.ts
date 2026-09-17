@@ -131,22 +131,37 @@ function advanceTurn(state: BattleState): BattleState {
   return next;
 }
 
-function validateActor(
-  state: BattleState,
-  actorPlayerId: PlayerId,
-  combatantId: string
-): ActorValidationResult {
+function validateCommonActor(state: BattleState, combatantId: string): ActorValidationResult {
   if (state.finished) return reject("BATTLE_FINISHED", "Battle is already finished.");
   const combatant = state.combatants[combatantId];
   if (!combatant) return reject("COMBATANT_NOT_FOUND", "Combatant does not exist.");
-  if (combatant.ownerPlayerId !== actorPlayerId) {
-    return reject("NOT_OWNER", "You do not own this combatant.");
-  }
   if (state.activeCombatantId !== combatantId) {
     return reject("NOT_ACTIVE_TURN", "This combatant is not active.");
   }
   if (combatant.hp <= 0) return reject("COMBATANT_DOWN", "Combatant is incapacitated.");
   return { ok: true, combatant };
+}
+
+function validatePlayerActor(
+  state: BattleState,
+  actorPlayerId: PlayerId,
+  combatantId: string
+): ActorValidationResult {
+  const validation = validateCommonActor(state, combatantId);
+  if (!validation.ok) return validation;
+  if (validation.combatant.ownerPlayerId !== actorPlayerId) {
+    return reject("NOT_OWNER", "You do not own this combatant.");
+  }
+  return validation;
+}
+
+function validateNpcActor(state: BattleState, combatantId: string): ActorValidationResult {
+  const validation = validateCommonActor(state, combatantId);
+  if (!validation.ok) return validation;
+  if (validation.combatant.side !== "enemy" || validation.combatant.ownerPlayerId !== undefined) {
+    return reject("NOT_NPC", "Only a server-owned enemy can use an NPC command.");
+  }
+  return validation;
 }
 
 function targetCombatant(state: BattleState, targetId: string): CombatantState | null {
@@ -169,15 +184,11 @@ function applyAttack(
   return next;
 }
 
-export function applyBattleCommand(
+function applyValidatedCommand(
   state: BattleState,
-  actorPlayerId: PlayerId,
+  actor: CombatantState,
   command: BattleCommand
 ): BattleResult {
-  const validation = validateActor(state, actorPlayerId, command.combatantId);
-  if (!validation.ok) return validation;
-  const actor = validation.combatant;
-
   if (command.type === "move") {
     const allowed = new Set(state.arena.cells.map(hexKey));
     const blocked = new Set(state.arena.blockedCells.map(hexKey));
@@ -225,4 +236,23 @@ export function applyBattleCommand(
   next.finished = battleFinished(next.combatants);
   if (next.finished) return { ok: true, state: next };
   return { ok: true, state: advanceTurn(next) };
+}
+
+export function applyBattleCommand(
+  state: BattleState,
+  actorPlayerId: PlayerId,
+  command: BattleCommand
+): BattleResult {
+  const validation = validatePlayerActor(state, actorPlayerId, command.combatantId);
+  if (!validation.ok) return validation;
+  return applyValidatedCommand(state, validation.combatant, command);
+}
+
+export function applyNpcBattleCommand(
+  state: BattleState,
+  command: BattleCommand
+): BattleResult {
+  const validation = validateNpcActor(state, command.combatantId);
+  if (!validation.ok) return validation;
+  return applyValidatedCommand(state, validation.combatant, command);
 }

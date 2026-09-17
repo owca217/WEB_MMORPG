@@ -1,29 +1,43 @@
-import type { PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { gameSocket } from "../net/GameSocket";
-
-interface PlayerView {
-  body: Phaser.GameObjects.Arc;
-  label: Phaser.GameObjects.Text;
-}
+import { playerStateStore } from "../state/PlayerStateStore";
+import { CharacterPanel } from "../ui/CharacterPanel";
+import { DialoguePanel } from "../ui/DialoguePanel";
+import { InventoryPanel } from "../ui/InventoryPanel";
+import { WorldHud } from "../ui/WorldHud";
+import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
+import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
+import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
 
 interface WorldSceneData {
   playerId: PlayerId;
 }
 
+const WORLD_ERROR_LABELS: Record<string, string> = {
+  ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do wilków.",
+  NPC_OUT_OF_RANGE: "Podejdź bliżej do tej postaci.",
+  NPC_NOT_FOUND: "Nie znaleziono tej postaci.",
+  HEAL_REJECTED: "Leczenie nie jest teraz dostępne."
+};
+
 export class WorldScene extends Phaser.Scene {
   private playerId: PlayerId = "";
-  private readonly playerViews = new Map<PlayerId, PlayerView>();
-  private readonly encounterViews = new Map<string, Phaser.GameObjects.Arc>();
-  private unsubscribeWorld?: () => void;
-  private unsubscribeRejected?: () => void;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private pointerTarget: { x: number; y: number } | null = null;
-  private localPosition = { x: 300, y: 450 };
-  private latestSnapshot?: WorldStateSnapshot;
+  private localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
+  private authoritativePosition: { x: number; y: number } | null = null;
   private lastIntentSentAt = 0;
+  private cameraFollowing = false;
+  private backgroundRenderer?: ForestSettlementRenderer;
+  private entitiesRenderer?: WorldEntitiesRenderer;
+  private hud?: WorldHud;
+  private inventoryPanel?: InventoryPanel;
+  private characterPanel?: CharacterPanel;
+  private dialoguePanel?: DialoguePanel;
+  private readonly cleanups: Array<() => void> = [];
 
   constructor() {
     super("WorldScene");
@@ -31,15 +45,49 @@ export class WorldScene extends Phaser.Scene {
 
   init(data: WorldSceneData): void {
     this.playerId = data.playerId;
+    this.pointerTarget = null;
+    this.authoritativePosition = null;
+    this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
+    this.cameraFollowing = false;
   }
 
   create(): void {
-    this.cameras.main.setBackgroundColor(0x1f3522);
-    this.cameras.main.setBounds(0, 0, 1600, 900);
-    this.physics.world.setBounds(0, 0, 1600, 900);
+    this.cameras.main.setBackgroundColor(0x29452d);
+    this.cameras.main.setBounds(
+      0,
+      0,
+      FOREST_SETTLEMENT_LAYOUT.width,
+      FOREST_SETTLEMENT_LAYOUT.height
+    );
+    this.physics.world.setBounds(
+      0,
+      0,
+      FOREST_SETTLEMENT_LAYOUT.width,
+      FOREST_SETTLEMENT_LAYOUT.height
+    );
 
-    const grid = this.add.grid(800, 450, 1600, 900, 64, 64, 0x27472c, 1, 0x355b3a, 0.35);
-    grid.setDepth(-10);
+    this.backgroundRenderer = new ForestSettlementRenderer(this);
+    this.backgroundRenderer.render();
+
+    this.entitiesRenderer = new WorldEntitiesRenderer(this, this.playerId);
+    this.entitiesRenderer.onNpcSelected = (npcId) => {
+      this.pointerTarget = null;
+      gameSocket.interactNpc(npcId);
+    };
+    this.entitiesRenderer.onEncounterSelected = (encounterId) => {
+      this.pointerTarget = null;
+      gameSocket.startEncounter(encounterId);
+    };
+
+    this.inventoryPanel = new InventoryPanel();
+    this.characterPanel = new CharacterPanel();
+    this.dialoguePanel = new DialoguePanel({
+      onHeal: (npcId) => gameSocket.healAtNpc(npcId)
+    });
+    this.hud = new WorldHud({
+      onInventory: () => this.inventoryPanel?.toggle(),
+      onCharacter: () => this.characterPanel?.toggle()
+    });
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -50,21 +98,34 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      this.pointerTarget = { x: pointer.worldX, y: pointer.worldY };
+      this.pointerTarget = {
+        x: Phaser.Math.Clamp(pointer.worldX, 0, FOREST_SETTLEMENT_LAYOUT.width),
+        y: Phaser.Math.Clamp(pointer.worldY, 0, FOREST_SETTLEMENT_LAYOUT.height)
+      };
     });
 
-    this.unsubscribeWorld = gameSocket.onWorldState((snapshot) => this.renderWorld(snapshot));
-    this.unsubscribeRejected = gameSocket.onCommandRejected(({ message }) => {
-      this.showToast(message);
-    });
+    this.cleanups.push(
+      gameSocket.onWorldState((snapshot) => this.renderWorld(snapshot)),
+      gameSocket.onPlayerState((state) => {
+        playerStateStore.set(state);
+        this.hud?.update(state);
+        this.inventoryPanel?.update(state.inventory);
+        this.characterPanel?.update(state.character);
+      }),
+      gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
+      gameSocket.onConnectionState((state) => this.hud?.setConnectionState(state)),
+      gameSocket.onCommandRejected(({ code, message }) => {
+        this.showToast(WORLD_ERROR_LABELS[code] ?? message);
+      }),
+      gameSocket.onBattleStarted((snapshot) => {
+        this.scene.start("BattleScene", { playerId: this.playerId, snapshot });
+      })
+    );
 
-    // Request a fresh authoritative snapshot after this scene has subscribed.
-    gameSocket.sendMoveIntent(this.localPosition);
+    gameSocket.requestWorldState();
+    gameSocket.requestPlayerState();
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.unsubscribeWorld?.();
-      this.unsubscribeRejected?.();
-    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
   }
 
   update(_time: number, delta: number): void {
@@ -82,26 +143,53 @@ export class WorldScene extends Phaser.Scene {
     if (hasKeyboardIntent) {
       this.pointerTarget = null;
       this.localPosition = {
-        x: Phaser.Math.Clamp(this.localPosition.x + keyboardIntent.dx * travel, 0, 1600),
-        y: Phaser.Math.Clamp(this.localPosition.y + keyboardIntent.dy * travel, 0, 900)
+        x: Phaser.Math.Clamp(
+          this.localPosition.x + keyboardIntent.dx * travel,
+          0,
+          FOREST_SETTLEMENT_LAYOUT.width
+        ),
+        y: Phaser.Math.Clamp(
+          this.localPosition.y + keyboardIntent.dy * travel,
+          0,
+          FOREST_SETTLEMENT_LAYOUT.height
+        )
       };
     } else if (this.pointerTarget) {
       this.localPosition = moveTowardTarget(this.localPosition, this.pointerTarget, travel);
-      if (Phaser.Math.Distance.Between(
+      if (
+        Phaser.Math.Distance.Between(
+          this.localPosition.x,
+          this.localPosition.y,
+          this.pointerTarget.x,
+          this.pointerTarget.y
+        ) < 2
+      ) {
+        this.pointerTarget = null;
+      }
+    } else if (this.authoritativePosition) {
+      this.localPosition = {
+        x: Phaser.Math.Linear(this.localPosition.x, this.authoritativePosition.x, 0.12),
+        y: Phaser.Math.Linear(this.localPosition.y, this.authoritativePosition.y, 0.12)
+      };
+    }
+
+    if (this.authoritativePosition) {
+      const correctionDistance = Phaser.Math.Distance.Between(
         this.localPosition.x,
         this.localPosition.y,
-        this.pointerTarget.x,
-        this.pointerTarget.y
-      ) < 2) {
-        this.pointerTarget = null;
+        this.authoritativePosition.x,
+        this.authoritativePosition.y
+      );
+      if (correctionDistance > 120) {
+        this.localPosition = {
+          x: Phaser.Math.Linear(this.localPosition.x, this.authoritativePosition.x, 0.3),
+          y: Phaser.Math.Linear(this.localPosition.y, this.authoritativePosition.y, 0.3)
+        };
       }
     }
 
-    const localView = this.playerViews.get(this.playerId);
-    if (localView) {
-      localView.body.setPosition(this.localPosition.x, this.localPosition.y);
-      localView.label.setPosition(this.localPosition.x, this.localPosition.y - 30);
-    }
+    this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x, this.localPosition.y);
+    this.entitiesRenderer?.updateRemotePlayers();
 
     if ((hasKeyboardIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
@@ -110,74 +198,50 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private renderWorld(snapshot: WorldStateSnapshot): void {
-    this.latestSnapshot = snapshot;
-    const presentPlayers = new Set(snapshot.players.map((player) => player.id));
+    this.entitiesRenderer?.render(snapshot);
+    const local = snapshot.players.find((player) => player.id === this.playerId);
+    if (!local) return;
 
-    for (const [id, view] of this.playerViews) {
-      if (presentPlayers.has(id)) continue;
-      view.body.destroy();
-      view.label.destroy();
-      this.playerViews.delete(id);
+    if (!this.authoritativePosition) {
+      this.localPosition = { x: local.x, y: local.y };
+      this.entitiesRenderer?.setLocalPlayerPosition(local.x, local.y);
     }
+    this.authoritativePosition = { x: local.x, y: local.y };
 
-    for (const player of snapshot.players) {
-      const view = this.playerViews.get(player.id) ?? this.createPlayerView(player);
-      view.body.setPosition(player.x, player.y);
-      view.label.setPosition(player.x, player.y - 30).setText(player.nickname);
-
-      if (player.id === this.playerId) {
-        this.localPosition = { x: player.x, y: player.y };
-        this.cameras.main.startFollow(view.body, true, 0.12, 0.12);
+    if (!this.cameraFollowing) {
+      const followTarget = this.entitiesRenderer?.getLocalPlayerObject();
+      if (followTarget) {
+        this.cameras.main.startFollow(followTarget, true, 0.16, 0.16);
+        this.cameraFollowing = true;
       }
     }
-
-    for (const encounter of snapshot.encounters) {
-      if (this.encounterViews.has(encounter.id)) continue;
-
-      const marker = this.add.circle(encounter.x, encounter.y, 28, 0x8b3f35, 0.95);
-      marker.setStrokeStyle(3, 0xd8a16c);
-      marker.setInteractive({ useHandCursor: true });
-      marker.on("pointerup", () => {
-        this.pointerTarget = null;
-        gameSocket.startEncounter(encounter.id);
-      });
-      this.add.text(encounter.x, encounter.y - 42, encounter.label, {
-        fontFamily: "sans-serif",
-        fontSize: "16px",
-        color: "#ffe4c2",
-        backgroundColor: "#241812aa",
-        padding: { x: 5, y: 3 }
-      }).setOrigin(0.5);
-      this.encounterViews.set(encounter.id, marker);
-    }
-  }
-
-  private createPlayerView(player: WorldPlayerSnapshot): PlayerView {
-    const isLocal = player.id === this.playerId;
-    const body = this.add.circle(player.x, player.y, 16, isLocal ? 0x78b9ff : 0xd6d3c9);
-    body.setStrokeStyle(2, isLocal ? 0xe2f2ff : 0x525252);
-    const label = this.add.text(player.x, player.y - 30, player.nickname, {
-      fontFamily: "sans-serif",
-      fontSize: "14px",
-      color: "#ffffff",
-      backgroundColor: "#00000088",
-      padding: { x: 4, y: 2 }
-    }).setOrigin(0.5);
-
-    const view = { body, label };
-    this.playerViews.set(player.id, view);
-    return view;
   }
 
   private showToast(message: string): void {
-    const toast = this.add.text(this.cameras.main.centerX, 70, message, {
+    const toast = this.add.text(this.cameras.main.centerX, 92, message, {
       fontFamily: "sans-serif",
       fontSize: "16px",
-      color: "#ffffff",
-      backgroundColor: "#8a2828dd",
+      color: "#fff5e3",
+      backgroundColor: "#6b332bdd",
       padding: { x: 12, y: 8 }
     }).setScrollFactor(0).setOrigin(0.5).setDepth(100);
 
     this.time.delayedCall(2500, () => toast.destroy());
+  }
+
+  private cleanup(): void {
+    for (const cleanup of this.cleanups.splice(0)) cleanup();
+    this.hud?.destroy();
+    this.inventoryPanel?.destroy();
+    this.characterPanel?.destroy();
+    this.dialoguePanel?.destroy();
+    this.entitiesRenderer?.destroy();
+    this.backgroundRenderer?.destroy();
+    this.hud = undefined;
+    this.inventoryPanel = undefined;
+    this.characterPanel = undefined;
+    this.dialoguePanel = undefined;
+    this.entitiesRenderer = undefined;
+    this.backgroundRenderer = undefined;
   }
 }

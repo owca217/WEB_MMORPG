@@ -27,16 +27,16 @@ export class WorldScene extends Phaser.Scene {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private pointerTarget: { x: number; y: number } | null = null;
-  private localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
+  private localPosition: { x: number; y: number } = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
   private authoritativePosition: { x: number; y: number } | null = null;
   private lastIntentSentAt = 0;
   private cameraFollowing = false;
-  private backgroundRenderer?: ForestSettlementRenderer;
-  private entitiesRenderer?: WorldEntitiesRenderer;
-  private hud?: WorldHud;
-  private inventoryPanel?: InventoryPanel;
-  private characterPanel?: CharacterPanel;
-  private dialoguePanel?: DialoguePanel;
+  private backgroundRenderer: ForestSettlementRenderer | undefined;
+  private entitiesRenderer: WorldEntitiesRenderer | undefined;
+  private hud: WorldHud | undefined;
+  private inventoryPanel: InventoryPanel | undefined;
+  private characterPanel: CharacterPanel | undefined;
+  private dialoguePanel: DialoguePanel | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {

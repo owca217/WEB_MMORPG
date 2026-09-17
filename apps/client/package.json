@@ -1,0 +1,21 @@
+{
+  "name": "@web-mmorpg/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest run",
+    "build": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@web-mmorpg/shared": "*",
+    "phaser": "4.2.1",
+    "socket.io-client": "4.8.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "8.2.2",
+    "vitest": "5.0.1"
+  }
+}

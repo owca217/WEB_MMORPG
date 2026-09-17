@@ -1,0 +1,22 @@
+{
+  "name": "@web-mmorpg/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@web-mmorpg/shared": "*",
+    "socket.io": "4.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.6",
+    "socket.io-client": "4.8.3",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "5.0.1"
+  }
+}

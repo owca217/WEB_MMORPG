@@ -1,0 +1,138 @@
+html,
+body,
+#game {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #111318;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  touch-action: none;
+}
+
+canvas {
+  display: block;
+}
+
+.login-panel {
+  position: fixed;
+  z-index: 1000;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+  color: #f5f2e8;
+  background: rgba(20, 24, 29, 0.96);
+  border: 1px solid #5e6c5e;
+  border-radius: 12px;
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.45);
+}
+
+.login-panel h1,
+.login-panel p {
+  margin: 0;
+}
+
+.login-panel input,
+.login-panel button {
+  min-height: 46px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #657269;
+  font: inherit;
+}
+
+.login-panel input {
+  padding: 0 12px;
+  color: #f5f2e8;
+  background: #181c20;
+}
+
+.login-panel button {
+  cursor: pointer;
+  color: #10150f;
+  background: #91bf80;
+  font-weight: 700;
+}
+
+.form-error {
+  min-height: 20px;
+  color: #ffb4a9;
+  font-size: 14px;
+}
+
+.battle-hud {
+  position: fixed;
+  z-index: 1000;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(700px, calc(100vw - 24px));
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 8px 16px;
+  align-items: center;
+  padding: 12px;
+  color: #f4f1e7;
+  background: rgba(16, 19, 24, 0.94);
+  border: 1px solid #5f6570;
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+.battle-hud__name {
+  font-weight: 800;
+}
+
+.battle-hud__injuries {
+  grid-column: 1 / -1;
+  color: #e3cda9;
+  min-height: 20px;
+}
+
+.battle-hud__actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.battle-hud button {
+  min-height: 44px;
+  min-width: 44px;
+  border: 1px solid #727a86;
+  border-radius: 8px;
+  color: #f4f1e7;
+  background: #292f38;
+  font: inherit;
+  font-weight: 700;
+}
+
+.battle-hud button.is-active {
+  background: #806838;
+  border-color: #f4d47d;
+}
+
+.battle-hud button:disabled {
+  opacity: 0.45;
+}
+
+@media (max-width: 600px) {
+  .battle-hud {
+    grid-template-columns: 1fr 1fr;
+    font-size: 14px;
+  }
+
+  .battle-hud__name {
+    grid-column: 1 / -1;
+  }
+
+  .battle-hud__actions {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}

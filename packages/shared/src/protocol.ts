@@ -1,5 +1,5 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
-import type { PlayerStateSnapshot } from "./character";
+import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type { InventorySnapshot } from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
@@ -24,7 +24,11 @@ export interface ServerToClientEvents {
   npcInteraction: (payload: NpcInteractionPayload) => void;
   battleStarted: (snapshot: BattleSnapshot) => void;
   battleState: (snapshot: BattleSnapshot) => void;
-  battleEnded: (payload: { inventory: InventorySnapshot }) => void;
+  battleEnded: (payload: {
+    outcome: "victory" | "defeat";
+    inventory: InventorySnapshot;
+    character: CharacterSnapshot;
+  }) => void;
   commandRejected: (payload: { code: string; message: string }) => void;
 }
 

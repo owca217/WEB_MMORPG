@@ -1,6 +1,8 @@
 import type {
   BattleCommand,
   BattleSnapshot,
+  CharacterSnapshot,
+  InjuryKind,
   PlayerId
 } from "@web-mmorpg/shared";
 import { generateArena } from "./arenaGenerator";
@@ -19,6 +21,12 @@ interface ActiveBattle {
   state: BattleState;
 }
 
+export interface PlayerBattleOutcome {
+  hp: number;
+  severelyInjured: boolean;
+  injuries: InjuryKind[];
+}
+
 export interface AppliedBattleCommand {
   result: BattleResult;
   snapshot?: BattleSnapshot;
@@ -26,12 +34,13 @@ export interface AppliedBattleCommand {
   victory: boolean;
   encounterId?: string;
   seed?: number;
+  playerOutcome?: PlayerBattleOutcome;
 }
 
 export class BattleService {
   private readonly battlesByPlayer = new Map<PlayerId, ActiveBattle>();
 
-  startBattle(playerId: PlayerId, nickname: string, encounterId: string): BattleSnapshot {
+  startBattle(character: CharacterSnapshot, encounterId: string): BattleSnapshot {
     const seed = 12345;
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
     const playerStart = arena.playerStartCells[0];
@@ -42,22 +51,22 @@ export class BattleService {
     }
 
     const state = createBattleState({
-      id: `battle:${playerId}:${encounterId}`,
+      id: `battle:${character.playerId}:${encounterId}`,
       seed,
       arena,
       combatants: [
         {
-          id: `hero:${playerId}`,
-          ownerPlayerId: playerId,
+          id: `hero:${character.playerId}`,
+          ownerPlayerId: character.playerId,
           side: "player",
-          name: nickname,
-          hp: 100,
-          maxHp: 100,
-          maxAp: 5,
-          initiative: 10,
+          name: character.nickname,
+          hp: character.hp,
+          maxHp: character.maxHp,
+          maxAp: character.maxAp,
+          initiative: character.initiative,
           position: playerStart,
-          severelyInjured: false,
-          injuries: []
+          severelyInjured: character.severelyInjured,
+          injuries: [...character.injuries]
         },
         {
           id: `wolf:${encounterId}`,
@@ -74,7 +83,7 @@ export class BattleService {
       ]
     });
 
-    this.battlesByPlayer.set(playerId, { encounterId, seed, state });
+    this.battlesByPlayer.set(character.playerId, { encounterId, seed, state });
     return this.toSnapshot(state);
   }
 
@@ -105,9 +114,17 @@ export class BattleService {
     active.state = this.runNpcTurns(playerResult.state);
     const result: BattleResult = { ok: true, state: active.state };
     const snapshot = this.toSnapshot(active.state);
-    const victory = active.state.finished && Object.values(active.state.combatants).some(
-      (combatant) => combatant.side === "player" && combatant.hp > 0
+    const playerCombatant = Object.values(active.state.combatants).find(
+      (combatant) => combatant.ownerPlayerId === playerId
     );
+    const victory = active.state.finished && Boolean(playerCombatant && playerCombatant.hp > 0);
+    const playerOutcome = active.state.finished && playerCombatant
+      ? {
+          hp: playerCombatant.hp,
+          severelyInjured: playerCombatant.severelyInjured,
+          injuries: [...playerCombatant.injuries]
+        }
+      : undefined;
 
     return {
       result,
@@ -115,7 +132,8 @@ export class BattleService {
       finished: active.state.finished,
       victory,
       encounterId: active.encounterId,
-      seed: active.seed
+      seed: active.seed,
+      ...(playerOutcome ? { playerOutcome } : {})
     };
   }
 

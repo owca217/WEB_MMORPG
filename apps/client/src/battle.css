@@ -1,0 +1,151 @@
+.battle-hud--mvp2 {
+  width: min(820px, calc(100vw - 24px));
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  padding: 14px;
+  color: #f4ead6;
+  background: linear-gradient(180deg, rgba(35, 30, 22, 0.97), rgba(17, 26, 19, 0.97));
+  border-color: #846e48;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.52);
+}
+
+.battle-hud__top {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(202, 170, 105, 0.22);
+}
+
+.battle-hud__top > div {
+  display: grid;
+  gap: 2px;
+}
+
+.battle-hud__turn {
+  color: #d5b575;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.battle-hud__round {
+  color: #d9c8a5;
+  font-size: 13px;
+}
+
+.battle-hud--mvp2 .battle-hud__name {
+  font-size: 18px;
+}
+
+.battle-hud__stats {
+  display: flex;
+  gap: 8px;
+}
+
+.battle-hud__stats span {
+  flex: 1;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: rgba(7, 13, 9, 0.48);
+}
+
+.battle-hud__order {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: rgba(7, 13, 9, 0.35);
+}
+
+.battle-hud__order span {
+  color: #ad9d80;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.battle-hud__order strong {
+  overflow: hidden;
+  color: #e2d7bf;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.battle-hud--mvp2 .battle-hud__injuries {
+  grid-column: 1 / 2;
+  min-height: auto;
+  color: #d9c39e;
+  font-size: 13px;
+}
+
+.battle-hud__status {
+  grid-column: 2 / 3;
+  color: #bdd6ac;
+  font-size: 13px;
+  text-align: right;
+}
+
+.battle-hud--mvp2 .battle-hud__actions {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.battle-hud--mvp2 button {
+  border-color: #71664f;
+  background: #2c3929;
+  transition: transform 100ms ease, background 100ms ease, border-color 100ms ease;
+}
+
+.battle-hud--mvp2 button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.battle-hud--mvp2 button.is-active {
+  border-color: #d7bd6f;
+  background: #66552e;
+  box-shadow: inset 0 0 0 1px rgba(243, 218, 143, 0.22);
+}
+
+@media (max-width: 600px) {
+  .battle-hud--mvp2 {
+    bottom: max(6px, env(safe-area-inset-bottom));
+    width: calc(100vw - 12px);
+    gap: 5px 8px;
+    padding: 9px;
+    font-size: 12px;
+  }
+
+  .battle-hud__top {
+    gap: 8px;
+  }
+
+  .battle-hud--mvp2 .battle-hud__name {
+    font-size: 15px;
+  }
+
+  .battle-hud__stats span,
+  .battle-hud__order {
+    padding: 5px 6px;
+  }
+
+  .battle-hud--mvp2 .battle-hud__injuries,
+  .battle-hud__status {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    text-align: left;
+  }
+
+  .battle-hud--mvp2 .battle-hud__actions {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+
+  .battle-hud--mvp2 button {
+    min-height: 44px;
+    padding: 5px 6px;
+  }
+}

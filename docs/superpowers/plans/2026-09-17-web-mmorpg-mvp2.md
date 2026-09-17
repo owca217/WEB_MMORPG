@@ -4,7 +4,7 @@
 
 **Goal:** Turn the current technical prototype into one polished vertical slice: forest settlement -> NPC interaction -> wolf encounter -> tactical hex combat -> loot/injuries -> return to the shared world.
 
-**Architecture:** Keep the existing TypeScript monorepo and authoritative Node/Socket.IO server. Add a small persistent-in-session character state, authored settlement world data, NPC interaction messages, server-run wolf turns, richer battle snapshots, and focused client UI/rendering helpers. Phaser remains responsible for world/battle rendering; DOM overlays remain responsible for HUDs and panels.
+**Architecture:** Keep the existing TypeScript monorepo and authoritative Node/Socket.IO server. Add small in-memory character state, authored settlement data, NPC interactions, automatic wolf turns, richer player/battle state, and focused client render/UI helpers. Phaser remains responsible for world/battle rendering; DOM overlays remain responsible for HUDs and panels.
 
 **Tech Stack:** TypeScript 5.9, Phaser 4.2.1, Socket.IO 4.8.3, Vite 8.2.2, Vitest 5.0.1, Node.js 22+ in CI.
 
@@ -16,96 +16,78 @@
 - Browser client stays on GitHub Pages and server stays on Render.
 - Server remains authoritative for position, encounter eligibility, AP, turn order, path validation, line of sight, damage, injuries, NPC turns, loot, inventory, and battle outcome.
 - Client may preview movement/attacks but may not authoritatively set damage, HP, AP, loot, or final positions.
-- Desktop must support WASD/arrow movement plus click-to-move.
-- Mobile must support both tap-to-move and a compact virtual joystick.
-- Touch targets must remain approximately 44 CSS px minimum.
-- MVP 2 uses original/simple assets or coherent placeholders; no copied Margonem/commercial-game assets.
-- Existing in-memory session persistence remains acceptable; database accounts are out of scope.
-- Cover may be represented visually, but do not invent new numeric cover bonuses until those values are explicitly designed.
-- Continue work on `feature/mvp-vertical-slice`; do not merge to `main` without explicit approval.
+- Desktop supports WASD/arrows plus click-to-move.
+- Mobile supports both tap-to-move and a compact virtual joystick.
+- Touch targets stay approximately 44 CSS px minimum.
+- Use original/simple assets or coherent placeholders; never copy Margonem or other commercial-game assets.
+- In-memory persistence is acceptable for MVP 2; database accounts remain out of scope.
+- Cover may be shown visually, but do not invent numeric cover bonuses yet.
+- Continue on `feature/mvp-vertical-slice`; do not merge to `main` without explicit approval.
+
+## Target File Boundaries
+
+- `packages/shared/src/character.ts` — character/player-state contracts.
+- `packages/shared/src/world.ts` — NPC/encounter/world contracts.
+- `packages/shared/src/inventory.ts` — item metadata.
+- `packages/shared/src/protocol.ts` — typed Socket.IO gameplay events.
+- `apps/server/src/character/CharacterService.ts` — session character HP/stats/injuries.
+- `apps/server/src/world/worldFixtures.ts` — authored forest settlement data.
+- `apps/server/src/world/WorldService.ts` — position/range validation and spawn reset.
+- `apps/server/src/battle/NpcBattleAi.ts` — deterministic wolf command selection.
+- `apps/server/src/battle/BattleService.ts` — battle orchestration and NPC turn draining.
+- `apps/server/src/server/createGameServer.ts` — service/socket orchestration only.
+- `apps/client/src/state/PlayerStateStore.ts` — latest player snapshot.
+- `apps/client/src/world/ForestSettlementLayout.ts` — pure authored layout constants.
+- `apps/client/src/world/ForestSettlementRenderer.ts` — decorative map rendering.
+- `apps/client/src/world/WorldEntitiesRenderer.ts` — players/NPCs/wolves.
+- `apps/client/src/input/VirtualJoystick.ts` — mobile analog control.
+- `apps/client/src/ui/WorldHud.ts`, `InventoryPanel.ts`, `CharacterPanel.ts`, `DialoguePanel.ts`, `LootSummary.ts` — DOM UI.
+- `apps/client/src/battle/BattlePreview.ts` — pure reachability/range/LOS preview helpers.
+- `apps/client/src/scenes/WorldScene.ts`, `BattleScene.ts` — scene coordination.
+
+This remains one plan because each task contributes to one shared end-to-end vertical slice and depends on the same protocol/state path.
 
 ---
 
-## File Structure Map
-
-The implementation should converge on these responsibilities:
-
-- `packages/shared/src/character.ts` — session character snapshot contract.
-- `packages/shared/src/world.ts` — world/NPC/encounter snapshot contracts.
-- `packages/shared/src/inventory.ts` — inventory item category/purpose contract.
-- `packages/shared/src/protocol.ts` — typed Socket.IO events for player state and NPC interaction.
-- `apps/server/src/character/CharacterService.ts` — in-memory character HP/level/initiative/injury state.
-- `apps/server/src/world/worldFixtures.ts` — authored forest-settlement fixture, NPCs, encounter positions.
-- `apps/server/src/world/WorldService.ts` — authoritative world position/range checks and NPC interaction validation.
-- `apps/server/src/battle/NpcBattleAi.ts` — deterministic server-owned wolf command selection.
-- `apps/server/src/battle/BattleService.ts` — player command application plus automatic NPC-turn draining.
-- `apps/server/src/server/createGameServer.ts` — orchestration only: socket handlers, service wiring, state broadcasts.
-- `apps/client/src/state/PlayerStateStore.ts` — latest `PlayerStateSnapshot` cache for HUD/panels.
-- `apps/client/src/world/ForestSettlementRenderer.ts` — authored visual map layers and decorative props.
-- `apps/client/src/world/WorldEntitiesRenderer.ts` — player/NPC/wolf visual entities.
-- `apps/client/src/input/VirtualJoystick.ts` — touch joystick state and DOM lifecycle.
-- `apps/client/src/ui/WorldHud.ts` — HP/AP/status bar and panel buttons.
-- `apps/client/src/ui/InventoryPanel.ts` — inventory modal/panel.
-- `apps/client/src/ui/CharacterPanel.ts` — character/injury panel.
-- `apps/client/src/ui/DialoguePanel.ts` — guard/healer interaction UI.
-- `apps/client/src/battle/BattlePreview.ts` — pure reachable-cell/action preview helpers.
-- `apps/client/src/ui/BattleHud.ts` — action mode, AP/HP, turn order, round, errors.
-- `apps/client/src/scenes/WorldScene.ts` — scene coordination, not all rendering/UI implementation.
-- `apps/client/src/scenes/BattleScene.ts` — scene coordination, battle rendering, server command dispatch.
-
-This remains one plan rather than multiple sub-project plans because every task directly contributes to one end-to-end vertical slice and shares the same protocol/state path.
-
----
-
-### Task 1: Restore a Green Battle Baseline with Automatic Wolf Turns
+### Task 1: Restore a Green Baseline with Automatic Wolf Turns
 
 **Files:**
 - Create: `apps/server/src/battle/NpcBattleAi.ts`
+- Create: `apps/server/tests/npcBattleAi.test.ts`
 - Modify: `apps/server/src/battle/BattleService.ts`
 - Modify: `apps/server/tests/battleService.test.ts`
 - Test: `apps/server/tests/battleEngine.test.ts`
 - Test: `apps/server/tests/socketFlow.test.ts`
 
 **Interfaces:**
-- Consumes: `BattleState`, `BattleCommand`, `applyNpcBattleCommand`, `findPath`, `hexDistance`, `hexKey`.
-- Produces: `chooseWolfCommand(state: BattleState, wolfId: string): BattleCommand` and a `BattleService` that automatically processes server-owned enemy turns before returning its snapshot.
+- Consumes: `BattleState`, `BattleCommand`, `applyNpcBattleCommand`, `findPath`, `hexDistance`, `hexKey`, `hexNeighbors`.
+- Produces: `chooseWolfCommand(state: BattleState, wolfId: string): BattleCommand`.
 
-- [ ] **Step 1: Strengthen the existing failing test**
+- [ ] **Step 1: Keep the existing RED service test and add a direct AI unit test**
 
-Keep the existing “returns control to the player” assertion and add one case where the wolf starts adjacent and must attack rather than only move:
+Create a tiny synthetic `BattleState` with hero `{ q: 0, r: 0 }`, wolf `{ q: 1, r: 0 }`, wolf AP 4, and no blockers. Assert:
 
 ```ts
-it("attacks when the wolf is adjacent and then returns control", () => {
-  const service = new BattleService();
-  const playerId = "player-1";
-  const initial = service.startBattle(playerId, "Hero", "encounter:wolf");
-  const hero = initial.combatants.find((c) => c.ownerPlayerId === playerId)!;
-
-  const result = service.applyCommand(playerId, {
-    type: "endTurn",
-    combatantId: hero.id
-  });
-
-  expect(result.result.ok).toBe(true);
-  expect(result.snapshot?.activeCombatantId).toBe(hero.id);
+expect(chooseWolfCommand(state, "wolf")).toEqual({
+  type: "meleeAttack",
+  combatantId: "wolf",
+  targetId: "hero"
 });
 ```
 
-The existing movement assertion remains useful because the generated arena starts units apart.
+Add a second case with hero and wolf separated by at least 2 hexes and assert the chosen command is `move`.
 
-- [ ] **Step 2: Run the focused test and confirm the current failure**
-
-Run:
+- [ ] **Step 2: Run focused tests and confirm RED**
 
 ```bash
-npm run test -w @web-mmorpg/server -- battleService.test.ts
+npm run test -w @web-mmorpg/server -- npcBattleAi.test.ts battleService.test.ts
 ```
 
-Expected before implementation: FAIL because `activeCombatantId` remains the wolf after the hero ends the turn.
+Expected: `NpcBattleAi` missing, and the existing `battleService.test.ts` still reports that control remains on the wolf.
 
-- [ ] **Step 3: Implement deterministic wolf command selection**
+- [ ] **Step 3: Implement deterministic command selection**
 
-Create `NpcBattleAi.ts` around this behavior:
+Core logic:
 
 ```ts
 export function chooseWolfCommand(state: BattleState, wolfId: string): BattleCommand {
@@ -127,27 +109,24 @@ export function chooseWolfCommand(state: BattleState, wolfId: string): BattleCom
     if (combatant.id !== wolf.id && combatant.hp > 0) blocked.add(hexKey(combatant.position));
   }
 
-  for (const neighbor of hexNeighbors(target.position)) blocked.delete(hexKey(neighbor));
-  const candidateGoals = hexNeighbors(target.position)
+  const goals = hexNeighbors(target.position)
     .filter((cell) => allowed.has(hexKey(cell)) && !blocked.has(hexKey(cell)))
     .sort((a, b) => hexDistance(wolf.position, a) - hexDistance(wolf.position, b));
 
-  for (const goal of candidateGoals) {
+  for (const goal of goals) {
     const path = findPath(wolf.position, goal, blocked, allowed);
-    if (path?.length) {
-      return { type: "move", combatantId: wolf.id, target: path[0]! };
-    }
+    if (path?.length) return { type: "move", combatantId: wolf.id, target: path[0]! };
   }
 
   return { type: "endTurn", combatantId: wolf.id };
 }
 ```
 
-Import `hexNeighbors` from `hex.ts`. Moving one hex at a time keeps AP accounting inside `BattleEngine` and avoids duplicating injury movement-cost rules in the AI.
+Moving one hex at a time keeps AP and injury movement-cost rules inside `BattleEngine`.
 
-- [ ] **Step 4: Drain NPC turns inside `BattleService`**
+- [ ] **Step 4: Drain server-owned NPC turns in `BattleService`**
 
-After a successful player command, repeatedly execute server-owned enemy commands until a player-owned combatant becomes active or the battle finishes:
+After a successful player command:
 
 ```ts
 private runNpcTurns(state: BattleState): BattleState {
@@ -156,8 +135,7 @@ private runNpcTurns(state: BattleState): BattleState {
     const active = next.combatants[next.activeCombatantId];
     if (!active || active.ownerPlayerId !== undefined || active.side !== "enemy") break;
 
-    const command = chooseWolfCommand(next, active.id);
-    const result = applyNpcBattleCommand(next, command);
+    const result = applyNpcBattleCommand(next, chooseWolfCommand(next, active.id));
     if (!result.ok) throw new Error(`NPC_COMMAND_REJECTED:${result.code}`);
     next = result.state;
   }
@@ -165,29 +143,25 @@ private runNpcTurns(state: BattleState): BattleState {
 }
 ```
 
-Call it only after a successful player command. The guard prevents a malformed AI loop from hanging the server.
-
-- [ ] **Step 5: Run focused and regression tests**
-
-Run:
+- [ ] **Step 5: Verify regression safety**
 
 ```bash
-npm run test -w @web-mmorpg/server -- battleService.test.ts battleEngine.test.ts socketFlow.test.ts
+npm run test -w @web-mmorpg/server -- npcBattleAi.test.ts battleService.test.ts battleEngine.test.ts socketFlow.test.ts
 npm run build -w @web-mmorpg/server
 ```
 
-Expected: PASS. The existing cheating test must still return `NOT_OWNER` when a player tries to issue a command for the wolf.
+Expected: PASS, including the existing `NOT_OWNER` cheating rejection.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/server/src/battle/NpcBattleAi.ts apps/server/src/battle/BattleService.ts apps/server/tests/battleService.test.ts
+git add apps/server/src/battle/NpcBattleAi.ts apps/server/src/battle/BattleService.ts apps/server/tests/npcBattleAi.test.ts apps/server/tests/battleService.test.ts
 git commit -m "feat: run wolf npc turns automatically"
 ```
 
 ---
 
-### Task 2: Add Session Character State and Rich Player-State Contracts
+### Task 2: Add Character State, Item Metadata, and Player-State Protocol
 
 **Files:**
 - Create: `packages/shared/src/character.ts`
@@ -200,66 +174,47 @@ git commit -m "feat: run wolf npc turns automatically"
 - Modify: `apps/server/src/loot/LootService.ts`
 
 **Interfaces:**
-- Produces `CharacterSnapshot`, `PlayerStateSnapshot`, item categories, and `CharacterService`.
-- Later tasks consume `CharacterService.createPlayer`, `getSnapshot`, `applyBattleResult`, and `healHp`.
+- Produces `CharacterSnapshot`, `PlayerStateSnapshot`, richer `InventoryItem`, `CharacterService`.
+- Adds client events `requestPlayerState()` and `requestWorldState()` and server event `playerState(snapshot)`.
 
-- [ ] **Step 1: Write failing character-state tests**
-
-Create `characterService.test.ts`:
+- [ ] **Step 1: Write failing character tests**
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { CharacterService } from "../src/character/CharacterService";
-
-describe("CharacterService", () => {
-  it("creates an MVP 2 character with stable base stats", () => {
-    const characters = new CharacterService();
-    expect(characters.createPlayer("p1", "Owczy")).toMatchObject({
-      playerId: "p1",
-      nickname: "Owczy",
-      level: 1,
-      hp: 100,
-      maxHp: 100,
-      maxAp: 5,
-      initiative: 10,
-      severelyInjured: false,
-      injuries: []
-    });
+it("creates stable base stats", () => {
+  const characters = new CharacterService();
+  expect(characters.createPlayer("p1", "Owczy")).toMatchObject({
+    playerId: "p1", nickname: "Owczy", level: 1,
+    hp: 100, maxHp: 100, maxAp: 5, initiative: 10,
+    severelyInjured: false, injuries: []
   });
+});
 
-  it("persists battle HP and injuries, while healer restores only HP", () => {
-    const characters = new CharacterService();
-    characters.createPlayer("p1", "Owczy");
-    characters.applyBattleResult("p1", {
-      hp: 0,
-      severelyInjured: true,
-      injuries: ["legTrauma"]
-    });
-
-    characters.healHp("p1");
-    expect(characters.getSnapshot("p1")).toMatchObject({
-      hp: 100,
-      severelyInjured: true,
-      injuries: ["legTrauma"]
-    });
+it("healer restores HP without erasing injuries", () => {
+  const characters = new CharacterService();
+  characters.createPlayer("p1", "Owczy");
+  characters.applyBattleResult("p1", {
+    hp: 0, severelyInjured: true, injuries: ["legTrauma"]
+  });
+  characters.healHp("p1");
+  expect(characters.getSnapshot("p1")).toMatchObject({
+    hp: 100, severelyInjured: true, injuries: ["legTrauma"]
   });
 });
 ```
 
-- [ ] **Step 2: Run and verify RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
 npm run test -w @web-mmorpg/server -- characterService.test.ts
 ```
 
-Expected: FAIL because `CharacterService` does not exist.
+- [ ] **Step 3: Add exact shared contracts**
 
-- [ ] **Step 3: Add shared contracts**
-
-Create `packages/shared/src/character.ts`:
+`packages/shared/src/character.ts`:
 
 ```ts
-import type { InjuryKind, PlayerId } from "./battle";
+import type { InjuryKind } from "./battle";
+import type { PlayerId } from "./ids";
 import type { InventorySnapshot } from "./inventory";
 
 export interface CharacterSnapshot {
@@ -280,74 +235,63 @@ export interface PlayerStateSnapshot {
 }
 ```
 
-If the `PlayerId` import must come from `./ids`, use that exact source instead; keep type names unchanged.
-
 Extend `InventoryItem` with:
 
 ```ts
 export type ItemCategory = "material" | "medical";
-
-export interface InventoryItem {
-  instanceId: ItemInstanceId;
-  itemId: string;
-  name: string;
-  quantity: number;
-  category: ItemCategory;
-  description: string;
-}
+category: ItemCategory;
+description: string;
 ```
 
 Export `./character` from `packages/shared/src/index.ts`.
 
 - [ ] **Step 4: Implement `CharacterService`**
 
-Use an in-memory `Map<PlayerId, CharacterSnapshot>`. `createPlayer` returns the existing entry if called twice, `getSnapshot` returns a copy, `applyBattleResult` updates only HP/severe/injuries, and `healHp` restores HP to max without clearing injuries.
-
-Core signatures:
+Required signatures:
 
 ```ts
 createPlayer(playerId: PlayerId, nickname: string): CharacterSnapshot
 getSnapshot(playerId: PlayerId): CharacterSnapshot | undefined
 applyBattleResult(playerId: PlayerId, result: Pick<CharacterSnapshot, "hp" | "severelyInjured" | "injuries">): CharacterSnapshot
+recoverAfterDefeat(playerId: PlayerId): CharacterSnapshot
 healHp(playerId: PlayerId): CharacterSnapshot
 removePlayer(playerId: PlayerId): void
 ```
 
-- [ ] **Step 5: Enrich deterministic loot metadata**
+`recoverAfterDefeat` sets HP to `Math.max(1, Math.ceil(maxHp * 0.25))` and preserves `severelyInjured` plus injury list. This prevents a 0-HP world state while retaining defeat consequences.
 
-Change `LootItemDefinition` to include `category` and `description`. Wolf loot becomes:
+- [ ] **Step 5: Enrich wolf loot**
+
+Use:
 
 ```ts
 { itemId: "wolf-pelt", name: "Wolf Pelt", quantity: 1, category: "material", description: "A rough pelt taken from a forest wolf." }
 { itemId: "field-bandage", name: "Field Bandage", quantity: 2, category: "medical", description: "A simple bandage for field treatment." }
 ```
 
-`InventoryService.addItems` copies these fields into new stacks and preserves them when quantities stack.
+`InventoryService.addItems` copies metadata on first stack and only increments quantity on later stacks.
 
-- [ ] **Step 6: Extend Socket.IO contracts**
+- [ ] **Step 6: Extend protocol**
 
-Add client event:
+Add:
 
 ```ts
 requestPlayerState: () => void;
+requestWorldState: () => void;
 ```
 
-Add server event:
+and:
 
 ```ts
 playerState: (snapshot: PlayerStateSnapshot) => void;
 ```
 
-Update imports in `protocol.ts` accordingly.
-
-- [ ] **Step 7: Run tests/build**
+- [ ] **Step 7: Verify**
 
 ```bash
 npm run test -w @web-mmorpg/server -- characterService.test.ts worldService.test.ts
 npm run build
 ```
-
-Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
@@ -358,54 +302,48 @@ git commit -m "feat: add session character state"
 
 ---
 
-### Task 3: Author the Forest Settlement and NPC Interaction Rules
+### Task 3: Author the Forest Settlement and NPC Rules
 
 **Files:**
 - Modify: `packages/shared/src/world.ts`
 - Modify: `packages/shared/src/protocol.ts`
 - Modify: `apps/server/src/world/worldFixtures.ts`
 - Modify: `apps/server/src/world/WorldService.ts`
-- Modify: `apps/server/tests/worldService.test.ts`
 - Modify: `apps/server/src/session/SessionStore.ts`
+- Modify: `apps/server/tests/worldService.test.ts`
+- Modify: `apps/server/tests/socketFlow.test.ts`
 
 **Interfaces:**
-- Produces `NpcSnapshot`, `NpcInteractionPayload`, `WorldService.interactNpc`, and the location id `forest-settlement-01`.
-- Later client tasks render NPCs directly from `WorldStateSnapshot.npcs`.
+- Produces `NpcSnapshot`, `NpcInteractionPayload`, `WorldService.interactNpc`, location id `forest-settlement-01`.
 
 - [ ] **Step 1: Update tests first**
 
-Change the expected login location from `meadow-01` to `forest-settlement-01`, and add:
+Change login location expectation to `forest-settlement-01`. Add:
 
 ```ts
-it("exposes guide, healer and wolf encounter in the settlement snapshot", () => {
-  const world = new WorldService();
-  const snapshot = world.snapshot("forest-settlement-01");
-  expect(snapshot.npcs.map((npc) => npc.kind).sort()).toEqual(["guide", "healer"]);
-  expect(snapshot.encounters.some((encounter) => encounter.id === "wolf-pack-01")).toBe(true);
+it("exposes guide, healer and wolves", () => {
+  const snapshot = new WorldService().snapshot("forest-settlement-01");
+  expect(snapshot.npcs.map((n) => n.kind).sort()).toEqual(["guide", "healer"]);
+  expect(snapshot.encounters.some((e) => e.id === "wolf-pack-01")).toBe(true);
 });
 
-it("requires player to be inside npc interaction radius", () => {
+it("rejects npc interaction outside radius", () => {
   const world = new WorldService();
   world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);
   expect(() => world.interactNpc("p1", "healer-ada")).toThrow("NPC_OUT_OF_RANGE");
 });
 ```
 
-- [ ] **Step 2: Run the world tests and verify RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
-npm run test -w @web-mmorpg/server -- worldService.test.ts
+npm run test -w @web-mmorpg/server -- worldService.test.ts socketFlow.test.ts
 ```
 
-Expected: FAIL on missing `npcs`, old location id, and missing `interactNpc`.
-
-- [ ] **Step 3: Extend world contracts**
-
-Add to `world.ts`:
+- [ ] **Step 3: Add world/NPC contracts**
 
 ```ts
 export type NpcKind = "guide" | "healer";
-
 export interface NpcSnapshot {
   id: string;
   kind: NpcKind;
@@ -414,55 +352,41 @@ export interface NpcSnapshot {
   y: number;
   interactionRadius: number;
 }
-
-export interface WorldStateSnapshot {
-  locationId: LocationId;
-  players: WorldPlayerSnapshot[];
-  npcs: NpcSnapshot[];
-  encounters: EncounterSnapshot[];
-}
 ```
 
-Add protocol payload:
+Add `npcs: NpcSnapshot[]` to `WorldStateSnapshot`.
+
+Add:
 
 ```ts
 export interface NpcInteractionPayload {
   npcId: string;
   npcName: string;
-  kind: "guide" | "healer";
+  kind: NpcKind;
   title: string;
   lines: string[];
   canHeal: boolean;
 }
 ```
 
-Add client events `interactNpc({ npcId })` and `healAtNpc({ npcId })`; add server event `npcInteraction(payload)`.
-
-- [ ] **Step 4: Replace `MEADOW_01` with an authored fixture**
-
-Keep dimensions `1600x900`, but use:
+Protocol client events:
 
 ```ts
-export const FOREST_SETTLEMENT_01: WorldFixture = {
-  id: "forest-settlement-01",
-  width: 1600,
-  height: 900,
-  spawn: { x: 360, y: 470 },
-  npcs: [
-    { id: "guide-boran", kind: "guide", name: "Boran", x: 610, y: 420, interactionRadius: 95 },
-    { id: "healer-ada", kind: "healer", name: "Ada", x: 720, y: 535, interactionRadius: 95 }
-  ],
-  encounters: [
-    { id: "wolf-pack-01", x: 1320, y: 455, label: "Forest Wolves" }
-  ]
-};
+interactNpc: (payload: { npcId: string }) => void;
+healAtNpc: (payload: { npcId: string }) => void;
 ```
 
-Use `ENCOUNTER_ACTIVATION_RADIUS = 90` and `MAX_WORLD_SPEED = 220` unchanged.
+Server event:
 
-- [ ] **Step 5: Add authoritative NPC range validation**
+```ts
+npcInteraction: (payload: NpcInteractionPayload) => void;
+```
 
-Implement:
+- [ ] **Step 4: Replace `MEADOW_01` with the authored fixture**
+
+Use `1600x900`, spawn `{ x: 360, y: 470 }`, Boran at `{ x: 610, y: 420 }`, Ada at `{ x: 720, y: 535 }`, and wolf encounter at `{ x: 1320, y: 455 }`. Both NPC interaction radii are 95. Keep encounter radius 90 and max world speed 220.
+
+- [ ] **Step 5: Implement authoritative interaction/range checks**
 
 ```ts
 interactNpc(playerId: PlayerId, npcId: string): NpcSnapshot {
@@ -476,20 +400,18 @@ interactNpc(playerId: PlayerId, npcId: string): NpcSnapshot {
 }
 ```
 
-Extract a small private `requirePlayer` helper so movement/interaction/encounter code shares the lookup.
+Add `resetPlayerToSpawn(playerId)` for defeat recovery.
 
-- [ ] **Step 6: Update session default location**
+- [ ] **Step 6: Update default session location and socket test coordinates**
 
-`SessionStore.login()` must return `forest-settlement-01`.
+`SessionStore.login()` returns `forest-settlement-01`. Update `socketFlow.test.ts` to use wolf coordinate `1320,455`.
 
-- [ ] **Step 7: Run tests/build**
+- [ ] **Step 7: Verify**
 
 ```bash
 npm run test -w @web-mmorpg/server -- worldService.test.ts socketFlow.test.ts
 npm run build -w @web-mmorpg/server
 ```
-
-Update `socketFlow.test.ts` fixture coordinates from the old encounter position to `1320,455` and expected location id to `forest-settlement-01`.
 
 - [ ] **Step 8: Commit**
 
@@ -500,63 +422,35 @@ git commit -m "feat: add forest settlement and npcs"
 
 ---
 
-### Task 4: Persist Battle Outcome, Resolve Defeat, and Wire Healer/Player State
+### Task 4: Persist Battle Outcome and Wire Player/NPC State Through Socket.IO
 
 **Files:**
 - Modify: `apps/server/src/battle/BattleService.ts`
-- Modify: `apps/server/src/character/CharacterService.ts`
 - Modify: `apps/server/src/server/createGameServer.ts`
 - Modify: `packages/shared/src/protocol.ts`
 - Modify: `apps/server/tests/battleService.test.ts`
 - Modify: `apps/server/tests/socketFlow.test.ts`
 
 **Interfaces:**
-- `BattleService.startBattle` consumes a `CharacterSnapshot` rather than duplicated hard-coded player stats.
-- `AppliedBattleCommand` produces `playerOutcome` when finished.
-- Server emits `battleEnded({ outcome, inventory, character })` and `playerState`.
+- `BattleService.startBattle(character: CharacterSnapshot, encounterId: string): BattleSnapshot`.
+- `AppliedBattleCommand.playerOutcome` contains hero HP/severe/injuries when finished.
+- `battleEnded` sends outcome, inventory, character.
 
-- [ ] **Step 1: Add a failing battle persistence test**
+- [ ] **Step 1: Write failing persistence tests**
 
-```ts
-it("returns the hero outcome when a battle finishes", () => {
-  const service = new BattleService();
-  const snapshot = service.startBattle({
-    playerId: "p1",
-    nickname: "Owczy",
-    level: 1,
-    hp: 100,
-    maxHp: 100,
-    maxAp: 5,
-    initiative: 10,
-    severelyInjured: false,
-    injuries: []
-  }, "wolf-pack-01");
+Update battle-service tests to call the new signature using a complete `CharacterSnapshot`. Add a socket assertion that a battle-end character snapshot preserves hero injury state.
 
-  expect(snapshot.combatants.find((c) => c.ownerPlayerId === "p1")?.hp).toBe(100);
-});
-```
-
-Also add an end-to-end socket test that after a completed fight/forced test resolution the emitted `playerState.character` matches the battle hero's HP/injuries.
-
-- [ ] **Step 2: Run focused tests and verify RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
 npm run test -w @web-mmorpg/server -- battleService.test.ts socketFlow.test.ts
 ```
 
-Expected: FAIL because the new `startBattle` signature/outcome does not exist yet.
+- [ ] **Step 3: Build hero combatant from character state**
 
-- [ ] **Step 3: Change the `BattleService.startBattle` boundary**
+Use character HP/maxHP/maxAP/initiative/severe/injuries instead of hard-coded player values. Wolf stays 60 HP, 4 AP, 7 initiative for this slice.
 
-Use:
-
-```ts
-startBattle(character: CharacterSnapshot, encounterId: string): BattleSnapshot
-```
-
-Create the hero combatant from `character.hp`, `maxHp`, `maxAp`, `initiative`, `severelyInjured`, and `injuries`; keep wolf stats at 60 HP / 4 AP / 7 initiative for this slice.
-
-Add to `AppliedBattleCommand`:
+Add:
 
 ```ts
 playerOutcome?: {
@@ -566,11 +460,9 @@ playerOutcome?: {
 };
 ```
 
-When `active.state.finished`, read the combatant with `ownerPlayerId === playerId` and return a copy of those fields.
+to `AppliedBattleCommand` and populate it from the player's combatant when battle finishes.
 
-- [ ] **Step 4: Define clean battle-end protocol**
-
-Change the server event to:
+- [ ] **Step 4: Define battle-end protocol**
 
 ```ts
 battleEnded: (payload: {
@@ -580,164 +472,146 @@ battleEnded: (payload: {
 }) => void;
 ```
 
-- [ ] **Step 5: Wire services in `createGameServer`**
+- [ ] **Step 5: Wire service lifecycle in `createGameServer`**
 
-Instantiate `CharacterService`. On successful login:
+On login:
+1. Create/get character.
+2. Add world player.
+3. Emit `playerState`.
+4. Broadcast `worldState`.
 
-```ts
-const character = characters.createPlayer(result.playerId, session.nickname);
-socket.emit("playerState", { character, inventory: inventory.getSnapshot(result.playerId) });
-```
+On `requestPlayerState`: emit character + inventory.
 
-On `requestPlayerState`, emit the same combined snapshot.
+On `requestWorldState`: emit `world.snapshot(session.locationId)` only to that socket.
 
-On encounter start, pass `characters.getSnapshot(playerId)!` to `BattleService.startBattle`.
+On encounter start: validate range, call `battles.startBattle(character, encounterId)`, leave world room, emit `battleStarted`.
 
 On finished battle:
-1. Apply `playerOutcome` to `CharacterService`.
-2. Roll loot only on victory.
-3. Emit `battleEnded` with character/inventory/outcome.
-4. Remove battle.
-5. Rejoin `location:forest-settlement-01`.
-6. On defeat, move the player to spawn with a new `WorldService.resetPlayerToSpawn(playerId)` helper.
-7. Broadcast world state.
+1. Apply `playerOutcome`.
+2. If defeat, call `recoverAfterDefeat` and `world.resetPlayerToSpawn`.
+3. If victory, add deterministic loot.
+4. Emit a fresh `playerState`.
+5. Emit `battleEnded` with outcome/inventory/character.
+6. Remove battle, rejoin `location:forest-settlement-01`, broadcast world state.
 
-- [ ] **Step 6: Implement guard/healer interaction socket handlers**
+On disconnect: remove battle/world/session/character state; add `InventoryService.removePlayer(playerId)` and call it too so disconnected sessions do not leak memory.
 
-For guide:
+- [ ] **Step 6: Wire Boran and Ada**
+
+`interactNpc` validates range. Boran emits:
 
 ```ts
-socket.emit("npcInteraction", {
-  npcId: npc.id,
-  npcName: npc.name,
+{
+  npcId: "guide-boran",
+  npcName: "Boran",
   kind: "guide",
   title: "Droga przez las",
   lines: ["Wilki kręcą się przy wschodniej ścieżce.", "Trzymaj się drogi i nie lekceważ ran."],
   canHeal: false
-});
+}
 ```
 
-For healer:
+Ada emits:
 
 ```ts
-socket.emit("npcInteraction", {
-  npcId: npc.id,
-  npcName: npc.name,
+{
+  npcId: "healer-ada",
+  npcName: "Ada",
   kind: "healer",
   title: "Lecznica Ady",
   lines: ["Mogę opatrzyć cię i przywrócić siły.", "Ciężkie urazy pozostaną do czasu pełnego systemu leczenia."],
   canHeal: true
-});
+}
 ```
 
-`healAtNpc` must call `world.interactNpc` again for range validation, require `kind === "healer"`, call `characters.healHp`, and emit a fresh `playerState`.
+`healAtNpc` re-validates Ada's range, restores HP only, and emits `playerState`.
 
-- [ ] **Step 7: Run all server tests and build**
+- [ ] **Step 7: Verify all server tests/build**
 
 ```bash
 npm run test -w @web-mmorpg/server
 npm run build -w @web-mmorpg/server
 ```
-
-Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/shared/src/protocol.ts apps/server/src/battle/BattleService.ts apps/server/src/character/CharacterService.ts apps/server/src/server/createGameServer.ts apps/server/tests
-git commit -m "feat: persist battle outcome and healer state"
+git add packages/shared/src/protocol.ts apps/server/src apps/server/tests
+git commit -m "feat: persist battle and npc state"
 ```
 
 ---
 
-### Task 5: Complete the End-to-End Socket Vertical Slice
+### Task 5: Lock the Complete Socket Vertical Slice with Integration Tests
 
 **Files:**
 - Modify: `apps/server/tests/socketFlow.test.ts`
-- Modify: `apps/server/src/server/createGameServer.ts`
-- Modify: `apps/server/src/world/WorldService.ts`
 
 **Interfaces:**
-- Validates the contract used by all client tasks: login -> playerState/worldState -> NPC -> battle -> NPC turns -> battleEnded -> playerState/worldState.
+- Verifies login -> player/world state -> personal battle -> automatic wolf turn -> battle end -> loot -> world return.
 
-- [ ] **Step 1: Expand `socketFlow.test.ts` into a full-flow test**
+- [ ] **Step 1: Add a full-flow test**
 
-Add a second test that:
-1. Logs in as `Owczy`.
-2. Receives initial `playerState` and `worldState`.
-3. Server-moves the test player near the wolf using the service test hook.
-4. Starts the wolf encounter.
-5. Repeatedly issues legal player commands until the battle finishes. To keep the test deterministic and short, use ranged attacks when line of sight is available and `endTurn` otherwise.
-6. Expects `battleEnded.outcome === "victory"`.
-7. Expects `wolf-pelt` and `field-bandage` in inventory.
-8. Expects a post-battle `worldState` containing the player again.
+Test sequence:
+1. Login `Owczy`.
+2. Receive initial `playerState` and `worldState`.
+3. Move test player near wolves through `game.services.world.movePlayer`.
+4. Start encounter.
+5. Repeatedly issue legal player commands with a bounded loop (`turn < 40`) until `battleEnded`.
+6. Expect victory, `wolf-pelt`, `field-bandage`.
+7. Expect post-battle world state containing the player.
 
-Use a bounded loop:
+Use current snapshots to choose a legal player action; ranged attack when valid, otherwise move/end turn. Never issue commands for the wolf.
 
-```ts
-for (let turn = 0; turn < 40 && !ended; turn += 1) {
-  // read current snapshot and issue one legal player action
-}
-expect(ended).toBe(true);
-```
+- [ ] **Step 2: Add defeat recovery coverage**
 
-- [ ] **Step 2: Run and observe the first failing boundary**
+Use service-level state setup to force a hero to 0 HP, finish battle, then assert returned character HP is 25% max or at least 1, while `severelyInjured` and injuries remain.
+
+- [ ] **Step 3: Add two-client isolation coverage**
+
+Log in `Owczy` and `Karolina`. Assert both are present in the same world snapshot. Put only Owczy into battle and assert Karolina does not receive `battleStarted`. After Owczy returns, both appear in world again.
+
+- [ ] **Step 4: Verify**
 
 ```bash
 npm run test -w @web-mmorpg/server -- socketFlow.test.ts
-```
-
-Fix only the failing boundary revealed by the test; do not add client code in this task.
-
-- [ ] **Step 3: Add a two-client visibility regression**
-
-Start two Socket.IO clients, log them in as `Owczy` and `Karolina`, and assert both ids are present in the same `worldState` before either enters a personal battle. After one client enters battle, the other must remain connected and keep receiving world state without inheriting the first player's battle state.
-
-- [ ] **Step 4: Run full server verification**
-
-```bash
 npm run test -w @web-mmorpg/server
 npm run build -w @web-mmorpg/server
 ```
 
-Expected: PASS.
-
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/server/tests/socketFlow.test.ts apps/server/src/server/createGameServer.ts apps/server/src/world/WorldService.ts
+git add apps/server/tests/socketFlow.test.ts
 git commit -m "test: cover complete mvp2 socket loop"
 ```
 
 ---
 
-### Task 6: Add Client Player-State Store, Socket Events, and World Panels
+### Task 6: Add Client Player State, World HUD, Inventory, Character, and Dialogue Panels
 
 **Files:**
 - Create: `apps/client/src/state/PlayerStateStore.ts`
+- Create: `apps/client/tests/playerStateStore.test.ts`
 - Modify: `apps/client/src/net/GameSocket.ts`
 - Create: `apps/client/src/ui/WorldHud.ts`
 - Create: `apps/client/src/ui/InventoryPanel.ts`
 - Create: `apps/client/src/ui/CharacterPanel.ts`
 - Create: `apps/client/src/ui/DialoguePanel.ts`
-- Create: `apps/client/tests/playerStateStore.test.ts`
 - Modify: `apps/client/src/style.css`
 
 **Interfaces:**
-- `playerStateStore.get()` returns the latest `PlayerStateSnapshot | null`.
-- `playerStateStore.subscribe(handler)` returns an unsubscribe function.
-- `WorldHud` opens/closes inventory and character panels but does not own gameplay state.
+- `PlayerStateStore.get(): PlayerStateSnapshot | null`.
+- `PlayerStateStore.subscribe(handler): () => void`.
+- `GameSocket` exposes `requestPlayerState`, `requestWorldState`, `interactNpc`, `healAtNpc`, `onPlayerState`, `onNpcInteraction`.
 
-- [ ] **Step 1: Write the pure store test**
+- [ ] **Step 1: Write store test**
 
 ```ts
-import { describe, expect, it, vi } from "vitest";
-import { PlayerStateStore } from "../src/state/PlayerStateStore";
-
-it("publishes immutable player-state snapshots", () => {
+it("publishes the latest player state", () => {
   const store = new PlayerStateStore();
-  const listener = vi.fn();
-  store.subscribe(listener);
+  const seen: string[] = [];
+  store.subscribe((state) => seen.push(state.character.nickname));
   store.set({
     character: {
       playerId: "p1", nickname: "Owczy", level: 1,
@@ -746,80 +620,51 @@ it("publishes immutable player-state snapshots", () => {
     },
     inventory: { items: [] }
   });
-  expect(listener).toHaveBeenCalledTimes(1);
   expect(store.get()?.character.nickname).toBe("Owczy");
+  expect(seen).toEqual(["Owczy"]);
 });
 ```
 
-- [ ] **Step 2: Run and verify RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
 npm run test -w @web-mmorpg/client -- playerStateStore.test.ts
 ```
 
-Expected: FAIL because the store does not exist.
+- [ ] **Step 3: Implement store and socket surface**
 
-- [ ] **Step 3: Implement the store and socket surface**
-
-Add `onPlayerState`, `onNpcInteraction`, `onConnect`, `onDisconnect`, `requestPlayerState`, `interactNpc`, and `healAtNpc` to `GameSocket`.
-
-Keep one socket instance; do not create a second connection for UI events.
+Keep a single Socket.IO connection. Add built-in connection callbacks (`connect`, `disconnect`, `connect_error`) in `GameSocket`; no custom retry timer.
 
 - [ ] **Step 4: Implement `WorldHud`**
 
-The HUD constructor receives callbacks:
-
-```ts
-interface WorldHudHandlers {
-  onInventory: () => void;
-  onCharacter: () => void;
-}
-```
-
-It renders nickname, `HP current/max`, `AP max`, connection status, and two >=44px buttons. It exposes:
+Show nickname, HP current/max, `AP max`, connection status, inventory button, character button. Required API:
 
 ```ts
 update(state: PlayerStateSnapshot): void
-setConnectionState(state: "connected" | "disconnected" | "connecting"): void
+setConnectionState(state: "connected" | "connecting" | "disconnected"): void
 destroy(): void
 ```
 
-- [ ] **Step 5: Implement inventory and character panels**
+- [ ] **Step 5: Implement inventory/character panels**
 
-`InventoryPanel.update(snapshot)` renders each item name, quantity, category, and description.
+Inventory renders item name, quantity, category, description.
 
-`CharacterPanel.update(character)` renders nickname, level, HP, initiative, severe-injury label and human-readable injury names:
+Character renders nickname, level, HP, initiative, severe-injury state and Polish injury labels. Reserve a `Specjalizacje` section with text `Rozwój biegłości pojawi się w kolejnym etapie`; do not invent classes/trees.
 
-```ts
-const INJURY_LABELS = {
-  brokenArm: "Złamana ręka",
-  legTrauma: "Uraz nogi",
-  bleeding: "Krwawienie",
-  concussion: "Wstrząśnienie",
-  chestWound: "Rana klatki piersiowej",
-  burn: "Oparzenie",
-  poison: "Zatrucie"
-} satisfies Record<InjuryKind, string>;
-```
+- [ ] **Step 6: Implement dialogue panel**
 
-Reserve a visible section titled `Specjalizacje` with the text `Rozwój biegłości pojawi się w kolejnym etapie`; do not invent a class or skill tree.
+Render NPC name/title/lines. If `canHeal`, show `Opatrz rany`, minimum 44px high, calling `healAtNpc(npcId)`.
 
-- [ ] **Step 6: Implement `DialoguePanel`**
+- [ ] **Step 7: Style responsive panels**
 
-Render NPC name/title/lines. If `canHeal`, show a `Opatrz rany` button that calls `healAtNpc(npcId)`. After healing, keep the dialogue open and rely on `playerState` to refresh HUD.
+Use a consistent dark-wood/forest palette, safe-area aware fixed positioning, readable mobile typography, and >=44px controls.
 
-- [ ] **Step 7: Add responsive CSS**
-
-Use a shared dark-wood/forest panel language, fixed safe-area aware positioning, and a mobile media query. Every button uses `min-height: 44px; min-width: 44px;`.
-
-- [ ] **Step 8: Run client tests/build**
+- [ ] **Step 8: Verify**
 
 ```bash
 npm run test -w @web-mmorpg/client
 npm run build -w @web-mmorpg/client
 ```
-
-Expected: PASS.
 
 - [ ] **Step 9: Commit**
 
@@ -830,23 +675,23 @@ git commit -m "feat: add world hud and player panels"
 
 ---
 
-### Task 7: Replace the Debug Grid with a Forest Settlement Presentation
+### Task 7: Replace the Debug Grid with the Forest Settlement Presentation
 
 **Files:**
+- Create: `apps/client/src/world/ForestSettlementLayout.ts`
 - Create: `apps/client/src/world/ForestSettlementRenderer.ts`
 - Create: `apps/client/src/world/WorldEntitiesRenderer.ts`
-- Modify: `apps/client/src/scenes/WorldScene.ts`
 - Create: `apps/client/tests/worldPresentation.test.ts`
+- Modify: `apps/client/src/scenes/WorldScene.ts`
 - Modify: `apps/client/src/style.css`
 
 **Interfaces:**
-- `ForestSettlementRenderer.render(scene)` creates only decorative/background Phaser objects and returns a `destroy()` handle.
-- `WorldEntitiesRenderer.sync(snapshot, localPlayerId)` owns visual player/NPC/encounter objects.
-- `WorldScene` owns input, socket subscriptions, camera, and interaction dispatch.
+- `FOREST_SETTLEMENT_LAYOUT` is pure data and testable without Phaser.
+- Renderer owns decoration only; entity renderer owns players/NPCs/wolves; `WorldScene` coordinates input/network/camera/UI.
 
-- [ ] **Step 1: Write a pure presentation-layout test**
+- [ ] **Step 1: Write pure layout tests**
 
-Extract authored non-Phaser layout constants:
+Define:
 
 ```ts
 export const FOREST_SETTLEMENT_LAYOUT = {
@@ -856,69 +701,50 @@ export const FOREST_SETTLEMENT_LAYOUT = {
 } as const;
 ```
 
-Test that the wolf encounter coordinate `1320,455` lies in the forest region and spawn `360,470` lies in the settlement region. This keeps the authored visual layout aligned with server coordinates.
+Test spawn `360,470` lies inside settlement and wolf `1320,455` lies inside forest.
 
-- [ ] **Step 2: Run and verify RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
 npm run test -w @web-mmorpg/client -- worldPresentation.test.ts
 ```
 
-- [ ] **Step 3: Build the authored background renderer**
+- [ ] **Step 3: Render an authored forest-settlement background**
 
-Use Phaser graphics/shapes rather than external copyrighted assets. The renderer should create:
-- layered grass/earth background,
-- a settlement clearing,
-- two simple timber buildings,
-- fences and gate,
-- dirt path from settlement to forest,
-- clusters of stylized trees/rocks/bushes,
-- a forest clearing around the wolf area.
+Use deterministic Phaser shapes/graphics: layered grass/earth, clearing, two timber buildings, fences/gate, dirt path, tree/rock/bush clusters, wolf clearing. Remove the old 64px debug grid. Keep decoration at negative depth.
 
-Do not render the old 64px debug grid.
+- [ ] **Step 4: Render readable world entities**
 
-Keep decorative objects behind entities via negative depths. Use repeated deterministic placement arrays, not random placement on every client.
+Use original shape-based stylized placeholders: humanoid body/head/facing marker for players, role-specific NPC accents, 2-3 wolf silhouettes/markers for the encounter. Keep nickname/name labels. Local player gets a distinct accent.
 
-- [ ] **Step 4: Build entity rendering**
-
-Represent players as simple stylized humanoid sprites built from Phaser shapes/containers, with a body, head, small facing indicator, nickname label, and local-player accent. Represent NPCs with role-specific icons and labels. Represent the wolf encounter as 2-3 stylized wolf silhouettes/markers rather than a red circle.
-
-`WorldEntitiesRenderer` should expose callbacks:
+`WorldEntitiesRenderer` exposes:
 
 ```ts
 onNpcSelected?: (npcId: string) => void;
 onEncounterSelected?: (encounterId: string) => void;
 ```
 
-- [ ] **Step 5: Refactor `WorldScene` to coordinate instead of drawing everything**
+- [ ] **Step 5: Refactor `WorldScene`**
 
-`WorldScene.create()` should:
-1. Create background renderer.
-2. Create entity renderer.
-3. Create `WorldHud`, `InventoryPanel`, `CharacterPanel`, `DialoguePanel`.
-4. Subscribe to `worldState`, `playerState`, `npcInteraction`, command rejection, connect/disconnect.
-5. Start camera follow on the local player view once available.
-6. Keep click-to-move/WASD behavior and server intent rate limiting.
+On create:
+1. Build background and entity renderers.
+2. Build world HUD/panels.
+3. Subscribe to `worldState`, `playerState`, `npcInteraction`, rejections, connection state.
+4. Call `requestWorldState()` and `requestPlayerState()`.
+5. Preserve WASD/arrows + click/tap movement.
+6. Clicking NPC emits `interactNpc`; clicking wolves emits `startEncounter`.
+7. Camera follows local player and remains clamped to `1600x900`.
 
-Interaction behavior:
-- Clicking NPC clears click-to-move target and emits `interactNpc`.
-- Clicking wolves clears click-to-move target and emits `startEncounter`.
-- Server remains responsible for range rejection.
+- [ ] **Step 6: Smooth authoritative corrections**
 
-- [ ] **Step 6: Add smooth remote/local corrections**
+Remote entities interpolate to latest server target with `Phaser.Math.Linear(current, target, 0.25)`. Local prediction remains immediate but converges toward authoritative snapshots rather than snapping.
 
-For authoritative snapshots, keep a `serverTarget` position per player and visually interpolate toward it with `Phaser.Math.Linear(current, target, 0.25)` each frame. For the local player, continue immediate local movement prediction but converge toward the authoritative position when a snapshot differs materially.
-
-Do not change the server's 220 px/s authority limit.
-
-- [ ] **Step 7: Verify client tests/build**
+- [ ] **Step 7: Verify**
 
 ```bash
 npm run test -w @web-mmorpg/client
 npm run build -w @web-mmorpg/client
 ```
-
-Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
@@ -929,7 +755,7 @@ git commit -m "feat: render forest settlement world"
 
 ---
 
-### Task 8: Add Mobile Virtual Joystick Without Breaking Tap-to-Move
+### Task 8: Add Mobile Virtual Joystick While Keeping Tap-to-Move
 
 **Files:**
 - Create: `apps/client/src/input/VirtualJoystick.ts`
@@ -939,21 +765,18 @@ git commit -m "feat: render forest settlement world"
 - Modify: `apps/client/src/style.css`
 
 **Interfaces:**
-- `VirtualJoystick.getIntent(): { dx: number; dy: number }` returns normalized directional intent.
-- `WorldScene` combines keyboard and joystick input; either active directional input cancels pointer-target movement.
+- `VirtualJoystick.getIntent(): { dx: number; dy: number }`.
+- `normalizeAnalogIntent(offset, radius)` is pure/tested.
 
-- [ ] **Step 1: Add failing normalization tests**
-
-Add pure helper:
+- [ ] **Step 1: Add failing analog tests**
 
 ```ts
 expect(normalizeAnalogIntent({ x: 50, y: 0 }, 80)).toEqual({ dx: 0.625, dy: 0 });
-expect(normalizeAnalogIntent({ x: 100, y: 100 }, 80)).toSatisfy(
-  (v) => Math.hypot(v.dx, v.dy) <= 1
-);
+const diagonal = normalizeAnalogIntent({ x: 100, y: 100 }, 80);
+expect(Math.hypot(diagonal.dx, diagonal.dy)).toBeLessThanOrEqual(1);
 ```
 
-Also preserve the existing keyboard diagonal-speed test.
+Keep existing keyboard diagonal-speed and pointer overshoot tests.
 
 - [ ] **Step 2: Run RED**
 
@@ -961,42 +784,34 @@ Also preserve the existing keyboard diagonal-speed test.
 npm run test -w @web-mmorpg/client -- worldInput.test.ts
 ```
 
-- [ ] **Step 3: Implement `normalizeAnalogIntent`**
+- [ ] **Step 3: Implement analog normalization**
 
-Clamp magnitude to `radius`, divide by radius, return zero inside a small 8px dead zone.
+8px dead zone, magnitude clamped to radius, then normalized to `[-1,1]` range.
 
 - [ ] **Step 4: Implement DOM joystick**
 
-Create a fixed lower-left touch control with base and thumb. Use Pointer Events and `setPointerCapture`. Hide it for `(hover: hover) and (pointer: fine)` desktop environments; show it on coarse pointers.
+Fixed lower-left base/thumb, Pointer Events with pointer capture. Show on coarse pointers, hide on fine-pointer desktop. Prevent default only on joystick events so world taps still work.
 
-The joystick must call `preventDefault` only for its own pointer events so tapping the game world still performs tap-to-move.
+- [ ] **Step 5: Integrate movement priority**
 
-- [ ] **Step 5: Integrate in `WorldScene`**
-
-Movement priority:
-1. Keyboard intent if non-zero.
-2. Joystick intent if non-zero.
+1. Keyboard if non-zero.
+2. Joystick if non-zero.
 3. Pointer/tap target.
 
-Any keyboard/joystick directional intent clears `pointerTarget`.
+Directional input clears pointer target.
 
-- [ ] **Step 6: Run tests/build**
+- [ ] **Step 6: Verify and commit**
 
 ```bash
 npm run test -w @web-mmorpg/client
 npm run build -w @web-mmorpg/client
-```
-
-- [ ] **Step 7: Commit**
-
-```bash
 git add apps/client/src/input apps/client/src/scenes/WorldScene.ts apps/client/tests/worldInput.test.ts apps/client/src/style.css
 git commit -m "feat: add mobile world joystick"
 ```
 
 ---
 
-### Task 9: Add Battle Reachability Preview, Action Modes, and Turn Order HUD
+### Task 9: Overhaul Tactical Battle UX
 
 **Files:**
 - Create: `apps/client/src/battle/BattlePreview.ts`
@@ -1006,29 +821,13 @@ git commit -m "feat: add mobile world joystick"
 - Modify: `apps/client/src/style.css`
 
 **Interfaces:**
-- Produces pure helpers `reachableCells(snapshot, combatantId)` and `attackPreview(snapshot, combatantId, targetId, mode)`.
-- `BattleScene` uses helpers only for visual guidance; server still validates commands.
+- `reachableCells(snapshot, combatantId): Set<string>`.
+- `attackPreview(snapshot, combatantId, targetId, mode): AttackPreviewResult`.
+- `BattleActionMode = "move" | "meleeAttack" | "rangedAttack"`.
 
 - [ ] **Step 1: Write failing preview tests**
 
-Test a small synthetic snapshot:
-
-```ts
-it("does not mark blocked cells reachable and respects AP", () => {
-  const cells = reachableCells(snapshot, "hero");
-  expect(cells.has("1,0")).toBe(false); // blocker
-  expect(cells.has("0,2")).toBe(false); // beyond AP budget in fixture
-});
-
-it("reports ranged line-of-sight and range state", () => {
-  expect(attackPreview(snapshot, "hero", "wolf", "rangedAttack")).toMatchObject({
-    valid: false,
-    reason: "NO_LINE_OF_SIGHT"
-  });
-});
-```
-
-Reuse axial/hex math logic by moving generic pure client hex functions into `BattlePreview.ts`; do not import server source into the client package.
+Use a small synthetic battle snapshot. Assert blocked cells are never reachable, AP limits are respected, melee requires distance 1, ranged max distance is 6, `brokenArm` costs 4 AP instead of 3, and blocked LOS returns `NO_LINE_OF_SIGHT`.
 
 - [ ] **Step 2: Run RED**
 
@@ -1036,15 +835,19 @@ Reuse axial/hex math logic by moving generic pure client hex functions into `Bat
 npm run test -w @web-mmorpg/client -- battlePreview.test.ts
 ```
 
-- [ ] **Step 3: Implement reachable-cell preview**
+- [ ] **Step 3: Implement pure hex helpers inside `BattlePreview.ts`**
 
-Use BFS over `snapshot.cells`, excluding `blockedCells` and living combatant positions. Per-step preview cost is 2 when the selected combatant has `legTrauma`, otherwise 1. Stop paths whose cumulative cost exceeds current AP.
+Define local `hexKey`, `hexNeighbors`, `hexDistance`, axial-to-cube rounding, and line sampling so preview semantics match server LOS without importing server source. Use the same six axial directions as server:
 
-Return a `Set<string>` keyed as `q,r`.
+```ts
+[{q:1,r:0},{q:1,r:-1},{q:0,r:-1},{q:-1,r:0},{q:-1,r:1},{q:0,r:1}]
+```
 
-- [ ] **Step 4: Implement attack preview**
+- [ ] **Step 4: Implement reachability**
 
-Return:
+BFS over `snapshot.cells`, excluding `blockedCells` and living combatant positions. Step cost = 2 with `legTrauma`, else 1. Stop when cumulative cost exceeds current AP.
+
+- [ ] **Step 5: Implement attack preview**
 
 ```ts
 interface AttackPreviewResult {
@@ -1054,47 +857,23 @@ interface AttackPreviewResult {
 }
 ```
 
-Melee cost/range: 2 AP, exactly 1 hex. Ranged cost: 4 AP with `brokenArm`, otherwise 3 AP; max range 6; blockers are `blockedCells`. Do not add numeric cover bonuses.
+Melee: 2 AP, distance exactly 1. Ranged: 3 AP, or 4 with `brokenArm`, max distance 6, blockers = `blockedCells`. Do not assign numeric cover bonuses.
 
-- [ ] **Step 5: Refactor `BattleScene` rendering**
+- [ ] **Step 6: Restyle/render battle scene**
 
-Keep forest-clearing colors and remove the dark debug feel. Render:
-- earth/grass arena background,
-- subtle hex outlines,
-- reachable cells with a translucent highlight only on player's turn,
-- blocked cells as stylized trees/rocks,
-- cover cells as logs/bushes,
-- active combatant halo,
-- hover/selection feedback.
+Forest-clearing background, subtle integrated hexes, reachable-cell highlight, stylized tree/rock hard blockers, log/bush cover, active-combatant halo, hover/selection feedback. Default mode is `move`; melee/ranged buttons set explicit target mode.
 
-Click behavior becomes mode-explicit:
-- default mode = move,
-- melee button = melee target mode,
-- ranged button = ranged target mode,
-- clicking the active action again returns to move mode.
+- [ ] **Step 7: Expand battle HUD**
 
-- [ ] **Step 6: Expand `BattleHud`**
+Show round, active unit, HP/AP, injuries, turn-order strip, and four >=44px controls: `Ruch`, `Atak wręcz`, `Atak dystansowy`, `Koniec tury`.
 
-Render:
-- round number,
-- active combatant name,
-- HP/AP,
-- injuries,
-- explicit `Ruch`, `Atak wręcz`, `Atak dystansowy`, `Koniec tury` controls,
-- AP cost text on attack buttons,
-- turn-order strip from `snapshot.turnOrder` using combatant names.
-
-Change update signature to:
+Change HUD update boundary to:
 
 ```ts
 update(snapshot: BattleSnapshot, playerId: PlayerId, mode: BattleActionMode): void
 ```
 
-This lets the HUD render round/turn order without duplicating state in `BattleScene`.
-
-- [ ] **Step 7: Friendly rejection mapping**
-
-Map server codes to Polish UI strings in one object:
+- [ ] **Step 8: Map server rejections to friendly Polish messages**
 
 ```ts
 const BATTLE_ERROR_LABELS: Record<string, string> = {
@@ -1109,87 +888,67 @@ const BATTLE_ERROR_LABELS: Record<string, string> = {
 
 Fallback: `Akcja została odrzucona przez serwer.`
 
-- [ ] **Step 8: Run tests/build**
+- [ ] **Step 9: Verify and commit**
 
 ```bash
 npm run test -w @web-mmorpg/client
 npm run build -w @web-mmorpg/client
-```
-
-Expected: PASS.
-
-- [ ] **Step 9: Commit**
-
-```bash
 git add apps/client/src/battle apps/client/src/scenes/BattleScene.ts apps/client/src/ui/BattleHud.ts apps/client/tests/battlePreview.test.ts apps/client/src/style.css
 git commit -m "feat: overhaul tactical battle presentation"
 ```
 
 ---
 
-### Task 10: Wire Scene Transitions, Loot Summary, Reconnection Feedback, and Final Acceptance
+### Task 10: Finish Battle Return, Loot Summary, Deployment, and Acceptance
 
 **Files:**
-- Modify: `apps/client/src/scenes/LoginScene.ts`
-- Modify: `apps/client/src/scenes/WorldScene.ts`
-- Modify: `apps/client/src/scenes/BattleScene.ts`
-- Modify: `apps/client/src/net/GameSocket.ts`
 - Create: `apps/client/src/ui/LootSummary.ts`
+- Modify: `apps/client/src/scenes/BattleScene.ts`
+- Modify: `apps/client/src/scenes/WorldScene.ts`
+- Modify: `apps/client/src/scenes/LoginScene.ts`
+- Modify: `apps/client/src/net/GameSocket.ts`
 - Modify: `apps/client/src/style.css`
 - Modify: `.github/workflows/feature-ci.yml`
 - Modify: `.github/workflows/pages.yml`
 - Modify: `README.md`
 
 **Interfaces:**
-- Completes the deployed flow without adding new gameplay rules.
+- Completes deployed world -> battle -> result -> world loop without adding new combat rules.
 
-- [ ] **Step 1: Add battle-end scene handling**
+- [ ] **Step 1: Handle `battleEnded` in the battle scene**
 
-`BattleScene` subscribes to `battleEnded`. On victory, show `LootSummary` using the new inventory state and a `Wróć do świata` button. On defeat, show `Porażka — wracasz do osady` and the visible severe/injury state from `character`.
-
-The return button executes:
+Victory: show loot summary and `Wróć do świata`. Defeat: show `Porażka — wracasz do osady` plus visible severe/injury state. Return uses:
 
 ```ts
 this.scene.start("WorldScene", { playerId: this.playerId });
 ```
 
-Do not create a new socket or new login session.
+Reuse the existing socket/session; never reconnect/login during scene transition.
 
-- [ ] **Step 2: Keep `WorldScene` state synchronized on re-entry**
+- [ ] **Step 2: Refresh state on world re-entry**
 
-On `WorldScene.create()`, call:
+`WorldScene.create()` calls:
 
 ```ts
+gameSocket.requestWorldState();
 gameSocket.requestPlayerState();
-gameSocket.sendMoveIntent(this.localPosition);
 ```
 
-The world-state request continues to use the movement intent pattern already accepted by the server; `playerState` is requested explicitly.
+Do not abuse `moveIntent` as a snapshot request.
 
 - [ ] **Step 3: Add connection feedback**
 
-`GameSocket` forwards Socket.IO `connect`, `disconnect`, and `connect_error`. `WorldHud`/login form display:
-- `Połączono` when connected,
-- `Ponowne łączenie…` on disconnect while Socket.IO reconnects,
-- `Brak połączenia z serwerem` on connection error.
+Show `Połączono`, `Ponowne łączenie…`, and `Brak połączenia z serwerem` using Socket.IO built-in reconnect events. Do not add a custom polling loop.
 
-Do not implement custom retry timers; use Socket.IO's built-in reconnection behavior.
+- [ ] **Step 4: Ensure CI verifies all workspaces**
 
-- [ ] **Step 4: Run full monorepo verification locally/in CI**
-
-Run:
+`feature-ci.yml` runs:
 
 ```bash
 npm install
 npm run test
 npm run build
 ```
-
-Expected: all workspaces PASS.
-
-- [ ] **Step 5: Ensure CI covers both test and build**
-
-`feature-ci.yml` must run `npm install`, `npm run test`, and `npm run build` on pushes to `feature/mvp-vertical-slice`.
 
 `pages.yml` keeps:
 
@@ -1200,42 +959,38 @@ env:
 
 and uploads `apps/client/dist`.
 
-- [ ] **Step 6: Update README with test URLs and known MVP 2 limits**
+- [ ] **Step 5: Update README**
 
 Document:
 - client: `https://owca217.github.io/WEB_MMORPG/`
 - server: `https://web-mmorpg-server.onrender.com`
-- free Render instance may sleep when idle,
+- Render free instance may sleep when idle,
 - progress is in-memory and resets on server restart,
-- MVP 2 includes one settlement, two NPC roles, one wolf encounter, inventory, injuries, and tactical battle.
+- MVP 2 scope: one settlement, guide, healer, wolf encounter, inventory, injuries, tactical battle.
 
-- [ ] **Step 7: Manual acceptance pass**
+- [ ] **Step 6: Run full verification**
 
-Verify on desktop:
-1. Login.
-2. See authored forest settlement instead of grid.
-3. Move via WASD and click-to-move.
-4. Talk to Boran.
-5. Talk to Ada and use heal action.
-6. Walk to wolves and enter combat.
-7. See reachable cells, AP, turn order, obstacles, cover and explicit action mode.
-8. End turn and observe wolf act automatically.
-9. Win fight, see loot summary, return to world, open inventory and see wolf pelt/bandages.
+```bash
+npm install
+npm run test
+npm run build
+```
 
-Verify on mobile:
-1. Login.
-2. Move via virtual joystick.
-3. Move via tap-to-move.
-4. Open/close inventory and character panels.
-5. Complete at least one battle without controls covering the active arena.
+Expected: all workspaces PASS.
 
-Verify multiplayer:
-1. Open two browser sessions with different nicknames.
-2. Confirm both players see each other in the settlement.
-3. Put one player in battle; the other remains in shared world.
-4. Return the battling player and confirm both are visible again.
+- [ ] **Step 7: Manual desktop acceptance**
 
-- [ ] **Step 8: Commit**
+Login; see settlement instead of grid; move with WASD and click; talk to Boran; use Ada; enter wolf fight; see AP/turn order/reachable cells/obstacles/cover; observe automatic wolf turn; win; see loot; return; open inventory and confirm rewards.
+
+- [ ] **Step 8: Manual mobile acceptance**
+
+Login; move by joystick and tap; open inventory/character; talk to NPC; complete battle with usable controls and no critical arena obstruction.
+
+- [ ] **Step 9: Manual multiplayer acceptance**
+
+Two different nicknames see each other; one enters personal battle without pulling the other in; after battle both appear together again.
+
+- [ ] **Step 10: Commit**
 
 ```bash
 git add apps/client .github/workflows README.md
@@ -1246,13 +1001,13 @@ git commit -m "feat: complete mvp2 vertical slice"
 
 ## Final Verification Checklist
 
-Before claiming MVP 2 complete, run and record evidence for:
+Before claiming MVP 2 complete:
 
 ```bash
 npm run test
 npm run build
 ```
 
-Then verify the latest GitHub Actions `Feature CI` and `Deploy client to GitHub Pages` runs are green. Confirm Render is running the latest `feature/mvp-vertical-slice` commit before manual public testing.
+Then verify the latest GitHub Actions `Feature CI` and `Deploy client to GitHub Pages` runs are green. Confirm Render has deployed the latest `feature/mvp-vertical-slice` commit before public testing.
 
-Do not merge the feature branch into `main` as part of this plan. Merge/release is a separate approval step after the user has tested the deployed MVP 2.
+Do not merge into `main` as part of this plan. Merge/release requires a separate explicit approval after the deployed MVP 2 has been tested.

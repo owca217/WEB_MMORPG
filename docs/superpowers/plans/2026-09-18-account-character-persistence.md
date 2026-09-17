@@ -2215,7 +2215,7 @@ it("writes only dirty player positions and clears them after flush", async () =>
   const coordinator = new PositionPersistenceCoordinator({
     intervalMs: 2000,
     readPosition: () => ({ locationId: "forest-settlement-01", x: 500, y: 400 }),
-    writePosition: async (playerId, state) => writes.push({ playerId, ...state })
+    writePosition: async (playerId, state) => { writes.push({ playerId, ...state }); }
   });
 
   coordinator.markDirty("p1");
@@ -2224,14 +2224,38 @@ it("writes only dirty player positions and clears them after flush", async () =>
 
   expect(writes).toHaveLength(1);
 });
+
+it("keeps a player dirty when movement happens during an in-flight write", async () => {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  let writes = 0;
+  const coordinator = new PositionPersistenceCoordinator({
+    intervalMs: 2000,
+    readPosition: () => ({ locationId: "forest-settlement-01", x: 500, y: 400 }),
+    writePosition: async () => {
+      writes += 1;
+      if (writes === 1) await blocked;
+    }
+  });
+
+  coordinator.markDirty("p1");
+  const firstFlush = coordinator.flushPlayer("p1");
+  coordinator.markDirty("p1");
+  release();
+  await firstFlush;
+  await coordinator.flushDirty();
+
+  expect(writes).toBe(2);
+});
 ```
 
 - [ ] **Step 6: Implement `PositionPersistenceCoordinator`**
 
 ```ts
 export class PositionPersistenceCoordinator {
-  private readonly dirty = new Set<string>();
+  private readonly dirtyRevision = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  private flushing = false;
 
   constructor(private readonly deps: {
     intervalMs: number;
@@ -2240,21 +2264,33 @@ export class PositionPersistenceCoordinator {
   }) {}
 
   markDirty(playerId: string): void {
-    this.dirty.add(playerId);
+    this.dirtyRevision.set(playerId, (this.dirtyRevision.get(playerId) ?? 0) + 1);
   }
 
   async flushPlayer(playerId: string): Promise<void> {
+    const revision = this.dirtyRevision.get(playerId);
+    if (revision === undefined) return;
+
     const state = this.deps.readPosition(playerId);
     if (!state) {
-      this.dirty.delete(playerId);
+      if (this.dirtyRevision.get(playerId) === revision) this.dirtyRevision.delete(playerId);
       return;
     }
+
     await this.deps.writePosition(playerId, state);
-    this.dirty.delete(playerId);
+    if (this.dirtyRevision.get(playerId) === revision) this.dirtyRevision.delete(playerId);
   }
 
   async flushDirty(): Promise<void> {
-    for (const playerId of [...this.dirty]) await this.flushPlayer(playerId);
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      for (const playerId of [...this.dirtyRevision.keys()]) {
+        await this.flushPlayer(playerId);
+      }
+    } finally {
+      this.flushing = false;
+    }
   }
 
   start(): void {
@@ -2278,10 +2314,24 @@ After every accepted `world.movePlayer`:
 positions.markDirty(playerId);
 ```
 
-Before removing a player on socket disconnect:
+Before removing a player on normal socket disconnect:
 
 ```ts
 await positions.flushPlayer(playerId);
+```
+
+Update the Task 7 `ActiveConnection.close` implementation so replacement/logout/recovery/deletion also flush before runtime removal:
+
+```ts
+async close(reason) {
+  await positions.flushPlayer(playerId);
+  if (reason === "sessionReplaced") socket.emit("sessionReplaced");
+  battles.removeBattleForPlayer(playerId);
+  world.removePlayer(playerId);
+  inventory.removePlayer(playerId);
+  characters.removePlayer(playerId);
+  socket.disconnect(true);
+}
 ```
 
 Also flush on battle entry, battle exit, and defeat reset.

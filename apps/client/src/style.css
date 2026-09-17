@@ -318,6 +318,43 @@ button {
   padding: 0 18px;
 }
 
+.virtual-joystick {
+  position: fixed;
+  z-index: 950;
+  left: max(22px, env(safe-area-inset-left));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 2px solid rgba(224, 205, 164, 0.48);
+  background: rgba(25, 30, 23, 0.52);
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.34), 0 8px 24px rgba(0, 0, 0, 0.24);
+  touch-action: none;
+  user-select: none;
+}
+
+.virtual-joystick__thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin-left: -28px;
+  margin-top: -28px;
+  border-radius: 50%;
+  border: 2px solid rgba(241, 224, 186, 0.72);
+  background: rgba(99, 113, 73, 0.92);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.36);
+  pointer-events: none;
+  will-change: transform;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .virtual-joystick {
+    display: none;
+  }
+}
+
 .battle-hud {
   position: fixed;
   z-index: 1000;

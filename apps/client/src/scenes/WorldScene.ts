@@ -1,5 +1,6 @@
 import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { VirtualJoystick } from "../input/VirtualJoystick";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
@@ -37,6 +38,7 @@ export class WorldScene extends Phaser.Scene {
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
+  private joystick: VirtualJoystick | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {
@@ -88,6 +90,7 @@ export class WorldScene extends Phaser.Scene {
       onInventory: () => this.inventoryPanel?.toggle(),
       onCharacter: () => this.characterPanel?.toggle()
     });
+    this.joystick = new VirtualJoystick();
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -135,21 +138,23 @@ export class WorldScene extends Phaser.Scene {
       up: Boolean(this.cursors?.up.isDown || this.wasd?.W.isDown),
       down: Boolean(this.cursors?.down.isDown || this.wasd?.S.isDown)
     });
-
+    const analogIntent = this.joystick?.getIntent() ?? { dx: 0, dy: 0 };
     const hasKeyboardIntent = keyboardIntent.dx !== 0 || keyboardIntent.dy !== 0;
+    const directionalIntent = hasKeyboardIntent ? keyboardIntent : analogIntent;
+    const hasDirectionalIntent = directionalIntent.dx !== 0 || directionalIntent.dy !== 0;
     const speed = 220;
     const travel = (speed * delta) / 1000;
 
-    if (hasKeyboardIntent) {
+    if (hasDirectionalIntent) {
       this.pointerTarget = null;
       this.localPosition = {
         x: Phaser.Math.Clamp(
-          this.localPosition.x + keyboardIntent.dx * travel,
+          this.localPosition.x + directionalIntent.dx * travel,
           0,
           FOREST_SETTLEMENT_LAYOUT.width
         ),
         y: Phaser.Math.Clamp(
-          this.localPosition.y + keyboardIntent.dy * travel,
+          this.localPosition.y + directionalIntent.dy * travel,
           0,
           FOREST_SETTLEMENT_LAYOUT.height
         )
@@ -191,7 +196,7 @@ export class WorldScene extends Phaser.Scene {
     this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x, this.localPosition.y);
     this.entitiesRenderer?.updateRemotePlayers();
 
-    if ((hasKeyboardIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
+    if ((hasDirectionalIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
       gameSocket.sendMoveIntent(this.localPosition);
     }
@@ -231,12 +236,14 @@ export class WorldScene extends Phaser.Scene {
 
   private cleanup(): void {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
+    this.joystick?.destroy();
     this.hud?.destroy();
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
+    this.joystick = undefined;
     this.hud = undefined;
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;

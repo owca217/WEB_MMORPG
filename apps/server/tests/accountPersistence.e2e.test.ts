@@ -5,6 +5,8 @@ import type {
 } from "@web-mmorpg/shared";
 import type { Socket } from "socket.io-client";
 import { afterEach, describe, expect, it } from "vitest";
+import { AccountRepository } from "../src/persistence/AccountRepository";
+import { CharacterRepository } from "../src/persistence/CharacterRepository";
 import {
   defaultAppearance,
   startTestApp,
@@ -264,4 +266,112 @@ describe("persistent account lifecycle end to end", () => {
     );
     expect(invalidAppearance.status).toBe(400);
   });
+
+  it("rotates recovery codes, changes the password and revokes old sessions", async () => {
+    app = await startTestApp();
+    const registration = await app.register("recovery-e2e");
+    const login = await app.login("recovery-e2e");
+
+    const recovered = await fetch(app.baseUrl + "/api/auth/recover", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://client.test"
+      },
+      body: JSON.stringify({
+        username: "recovery-e2e",
+        recoveryCode: registration.recoveryCode,
+        newPassword: "replacement horse battery",
+        passwordConfirmation: "replacement horse battery"
+      })
+    });
+
+    expect(recovered.status).toBe(200);
+    const recoveredBody = (await recovered.json()) as {
+      recoveryCode: string;
+    };
+    expect(recoveredBody.recoveryCode).not.toBe(
+      registration.recoveryCode
+    );
+
+    expect(
+      (await sessionResponse(app.baseUrl, login.token)).status
+    ).toBe(401);
+
+    const reusedOldCode = await fetch(
+      app.baseUrl + "/api/auth/recover",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://client.test"
+        },
+        body: JSON.stringify({
+          username: "recovery-e2e",
+          recoveryCode: registration.recoveryCode,
+          newPassword: "another replacement password",
+          passwordConfirmation: "another replacement password"
+        })
+      }
+    );
+    expect(reusedOldCode.status).toBe(401);
+
+    const oldPassword = await fetch(app.baseUrl + "/api/auth/login", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://client.test"
+      },
+      body: JSON.stringify({
+        username: "recovery-e2e",
+        password: "correct horse battery"
+      })
+    });
+    expect(oldPassword.status).toBe(401);
+
+    await expect(
+      app.login("recovery-e2e", "replacement horse battery")
+    ).resolves.toBeTruthy();
+  });
+
+  it("ignores client-supplied account ids and binds character creation to the bearer account", async () => {
+    app = await startTestApp();
+
+    await app.register("victim-owner");
+    await app.register("attacker-owner");
+    const attackerLogin = await app.login("attacker-owner");
+
+    const accounts = new AccountRepository(app.pool);
+    const characters = new CharacterRepository(app.pool);
+    const victim = await accounts.findByNormalizedUsername(
+      "victim-owner"
+    );
+    const attacker = await accounts.findByNormalizedUsername(
+      "attacker-owner"
+    );
+    if (!victim || !attacker) throw new Error("Expected test accounts.");
+
+    const response = await fetch(app.baseUrl + "/api/character", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${attackerLogin.token}`,
+        origin: "https://client.test"
+      },
+      body: JSON.stringify({
+        accountId: victim.id,
+        nickname: "BoundHero",
+        appearance: defaultAppearance
+      })
+    });
+
+    expect(response.status).toBe(201);
+    expect(
+      (await characters.findByAccountId(attacker.id))?.nickname
+    ).toBe("BoundHero");
+    expect(
+      await characters.findByAccountId(victim.id)
+    ).toBeNull();
+  });
+
 });

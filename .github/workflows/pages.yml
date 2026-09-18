@@ -39,6 +39,7 @@ jobs:
       - name: Build client
         env:
           VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com
+          VITE_PERSISTENT_ACCOUNTS: ${{ vars.VITE_PERSISTENT_ACCOUNTS || 'false' }}
         run: npm run build -w @web-mmorpg/client
 
       - name: Configure Pages

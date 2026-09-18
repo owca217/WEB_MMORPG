@@ -27,6 +27,9 @@ export class WorldService {
       id: PlayerId;
       nickname: string;
       appearance?: AppearanceSelection;
+      locationId?: LocationId;
+      x?: number;
+      y?: number;
     },
     now = Date.now()
   ): WorldPlayerSnapshot {
@@ -34,9 +37,9 @@ export class WorldService {
       id: input.id,
       nickname: input.nickname,
       appearance: { ...(input.appearance ?? DEFAULT_APPEARANCE) },
-      x: FOREST_SETTLEMENT_01.spawn.x,
-      y: FOREST_SETTLEMENT_01.spawn.y,
-      locationId: FOREST_SETTLEMENT_01.id,
+      x: input.x ?? FOREST_SETTLEMENT_01.spawn.x,
+      y: input.y ?? FOREST_SETTLEMENT_01.spawn.y,
+      locationId: input.locationId ?? FOREST_SETTLEMENT_01.id,
       lastMoveAt: now
     };
 
@@ -106,6 +109,19 @@ export class WorldService {
     player.y = FOREST_SETTLEMENT_01.spawn.y;
     player.lastMoveAt = now;
     return this.toSnapshot(player);
+  }
+
+  getPersistenceState(playerId: PlayerId):
+    | { locationId: LocationId; x: number; y: number }
+    | undefined {
+    const player = this.players.get(playerId);
+    return player
+      ? {
+          locationId: player.locationId,
+          x: player.x,
+          y: player.y
+        }
+      : undefined;
   }
 
   getPlayer(playerId: PlayerId): WorldPlayerSnapshot | undefined {

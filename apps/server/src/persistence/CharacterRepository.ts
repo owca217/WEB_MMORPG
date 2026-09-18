@@ -118,6 +118,23 @@ export class CharacterRepository {
     return result.rows[0] ? mapCharacter(result.rows[0]) : null;
   }
 
+  async updatePosition(
+    characterId: string,
+    locationId: string,
+    x: number,
+    y: number
+  ): Promise<void> {
+    await this.db.query(
+      `UPDATE characters
+       SET location_id = $2,
+           x = $3,
+           y = $4,
+           updated_at = now()
+       WHERE id = $1`,
+      [characterId, locationId, x, y]
+    );
+  }
+
   async findByNormalizedNickname(
     normalized: string
   ): Promise<PersistedCharacterRecord | null> {

@@ -40,6 +40,17 @@ export class InventoryService {
     return this.getSnapshot(playerId);
   }
 
+  hydratePlayer(
+    playerId: PlayerId,
+    snapshot: InventorySnapshot
+  ): InventorySnapshot {
+    this.inventories.set(
+      playerId,
+      snapshot.items.map((item) => ({ ...item }))
+    );
+    return this.getSnapshot(playerId);
+  }
+
   getSnapshot(playerId: PlayerId): InventorySnapshot {
     return {
       items: (this.inventories.get(playerId) ?? []).map((item) => ({ ...item }))

@@ -13,6 +13,7 @@ import { CharacterLifecycleService } from "../../src/character/CharacterLifecycl
 import { runMigrations } from "../../src/db/migrate";
 import { createApiHandler } from "../../src/http/createApiHandler";
 import { AccountRepository } from "../../src/persistence/AccountRepository";
+import { CharacterRepository } from "../../src/persistence/CharacterRepository";
 import { ActiveConnectionRegistry } from "../../src/server/ActiveConnectionRegistry";
 import { createGameServer } from "../../src/server/createGameServer";
 
@@ -66,6 +67,7 @@ export async function startTestApp(): Promise<TestApp> {
     characters
   );
   const activeConnections = new ActiveConnectionRegistry();
+  const characterRepository = new CharacterRepository(pool);
   const httpServer = createServer(
     createApiHandler({
       authService,
@@ -77,7 +79,9 @@ export async function startTestApp(): Promise<TestApp> {
   const game = createGameServer(httpServer, {
     authService,
     characters,
-    activeConnections
+    activeConnections,
+    characterRepository,
+    positionCheckpointMs: 2000
   });
 
   await new Promise<void>((resolve) =>
@@ -148,6 +152,7 @@ export async function startTestApp(): Promise<TestApp> {
     },
     async close() {
       for (const socket of sockets) socket.disconnect();
+      await game.services.positions?.stop();
       await new Promise<void>((resolve) => game.io.close(() => resolve()));
       if (httpServer.listening) {
         await new Promise<void>((resolve, reject) =>

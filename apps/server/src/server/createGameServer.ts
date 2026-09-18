@@ -12,6 +12,8 @@ import { BattleService } from "../battle/BattleService";
 import { CharacterService } from "../character/CharacterService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { InventoryService } from "../inventory/InventoryService";
+import { CharacterRepository } from "../persistence/CharacterRepository";
+import { PositionPersistenceCoordinator } from "../persistence/PositionPersistenceCoordinator";
 import { LootService } from "../loot/LootService";
 import { SessionStore } from "../session/SessionStore";
 import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
@@ -25,6 +27,8 @@ export interface PersistentGameServerDeps {
   authService: AuthService;
   characters: CharacterLifecycleService;
   activeConnections: ActiveConnectionRegistry;
+  characterRepository: CharacterRepository;
+  positionCheckpointMs?: number;
 }
 
 export function createGameServer(
@@ -37,6 +41,22 @@ export function createGameServer(
   const loot = new LootService();
   const battles = new BattleService();
   const characters = new CharacterService();
+  const positions = persistentDeps
+    ? new PositionPersistenceCoordinator({
+        intervalMs: persistentDeps.positionCheckpointMs ?? 2000,
+        readPosition: (targetPlayerId) =>
+          world.getPersistenceState(targetPlayerId),
+        writePosition: async (targetPlayerId, state) => {
+          await persistentDeps.characterRepository.updatePosition(
+            targetPlayerId,
+            state.locationId,
+            state.x,
+            state.y
+          );
+        }
+      })
+    : undefined;
+  positions?.start();
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: true, credentials: false }
@@ -125,16 +145,24 @@ export function createGameServer(
       return sessions.get(playerId)?.locationId ?? null;
     };
 
-    const removeRuntimePlayer = (): void => {
+    const removeRuntimePlayer = async (
+      flushPosition: boolean
+    ): Promise<void> => {
       if (!playerId) return;
+      const targetPlayerId = playerId;
       const targetLocation = currentLocationId();
-      battles.removeBattleForPlayer(playerId);
-      world.removePlayer(playerId);
-      inventory.removePlayer(playerId);
-      characters.removePlayer(playerId);
+
+      if (flushPosition) {
+        await positions?.flushPlayer(targetPlayerId);
+      }
+
+      battles.removeBattleForPlayer(targetPlayerId);
+      world.removePlayer(targetPlayerId);
+      inventory.removePlayer(targetPlayerId);
+      characters.removePlayer(targetPlayerId);
 
       if (!persistentDeps) {
-        sessions.remove(playerId);
+        sessions.remove(targetPlayerId);
       }
 
       if (targetLocation) {
@@ -165,8 +193,9 @@ export function createGameServer(
         return;
       }
 
-      const profile = await persistentDeps.characters.getCharacter(accountId);
-      if (!profile || profile.id !== lifecycle.characterId) {
+      const persisted =
+        await persistentDeps.characterRepository.findByAccountId(accountId);
+      if (!persisted || persisted.id !== lifecycle.characterId) {
         socket.disconnect(true);
         return;
       }
@@ -176,13 +205,28 @@ export function createGameServer(
         "sessionReplaced"
       );
 
-      playerId = profile.id;
-      locationId = FOREST_SETTLEMENT_01.id;
-      characters.createPlayer(profile.id, profile.nickname, profile.appearance);
+      playerId = persisted.id;
+      locationId = persisted.locationId;
+      characters.hydratePlayer({
+        playerId: persisted.id,
+        nickname: persisted.nickname,
+        appearance: persisted.appearance,
+        level: persisted.level,
+        hp: persisted.hp,
+        maxHp: persisted.maxHp,
+        maxAp: persisted.maxAp,
+        initiative: persisted.initiative,
+        severelyInjured: persisted.severelyInjured,
+        injuries: []
+      });
+      inventory.hydratePlayer(persisted.id, { items: [] });
       world.addPlayer({
-        id: profile.id,
-        nickname: profile.nickname,
-        appearance: profile.appearance
+        id: persisted.id,
+        nickname: persisted.nickname,
+        appearance: persisted.appearance,
+        locationId: persisted.locationId,
+        x: persisted.x,
+        y: persisted.y
       });
       socket.join(`location:${locationId}`);
 
@@ -190,16 +234,16 @@ export function createGameServer(
         async close(reason) {
           if (closedByRegistry) return;
           closedByRegistry = true;
+          await removeRuntimePlayer(true);
           if (reason === "sessionReplaced") {
             socket.emit("sessionReplaced");
           }
-          removeRuntimePlayer();
           socket.disconnect(true);
         }
       };
       persistentDeps.activeConnections.attach(accountId, activeConnection);
 
-      emitPlayerState(profile.id);
+      emitPlayerState(persisted.id);
       io.to(`location:${locationId}`).emit(
         "worldState",
         world.snapshot(locationId)
@@ -247,6 +291,7 @@ export function createGameServer(
 
       try {
         world.movePlayer(playerId, intent);
+        positions?.markDirty(playerId);
         io.to(`location:${targetLocation}`).emit(
           "worldState",
           world.snapshot(targetLocation)
@@ -284,7 +329,7 @@ export function createGameServer(
       }
     });
 
-    socket.on("startEncounter", ({ encounterId }) => {
+    socket.on("startEncounter", async ({ encounterId }) => {
       if (!playerId) return;
       const targetLocation = currentLocationId();
       const character = characters.getSnapshot(playerId);
@@ -293,6 +338,7 @@ export function createGameServer(
       try {
         world.startEncounter(playerId, encounterId);
         const snapshot = battles.startBattle(character, encounterId);
+        await positions?.flushPlayer(playerId);
         socket.leave(`location:${targetLocation}`);
         socket.emit("battleStarted", snapshot);
       } catch (error) {
@@ -300,7 +346,7 @@ export function createGameServer(
       }
     });
 
-    socket.on("battleCommand", (command) => {
+    socket.on("battleCommand", async (command) => {
       if (!playerId) return;
 
       const applied = battles.applyCommand(playerId, command);
@@ -334,6 +380,7 @@ export function createGameServer(
       } else {
         characters.recoverAfterDefeat(playerId);
         world.resetPlayerToSpawn(playerId);
+        positions?.markDirty(playerId);
       }
 
       const character = characters.getSnapshot(playerId);
@@ -341,6 +388,7 @@ export function createGameServer(
       if (!character || !targetLocation) return;
 
       const inventorySnapshot = inventory.getSnapshot(playerId);
+      await positions?.flushPlayer(playerId);
       emitPlayerState(playerId);
       socket.emit("battleEnded", {
         outcome: applied.victory ? "victory" : "defeat",
@@ -357,13 +405,15 @@ export function createGameServer(
     });
 
     socket.on("disconnect", () => {
-      if (persistentDeps && accountId && activeConnection) {
-        persistentDeps.activeConnections.detach(accountId, activeConnection);
-      }
+      void (async () => {
+        if (persistentDeps && accountId && activeConnection) {
+          persistentDeps.activeConnections.detach(accountId, activeConnection);
+        }
 
-      if (!closedByRegistry) {
-        removeRuntimePlayer();
-      }
+        if (!closedByRegistry) {
+          await removeRuntimePlayer(Boolean(persistentDeps));
+        }
+      })();
     });
   });
 
@@ -375,7 +425,8 @@ export function createGameServer(
       inventory,
       loot,
       battles,
-      characters
+      characters,
+      positions
     }
   };
 }

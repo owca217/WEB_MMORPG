@@ -105,6 +105,7 @@ describe("Inventory and loot", () => {
     inventory.hydratePlayer("p1", {
       items: [
         {
+          instanceId: "persisted-item-1",
           itemId: "wolf-pelt",
           name: "Wilcza skóra",
           description: "Zdobycz z wilka.",

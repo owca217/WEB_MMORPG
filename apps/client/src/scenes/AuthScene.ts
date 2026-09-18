@@ -39,7 +39,7 @@ export class AuthScene extends Phaser.Scene {
     return panel;
   }
 
-  private input(name: string, placeholder: string, type = "text"): HTMLInputElement {
+  private createInput(name: string, placeholder: string, type = "text"): HTMLInputElement {
     const input = document.createElement("input");
     input.name = name;
     input.placeholder = placeholder;
@@ -65,8 +65,8 @@ export class AuthScene extends Phaser.Scene {
   private showLogin(): void {
     const panel = this.createPanel("WEB MMORPG", "Zaloguj się do swojego konta.");
     const form = document.createElement("form");
-    const username = this.input("username", "Nazwa konta");
-    const password = this.input("password", "Hasło", "password");
+    const username = this.createInput("username", "Nazwa konta");
+    const password = this.createInput("password", "Hasło", "password");
     password.autocomplete = "current-password";
     const submit = this.button("Zaloguj", "submit");
     const error = this.errorNode();
@@ -99,10 +99,10 @@ export class AuthScene extends Phaser.Scene {
   private showRegister(): void {
     const panel = this.createPanel("Utwórz konto", "Jedno konto może posiadać jedną postać.");
     const form = document.createElement("form");
-    const username = this.input("username", "Nazwa konta");
-    const password = this.input("password", "Hasło (min. 10 znaków)", "password");
+    const username = this.createInput("username", "Nazwa konta");
+    const password = this.createInput("password", "Hasło (min. 10 znaków)", "password");
     password.autocomplete = "new-password";
-    const confirm = this.input("passwordConfirmation", "Powtórz hasło", "password");
+    const confirm = this.createInput("passwordConfirmation", "Powtórz hasło", "password");
     confirm.autocomplete = "new-password";
     const submit = this.button("Zarejestruj", "submit");
     const back = this.button("Wróć");
@@ -130,12 +130,12 @@ export class AuthScene extends Phaser.Scene {
   private showRecover(): void {
     const panel = this.createPanel("Odzyskaj konto");
     const form = document.createElement("form");
-    const username = this.input("username", "Nazwa konta");
-    const recoveryCode = this.input("recoveryCode", "Kod odzyskiwania");
+    const username = this.createInput("username", "Nazwa konta");
+    const recoveryCode = this.createInput("recoveryCode", "Kod odzyskiwania");
     recoveryCode.autocomplete = "off";
-    const password = this.input("newPassword", "Nowe hasło", "password");
+    const password = this.createInput("newPassword", "Nowe hasło", "password");
     password.autocomplete = "new-password";
-    const confirm = this.input("passwordConfirmation", "Powtórz nowe hasło", "password");
+    const confirm = this.createInput("passwordConfirmation", "Powtórz nowe hasło", "password");
     confirm.autocomplete = "new-password";
     const submit = this.button("Ustaw nowe hasło", "submit");
     const back = this.button("Wróć");

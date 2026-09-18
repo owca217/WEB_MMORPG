@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type Server as HttpServer } from "node:http";
 import type { Pool } from "pg";
 import { AuthService } from "./auth/AuthService";
 import { CharacterLifecycleService } from "./character/CharacterLifecycleService";
@@ -20,7 +20,7 @@ const positionCheckpointMs = Number(
 );
 
 let pool: Pool | undefined;
-let httpServer;
+let httpServer: HttpServer;
 let persistentGameDeps:
   | {
       authService: AuthService;
@@ -92,7 +92,7 @@ async function shutdown(): Promise<void> {
 
     if (httpServer.listening) {
       await new Promise<void>((resolve, reject) => {
-        httpServer.close((error) => {
+        httpServer.close((error?: Error) => {
           if (error) reject(error);
           else resolve();
         });

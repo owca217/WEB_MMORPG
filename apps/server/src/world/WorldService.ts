@@ -1,4 +1,5 @@
 import type {
+  AppearanceSelection,
   EncounterSnapshot,
   LocationId,
   NpcSnapshot,
@@ -6,6 +7,7 @@ import type {
   WorldPlayerSnapshot,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE } from "@web-mmorpg/shared";
 import {
   ENCOUNTER_ACTIVATION_RADIUS,
   FOREST_SETTLEMENT_01,
@@ -20,10 +22,18 @@ interface WorldPlayerState extends WorldPlayerSnapshot {
 export class WorldService {
   private readonly players = new Map<PlayerId, WorldPlayerState>();
 
-  addPlayer(input: { id: PlayerId; nickname: string }, now = Date.now()): WorldPlayerSnapshot {
+  addPlayer(
+    input: {
+      id: PlayerId;
+      nickname: string;
+      appearance?: AppearanceSelection;
+    },
+    now = Date.now()
+  ): WorldPlayerSnapshot {
     const player: WorldPlayerState = {
       id: input.id,
       nickname: input.nickname,
+      appearance: { ...(input.appearance ?? DEFAULT_APPEARANCE) },
       x: FOREST_SETTLEMENT_01.spawn.x,
       y: FOREST_SETTLEMENT_01.spawn.y,
       locationId: FOREST_SETTLEMENT_01.id,
@@ -130,6 +140,7 @@ export class WorldService {
     return {
       id: player.id,
       nickname: player.nickname,
+      appearance: { ...player.appearance },
       x: player.x,
       y: player.y
     };

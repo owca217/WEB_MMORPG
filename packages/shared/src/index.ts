@@ -1,3 +1,4 @@
+export * from "./appearance";
 export * from "./ids";
 export * from "./world";
 export * from "./battle";

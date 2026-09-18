@@ -1,5 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AuthError, type AuthService } from "../auth/AuthService";
+import {
+  CharacterLifecycleError,
+  type CharacterLifecycleService
+} from "../character/CharacterLifecycleService";
 import { AuthRateLimiter } from "./AuthRateLimiter";
 import { bearerToken, readJson, sendJson } from "./httpJson";
 
@@ -7,6 +11,7 @@ export interface ApiHandlerDeps {
   authService: AuthService;
   clientOrigin: string;
   authRateLimiter?: AuthRateLimiter;
+  characterService?: CharacterLifecycleService;
 }
 
 interface RegisterBody {
@@ -65,7 +70,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
         return;
       }
 
-      if (error instanceof AuthError) {
+      if (error instanceof AuthError || error instanceof CharacterLifecycleError) {
         sendJson(response, error.status, {
           code: error.code,
           message: error.message
@@ -213,6 +218,65 @@ async function handleRequest(
     }
 
     sendJson(response, 200, auth.view);
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/character") {
+    const token = bearerToken(request);
+    if (!token) {
+      unauthorized(response);
+      return;
+    }
+    const auth = await deps.authService.validateToken(token);
+    if (!auth) {
+      unauthorized(response);
+      return;
+    }
+    if (!deps.characterService) {
+      sendJson(response, 503, {
+        code: "CHARACTER_SERVICE_UNAVAILABLE",
+        message: "Character service is not configured."
+      });
+      return;
+    }
+
+    const character = await deps.characterService.getCharacter(auth.account.id);
+    if (!character) {
+      sendJson(response, 404, {
+        code: "CHARACTER_NOT_FOUND",
+        message: "This account has no character."
+      });
+      return;
+    }
+    sendJson(response, 200, character);
+    return;
+  }
+
+  if (request.method === "POST" && path === "/api/character") {
+    const token = bearerToken(request);
+    if (!token) {
+      unauthorized(response);
+      return;
+    }
+    const auth = await deps.authService.validateToken(token);
+    if (!auth) {
+      unauthorized(response);
+      return;
+    }
+    if (!deps.characterService) {
+      sendJson(response, 503, {
+        code: "CHARACTER_SERVICE_UNAVAILABLE",
+        message: "Character service is not configured."
+      });
+      return;
+    }
+
+    const body = await readJson<{ nickname?: unknown; appearance?: unknown }>(request);
+    const character = await deps.characterService.createCharacter(auth.account.id, {
+      nickname: value(body.nickname),
+      appearance: body.appearance
+    });
+    sendJson(response, 201, character);
     return;
   }
 

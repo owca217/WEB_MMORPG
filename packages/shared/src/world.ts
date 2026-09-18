@@ -1,8 +1,10 @@
+import type { AppearanceSelection } from "./appearance";
 import type { LocationId, PlayerId } from "./ids";
 
 export interface WorldPlayerSnapshot {
   id: PlayerId;
   nickname: string;
+  appearance: AppearanceSelection;
   x: number;
   y: number;
 }

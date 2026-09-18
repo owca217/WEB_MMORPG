@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { AuthService } from "./auth/AuthService";
+import { CharacterLifecycleService } from "./character/CharacterLifecycleService";
 import { createPool } from "./db/pool";
 import { runMigrations } from "./db/migrate";
 import { createApiHandler } from "./http/createApiHandler";
@@ -17,13 +18,16 @@ let httpServer;
 if (databaseUrl) {
   const pool = createPool(databaseUrl);
   await runMigrations(pool);
+  const characterService = new CharacterLifecycleService(pool);
   const authService = new AuthService(
     pool,
     new AccountRepository(pool),
-    null,
+    characterService,
     sessionTtlDays
   );
-  httpServer = createServer(createApiHandler({ authService, clientOrigin }));
+  httpServer = createServer(
+    createApiHandler({ authService, characterService, clientOrigin })
+  );
 } else {
   console.warn(
     "DATABASE_URL is not configured; starting the legacy in-memory game endpoint until persistent auth deployment is configured."

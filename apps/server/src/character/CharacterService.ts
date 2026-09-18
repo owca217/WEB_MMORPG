@@ -1,15 +1,25 @@
-import type { CharacterSnapshot, PlayerId } from "@web-mmorpg/shared";
+import type {
+  AppearanceSelection,
+  CharacterSnapshot,
+  PlayerId
+} from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE } from "@web-mmorpg/shared";
 
 export class CharacterService {
   private readonly characters = new Map<PlayerId, CharacterSnapshot>();
 
-  createPlayer(playerId: PlayerId, nickname: string): CharacterSnapshot {
+  createPlayer(
+    playerId: PlayerId,
+    nickname: string,
+    appearance: AppearanceSelection = DEFAULT_APPEARANCE
+  ): CharacterSnapshot {
     const existing = this.characters.get(playerId);
     if (existing) return this.clone(existing);
 
     const character: CharacterSnapshot = {
       playerId,
       nickname,
+      appearance: { ...appearance },
       level: 1,
       hp: 100,
       maxHp: 100,
@@ -64,6 +74,7 @@ export class CharacterService {
   private clone(character: CharacterSnapshot): CharacterSnapshot {
     return {
       ...character,
+      appearance: { ...character.appearance },
       injuries: [...character.injuries]
     };
   }

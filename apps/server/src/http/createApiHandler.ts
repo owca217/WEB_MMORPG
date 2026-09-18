@@ -296,6 +296,74 @@ async function handleRequest(
     return;
   }
 
+
+  if (
+    request.method === "POST" &&
+    path === "/api/character/delete-request"
+  ) {
+    const token = bearerToken(request);
+    if (!token) {
+      unauthorized(response);
+      return;
+    }
+    const auth = await deps.authService.validateToken(token);
+    if (!auth) {
+      unauthorized(response);
+      return;
+    }
+    if (!deps.characterService) {
+      sendJson(response, 503, {
+        code: "CHARACTER_SERVICE_UNAVAILABLE",
+        message: "Character service is not configured."
+      });
+      return;
+    }
+
+    const body = await readJson<{ password?: unknown }>(request);
+    const lifecycle = await deps.characterService.requestDeletion(
+      auth.account.id,
+      value(body.password),
+      new Date()
+    );
+
+    await deps.activeConnections?.closeAccount(
+      auth.account.id,
+      "characterDeletion"
+    );
+    sendJson(response, 200, lifecycle);
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    path === "/api/character/delete-cancel"
+  ) {
+    const token = bearerToken(request);
+    if (!token) {
+      unauthorized(response);
+      return;
+    }
+    const auth = await deps.authService.validateToken(token);
+    if (!auth) {
+      unauthorized(response);
+      return;
+    }
+    if (!deps.characterService) {
+      sendJson(response, 503, {
+        code: "CHARACTER_SERVICE_UNAVAILABLE",
+        message: "Character service is not configured."
+      });
+      return;
+    }
+
+    const lifecycle = await deps.characterService.cancelDeletion(
+      auth.account.id,
+      new Date()
+    );
+    sendJson(response, 200, lifecycle);
+    return;
+  }
+
   sendJson(response, 404, {
     code: "NOT_FOUND",
     message: "Endpoint not found."

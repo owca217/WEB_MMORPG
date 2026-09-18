@@ -6,6 +6,12 @@ import type {
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import {
+  createFacialHairGraphic,
+  createHairGraphic,
+  createMarkingGraphic
+} from "../appearance/AvatarGraphics";
+import { appearanceVisuals } from "../appearance/appearanceVisuals";
 
 interface PlayerView {
   container: Phaser.GameObjects.Container;
@@ -84,19 +90,86 @@ export class WorldEntitiesRenderer {
 
   private createPlayer(player: WorldPlayerSnapshot): PlayerView {
     const local = player.id === this.localPlayerId;
+    const visuals = appearanceVisuals(player.appearance);
+    const skinColor = Phaser.Display.Color.HexStringToColor(visuals.skin).color;
+    const outfitColor = Phaser.Display.Color.HexStringToColor(visuals.outfit).color;
+
     const container = this.scene.add.container(player.x, player.y).setDepth(20);
-    const shadow = this.scene.add.ellipse(0, 19, 32, 12, 0x101713, 0.38);
-    const body = this.scene.add.rectangle(0, 3, 20, 28, local ? 0x5f8d62 : 0x796c5c).setStrokeStyle(2, 0x2a3027);
-    const head = this.scene.add.circle(0, -17, 9, local ? 0xd9b37a : 0xc39a6b).setStrokeStyle(2, 0x3f3328);
-    const facing = this.scene.add.triangle(0, 20, -5, 0, 5, 0, 0, 8, local ? 0xe9d27c : 0xbcae92);
-    const label = this.scene.add.text(0, -39, player.nickname, {
-      fontFamily: "sans-serif",
-      fontSize: "13px",
-      color: local ? "#fff4b8" : "#ffffff",
-      backgroundColor: "#101611bb",
-      padding: { x: 4, y: 2 }
-    }).setOrigin(0.5);
-    container.add([shadow, body, head, facing, label]);
+    const shadow = this.scene.add.ellipse(0, 22, 34, 12, 0x101713, 0.38);
+    const outfit = this.scene.add
+      .rectangle(0, 13, 30 * visuals.bodyScale, 27, outfitColor)
+      .setStrokeStyle(2, local ? 0xe2c76e : 0x2a3027);
+    const face = this.scene.add
+      .ellipse(
+        0,
+        -9,
+        25 * visuals.bodyScale * visuals.faceScaleX,
+        28 * visuals.bodyScale,
+        skinColor
+      )
+      .setStrokeStyle(2, local ? 0xe2c76e : 0x3f3328);
+    const leftEye = this.scene.add.circle(
+      -visuals.eyeSpacing,
+      -10,
+      visuals.eyeRadius,
+      0x1b1b1b
+    );
+    const rightEye = this.scene.add.circle(
+      visuals.eyeSpacing,
+      -10,
+      visuals.eyeRadius,
+      0x1b1b1b
+    );
+    const hair = createHairGraphic(
+      this.scene,
+      visuals.hairStyle,
+      visuals.hairColor,
+      visuals.bodyScale
+    );
+    const facialHair = createFacialHairGraphic(
+      this.scene,
+      visuals.facialHairStyle,
+      visuals.hairColor,
+      visuals.bodyScale
+    );
+    const marking = createMarkingGraphic(
+      this.scene,
+      visuals.marking,
+      visuals.bodyScale
+    );
+    const facing = this.scene.add.triangle(
+      0,
+      28,
+      -5,
+      0,
+      5,
+      0,
+      0,
+      8,
+      local ? 0xe9d27c : 0xbcae92
+    );
+    const label = this.scene.add
+      .text(0, -43, player.nickname, {
+        fontFamily: "sans-serif",
+        fontSize: "13px",
+        color: local ? "#fff4b8" : "#ffffff",
+        backgroundColor: "#101611bb",
+        padding: { x: 4, y: 2 }
+      })
+      .setOrigin(0.5);
+
+    container.add([
+      shadow,
+      outfit,
+      face,
+      leftEye,
+      rightEye,
+      hair,
+      facialHair,
+      marking,
+      facing,
+      label
+    ]);
     return { container, label, targetX: player.x, targetY: player.y };
   }
 

@@ -517,3 +517,255 @@ button {
   letter-spacing: 0.06em;
   user-select: all;
 }
+
+
+.character-creator {
+  position: fixed;
+  z-index: 1200;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(920px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 24px;
+  color: #f3f6ef;
+  background: rgba(20, 28, 24, 0.98);
+  border: 1px solid rgba(204, 223, 196, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.character-creator h1,
+.character-creator > p {
+  margin: 0 0 10px;
+}
+
+.character-creator__content {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 24px;
+  margin-top: 18px;
+}
+
+.character-creator__form {
+  display: grid;
+  gap: 10px;
+}
+
+.character-creator__form > label {
+  display: grid;
+  gap: 6px;
+}
+
+.character-creator input,
+.character-creator button {
+  min-height: 44px;
+  box-sizing: border-box;
+  border: 1px solid rgba(224, 234, 215, 0.25);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.character-creator input {
+  padding: 0 12px;
+  background: #111914;
+  color: #f3f6ef;
+}
+
+.character-creator button {
+  padding: 0 14px;
+  background: #435a43;
+  color: #fff;
+  cursor: pointer;
+}
+
+.character-creator__selector {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 150px;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(224, 234, 215, 0.1);
+}
+
+.character-creator__selector > div {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  gap: 6px;
+}
+
+.character-creator__selector span {
+  text-align: center;
+}
+
+.character-preview {
+  --avatar-skin: #f0c7a5;
+  --avatar-hair: #2a211d;
+  --avatar-outfit: #56634f;
+  --avatar-scale: 1;
+  --avatar-face-scale-x: 1;
+  --avatar-eye-spacing: 8px;
+  --avatar-eye-radius: 2px;
+  min-height: 390px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(116, 148, 102, 0.28), transparent 36%),
+    linear-gradient(#1d2c22, #101711);
+  overflow: hidden;
+}
+
+.character-preview__avatar {
+  position: relative;
+  width: 150px;
+  height: 250px;
+  transform: scale(var(--avatar-scale));
+  transform-origin: center bottom;
+}
+
+.character-preview__outfit {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  width: 86px;
+  height: 128px;
+  transform: translateX(-50%);
+  border-radius: 36px 36px 14px 14px;
+  background: var(--avatar-outfit);
+  border: 3px solid rgba(20, 24, 20, 0.7);
+}
+
+.character-preview__face {
+  position: absolute;
+  left: 50%;
+  top: 26px;
+  width: 88px;
+  height: 104px;
+  transform: translateX(-50%) scaleX(var(--avatar-face-scale-x));
+  border-radius: 44% 44% 48% 48%;
+  background: var(--avatar-skin);
+  border: 3px solid rgba(20, 24, 20, 0.7);
+}
+
+.character-preview__eye {
+  position: absolute;
+  top: 44px;
+  width: calc(var(--avatar-eye-radius) * 2);
+  height: calc(var(--avatar-eye-radius) * 2);
+  border-radius: 50%;
+  background: #161616;
+}
+
+.character-preview__eye--left {
+  left: calc(50% - var(--avatar-eye-spacing));
+}
+
+.character-preview__eye--right {
+  left: calc(50% + var(--avatar-eye-spacing));
+}
+
+.character-preview__hair {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  width: 86px;
+  height: 38px;
+  transform: translateX(-50%);
+  background: var(--avatar-hair);
+  border-radius: 55% 55% 24% 24%;
+}
+
+.character-preview[data-hair-style="hair-02"] .character-preview__hair {
+  width: 64px;
+  height: 22px;
+  border-radius: 45% 45% 12% 12%;
+}
+
+.character-preview[data-hair-style="hair-03"] .character-preview__hair {
+  width: 104px;
+  height: 72px;
+  border-radius: 50% 50% 35% 35%;
+}
+
+.character-preview[data-hair-style="hair-04"] .character-preview__hair {
+  width: 102px;
+  height: 90px;
+  border-radius: 50% 50% 24% 24%;
+}
+
+.character-preview[data-hair-style="hair-05"] .character-preview__hair {
+  width: 76px;
+  height: 50px;
+  clip-path: polygon(0 35%, 18% 0, 35% 30%, 52% 0, 70% 28%, 100% 5%, 100% 100%, 0 100%);
+}
+
+.character-preview__facial-hair {
+  position: absolute;
+  left: 50%;
+  bottom: 13px;
+  width: 34px;
+  height: 7px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.character-preview[data-facial-hair-style="facial-hair-01"] .character-preview__facial-hair {
+  background: var(--avatar-hair);
+}
+
+.character-preview[data-facial-hair-style="facial-hair-02"] .character-preview__facial-hair {
+  height: 27px;
+  background: var(--avatar-hair);
+  clip-path: polygon(0 0, 100% 0, 76% 100%, 50% 74%, 24% 100%);
+}
+
+.character-preview__marking {
+  position: absolute;
+  right: 17px;
+  top: 39px;
+  width: 4px;
+  height: 24px;
+  border-radius: 3px;
+  background: transparent;
+  transform: rotate(25deg);
+}
+
+.character-preview[data-marking="scar-01"] .character-preview__marking,
+.character-preview[data-marking="scar-02"] .character-preview__marking {
+  background: #7d4438;
+}
+
+.character-preview[data-marking="scar-02"] .character-preview__marking {
+  right: auto;
+  left: 18px;
+  transform: rotate(-25deg);
+}
+
+.character-preview[data-marking="tattoo-01"] .character-preview__marking {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #38475c;
+  transform: none;
+}
+
+@media (max-width: 700px) {
+  .character-creator {
+    padding: 16px;
+  }
+
+  .character-creator__content {
+    grid-template-columns: 1fr;
+  }
+
+  .character-preview {
+    min-height: 260px;
+  }
+
+  .character-preview__avatar {
+    transform: scale(calc(var(--avatar-scale) * 0.75));
+  }
+}

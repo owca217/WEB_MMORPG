@@ -30,6 +30,11 @@ export class BootScene extends Phaser.Scene {
 
     try {
       const session = await apiClient.getSession();
+      if (session.character.state === "none") {
+        this.scene.start("CharacterCreatorScene");
+        return;
+      }
+
       if (session.character.state === "active") {
         this.scene.start("WorldScene", {
           playerId: session.character.characterId

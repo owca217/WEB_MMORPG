@@ -1,4 +1,6 @@
 import type {
+  AppearanceSelection,
+  CharacterProfile,
   LoginResponse,
   RecoverResponse,
   RegisterResponse,
@@ -85,6 +87,16 @@ export class ApiClient {
 
   async getSession(): Promise<SessionView> {
     return requestJson<SessionView>("/api/auth/session");
+  }
+
+  async createCharacter(input: {
+    nickname: string;
+    appearance: AppearanceSelection;
+  }): Promise<CharacterProfile> {
+    return requestJson<CharacterProfile>("/api/character", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
   }
 }
 

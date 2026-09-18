@@ -179,6 +179,12 @@ export class AuthScene extends Phaser.Scene {
   }
 
   private routeSession(session: SessionView): void {
+    if (session.character.state === "none") {
+      this.destroyPanel();
+      this.scene.start("CharacterCreatorScene");
+      return;
+    }
+
     if (session.character.state === "active") {
       this.destroyPanel();
       this.scene.start("WorldScene", {
@@ -188,8 +194,10 @@ export class AuthScene extends Phaser.Scene {
     }
 
     const panel = this.createPanel(
-      "Konto gotowe",
-      "Kreator postaci zostanie podłączony w następnym etapie wdrożenia."
+      "Postać oczekuje na usunięcie",
+      `Usunięcie nastąpi: ${new Date(
+        session.character.deletionEffectiveAt
+      ).toLocaleString("pl-PL")}. Możliwość anulowania dodamy w następnym etapie.`
     );
     const logout = this.button("Wyloguj");
     logout.addEventListener("click", () => {

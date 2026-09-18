@@ -1,5 +1,6 @@
 import type {
   CharacterSnapshot,
+  EquipmentSnapshot,
   InventorySnapshot,
   PlayerStateSnapshot
 } from "@web-mmorpg/shared";
@@ -56,6 +57,9 @@ export class PlayerPersistenceService {
     inventory: InventorySnapshot
   ): Promise<void> {
     await withTransaction(this.pool, async (client) => {
+      const equipmentRepository = new EquipmentRepository(client);
+      const equipment = await equipmentRepository.load(character.playerId);
+
       await new CharacterRepository(client).updateVitals(character);
       await new InjuryRepository(client).replaceAll(
         character.playerId,
@@ -64,6 +68,22 @@ export class PlayerPersistenceService {
       await new InventoryRepository(client).replaceAll(
         character.playerId,
         inventory
+      );
+      await equipmentRepository.replaceAll(
+        character.playerId,
+        equipment
+      );
+    });
+  }
+
+  async saveEquipment(
+    characterId: string,
+    equipment: EquipmentSnapshot
+  ): Promise<void> {
+    await withTransaction(this.pool, async (client) => {
+      await new EquipmentRepository(client).replaceAll(
+        characterId,
+        equipment
       );
     });
   }

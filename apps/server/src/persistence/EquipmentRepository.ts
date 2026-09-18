@@ -30,4 +30,23 @@ export class EquipmentRepository {
       )
     };
   }
+
+  async replaceAll(
+    characterId: string,
+    snapshot: EquipmentSnapshot
+  ): Promise<void> {
+    await this.db.query(
+      "DELETE FROM character_equipment WHERE character_id = $1",
+      [characterId]
+    );
+
+    for (const item of snapshot.items) {
+      await this.db.query(
+        `INSERT INTO character_equipment
+         (character_id, slot, item_instance_id)
+         VALUES ($1,$2,$3)`,
+        [characterId, item.slot, item.itemInstanceId]
+      );
+    }
+  }
 }

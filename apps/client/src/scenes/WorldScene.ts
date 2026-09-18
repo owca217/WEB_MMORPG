@@ -93,14 +93,16 @@ export class WorldScene extends Phaser.Scene {
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.toggle(),
       onCharacter: () => this.characterPanel?.toggle(),
-      onLogout: persistentAccountsEnabled
-        ? () => {
-            gameSocket.disconnect();
-            void apiClient.logout().finally(() => {
-              if (typeof window !== "undefined") window.location.reload();
-            });
+      ...(persistentAccountsEnabled
+        ? {
+            onLogout: () => {
+              gameSocket.disconnect();
+              void apiClient.logout().finally(() => {
+                if (typeof window !== "undefined") window.location.reload();
+              });
+            }
           }
-        : undefined
+        : {})
     });
     this.joystick = new VirtualJoystick();
 

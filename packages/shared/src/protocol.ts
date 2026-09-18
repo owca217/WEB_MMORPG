@@ -19,6 +19,7 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  sessionReplaced: () => void;
   worldState: (snapshot: WorldStateSnapshot) => void;
   playerState: (snapshot: PlayerStateSnapshot) => void;
   npcInteraction: (payload: NpcInteractionPayload) => void;

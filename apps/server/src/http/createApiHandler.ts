@@ -4,6 +4,7 @@ import {
   CharacterLifecycleError,
   type CharacterLifecycleService
 } from "../character/CharacterLifecycleService";
+import type { ActiveConnectionRegistry } from "../server/ActiveConnectionRegistry";
 import { AuthRateLimiter } from "./AuthRateLimiter";
 import { bearerToken, readJson, sendJson } from "./httpJson";
 
@@ -12,6 +13,7 @@ export interface ApiHandlerDeps {
   clientOrigin: string;
   authRateLimiter?: AuthRateLimiter;
   characterService?: CharacterLifecycleService;
+  activeConnections?: ActiveConnectionRegistry;
 }
 
 interface RegisterBody {
@@ -156,6 +158,10 @@ async function handleRequest(
       value(body.username),
       value(body.password)
     );
+    await deps.activeConnections?.closeAccount(
+      result.accountId,
+      "sessionReplaced"
+    );
     sendJson(response, 200, {
       token: result.token,
       session: result.session
@@ -165,11 +171,17 @@ async function handleRequest(
 
   if (request.method === "POST" && path === "/api/auth/logout") {
     const token = bearerToken(request);
-    if (!token || !(await deps.authService.validateToken(token))) {
+    if (!token) {
+      unauthorized(response);
+      return;
+    }
+    const auth = await deps.authService.validateToken(token);
+    if (!auth) {
       unauthorized(response);
       return;
     }
 
+    await deps.activeConnections?.closeAccount(auth.account.id, "logout");
     await deps.authService.logout(token);
     response.statusCode = 204;
     response.end();
@@ -199,6 +211,10 @@ async function handleRequest(
       value(body.username),
       value(body.recoveryCode),
       newPassword
+    );
+    await deps.activeConnections?.closeAccount(
+      result.accountId,
+      "credentialsChanged"
     );
     sendJson(response, 200, result.response);
     return;

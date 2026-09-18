@@ -1,19 +1,36 @@
 import type { Server as HttpServer } from "node:http";
 import type {
   ClientToServerEvents,
+  LocationId,
   NpcInteractionPayload,
   PlayerId,
   ServerToClientEvents
 } from "@web-mmorpg/shared";
 import { Server } from "socket.io";
+import type { AuthService } from "../auth/AuthService";
 import { BattleService } from "../battle/BattleService";
 import { CharacterService } from "../character/CharacterService";
+import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { InventoryService } from "../inventory/InventoryService";
 import { LootService } from "../loot/LootService";
 import { SessionStore } from "../session/SessionStore";
+import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
 import { WorldService } from "../world/WorldService";
+import {
+  type ActiveConnection,
+  ActiveConnectionRegistry
+} from "./ActiveConnectionRegistry";
 
-export function createGameServer(httpServer: HttpServer) {
+export interface PersistentGameServerDeps {
+  authService: AuthService;
+  characters: CharacterLifecycleService;
+  activeConnections: ActiveConnectionRegistry;
+}
+
+export function createGameServer(
+  httpServer: HttpServer,
+  persistentDeps?: PersistentGameServerDeps
+) {
   const sessions = new SessionStore();
   const world = new WorldService();
   const inventory = new InventoryService();
@@ -25,8 +42,34 @@ export function createGameServer(httpServer: HttpServer) {
     cors: { origin: true, credentials: false }
   });
 
-  io.on("connection", (socket) => {
+  if (persistentDeps) {
+    io.use(async (socket, next) => {
+      try {
+        const token =
+          typeof socket.handshake.auth.token === "string"
+            ? socket.handshake.auth.token
+            : "";
+        const auth = await persistentDeps.authService.validateToken(token);
+        if (!auth) {
+          next(new Error("UNAUTHORIZED"));
+          return;
+        }
+
+        socket.data.accountId = auth.account.id;
+        socket.data.authToken = token;
+        next();
+      } catch {
+        next(new Error("UNAUTHORIZED"));
+      }
+    });
+  }
+
+  io.on("connection", async (socket) => {
     let playerId: PlayerId | null = null;
+    let accountId: string | null = null;
+    let locationId: LocationId | null = null;
+    let activeConnection: ActiveConnection | null = null;
+    let closedByRegistry = false;
 
     const emitPlayerState = (targetPlayerId: PlayerId): void => {
       const character = characters.getSnapshot(targetPlayerId);
@@ -37,7 +80,11 @@ export function createGameServer(httpServer: HttpServer) {
       });
     };
 
-    const reject = (error: unknown, fallbackCode: string, message: string): void => {
+    const reject = (
+      error: unknown,
+      fallbackCode: string,
+      message: string
+    ): void => {
       socket.emit("commandRejected", {
         code: error instanceof Error ? error.message : fallbackCode,
         message
@@ -72,26 +119,114 @@ export function createGameServer(httpServer: HttpServer) {
       };
     };
 
-    socket.on("login", ({ nickname }, ack) => {
-      const result = sessions.login(nickname);
-      if (!result.ok) {
-        ack(result);
+    const currentLocationId = (): LocationId | null => {
+      if (locationId) return locationId;
+      if (!playerId) return null;
+      return sessions.get(playerId)?.locationId ?? null;
+    };
+
+    const removeRuntimePlayer = (): void => {
+      if (!playerId) return;
+      const targetLocation = currentLocationId();
+      battles.removeBattleForPlayer(playerId);
+      world.removePlayer(playerId);
+      inventory.removePlayer(playerId);
+      characters.removePlayer(playerId);
+
+      if (!persistentDeps) {
+        sessions.remove(playerId);
+      }
+
+      if (targetLocation) {
+        io.to(`location:${targetLocation}`).emit(
+          "worldState",
+          world.snapshot(targetLocation)
+        );
+      }
+    };
+
+    if (persistentDeps) {
+      accountId =
+        typeof socket.data.accountId === "string"
+          ? socket.data.accountId
+          : null;
+
+      if (!accountId) {
+        socket.disconnect(true);
         return;
       }
 
-      playerId = result.playerId;
-      const session = sessions.get(result.playerId);
-      const resolvedNickname = session?.nickname ?? nickname.trim();
-      characters.createPlayer(result.playerId, resolvedNickname);
-      world.addPlayer({ id: result.playerId, nickname: resolvedNickname });
-      socket.join(`location:${result.locationId}`);
-      ack(result);
-      emitPlayerState(result.playerId);
-      io.to(`location:${result.locationId}`).emit(
-        "worldState",
-        world.snapshot(result.locationId)
+      const lifecycle = await persistentDeps.characters.getLifecycle(
+        accountId,
+        new Date()
       );
-    });
+      if (lifecycle.state !== "active") {
+        socket.disconnect(true);
+        return;
+      }
+
+      const profile = await persistentDeps.characters.getCharacter(accountId);
+      if (!profile || profile.id !== lifecycle.characterId) {
+        socket.disconnect(true);
+        return;
+      }
+
+      await persistentDeps.activeConnections.closeAccount(
+        accountId,
+        "sessionReplaced"
+      );
+
+      playerId = profile.id;
+      locationId = FOREST_SETTLEMENT_01.id;
+      characters.createPlayer(profile.id, profile.nickname, profile.appearance);
+      world.addPlayer({
+        id: profile.id,
+        nickname: profile.nickname,
+        appearance: profile.appearance
+      });
+      socket.join(`location:${locationId}`);
+
+      activeConnection = {
+        async close(reason) {
+          if (closedByRegistry) return;
+          closedByRegistry = true;
+          if (reason === "sessionReplaced") {
+            socket.emit("sessionReplaced");
+          }
+          removeRuntimePlayer();
+          socket.disconnect(true);
+        }
+      };
+      persistentDeps.activeConnections.attach(accountId, activeConnection);
+
+      emitPlayerState(profile.id);
+      io.to(`location:${locationId}`).emit(
+        "worldState",
+        world.snapshot(locationId)
+      );
+    } else {
+      socket.on("login", ({ nickname }, ack) => {
+        const result = sessions.login(nickname);
+        if (!result.ok) {
+          ack(result);
+          return;
+        }
+
+        playerId = result.playerId;
+        locationId = result.locationId;
+        const session = sessions.get(result.playerId);
+        const resolvedNickname = session?.nickname ?? nickname.trim();
+        characters.createPlayer(result.playerId, resolvedNickname);
+        world.addPlayer({ id: result.playerId, nickname: resolvedNickname });
+        socket.join(`location:${result.locationId}`);
+        ack(result);
+        emitPlayerState(result.playerId);
+        io.to(`location:${result.locationId}`).emit(
+          "worldState",
+          world.snapshot(result.locationId)
+        );
+      });
+    }
 
     socket.on("requestPlayerState", () => {
       if (!playerId) return;
@@ -100,21 +235,21 @@ export function createGameServer(httpServer: HttpServer) {
 
     socket.on("requestWorldState", () => {
       if (!playerId) return;
-      const session = sessions.get(playerId);
-      if (!session) return;
-      socket.emit("worldState", world.snapshot(session.locationId));
+      const targetLocation = currentLocationId();
+      if (!targetLocation) return;
+      socket.emit("worldState", world.snapshot(targetLocation));
     });
 
     socket.on("moveIntent", (intent) => {
       if (!playerId || battles.hasBattle(playerId)) return;
-      const session = sessions.get(playerId);
-      if (!session) return;
+      const targetLocation = currentLocationId();
+      if (!targetLocation) return;
 
       try {
         world.movePlayer(playerId, intent);
-        io.to(`location:${session.locationId}`).emit(
+        io.to(`location:${targetLocation}`).emit(
           "worldState",
-          world.snapshot(session.locationId)
+          world.snapshot(targetLocation)
         );
       } catch (error) {
         reject(error, "MOVE_REJECTED", "Movement was rejected by the server.");
@@ -128,7 +263,11 @@ export function createGameServer(httpServer: HttpServer) {
         const npc = world.interactNpc(playerId, npcId);
         socket.emit("npcInteraction", npcPayload(npc.id));
       } catch (error) {
-        reject(error, "NPC_INTERACTION_REJECTED", "Nie możesz teraz porozmawiać z tą postacią.");
+        reject(
+          error,
+          "NPC_INTERACTION_REJECTED",
+          "Nie możesz teraz porozmawiać z tą postacią."
+        );
       }
     });
 
@@ -147,14 +286,14 @@ export function createGameServer(httpServer: HttpServer) {
 
     socket.on("startEncounter", ({ encounterId }) => {
       if (!playerId) return;
-      const session = sessions.get(playerId);
+      const targetLocation = currentLocationId();
       const character = characters.getSnapshot(playerId);
-      if (!session || !character) return;
+      if (!targetLocation || !character) return;
 
       try {
         world.startEncounter(playerId, encounterId);
         const snapshot = battles.startBattle(character, encounterId);
-        socket.leave(`location:${session.locationId}`);
+        socket.leave(`location:${targetLocation}`);
         socket.emit("battleStarted", snapshot);
       } catch (error) {
         reject(error, "ENCOUNTER_REJECTED", "Encounter could not be started.");
@@ -182,8 +321,15 @@ export function createGameServer(httpServer: HttpServer) {
         characters.applyBattleResult(playerId, applied.playerOutcome);
       }
 
-      if (applied.victory && applied.encounterId && applied.seed !== undefined) {
-        const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
+      if (
+        applied.victory
+        && applied.encounterId
+        && applied.seed !== undefined
+      ) {
+        const reward = loot.rollEncounterLoot(
+          applied.encounterId,
+          applied.seed
+        );
         inventory.addItems(playerId, reward);
       } else {
         characters.recoverAfterDefeat(playerId);
@@ -191,8 +337,8 @@ export function createGameServer(httpServer: HttpServer) {
       }
 
       const character = characters.getSnapshot(playerId);
-      const session = sessions.get(playerId);
-      if (!character || !session) return;
+      const targetLocation = currentLocationId();
+      if (!character || !targetLocation) return;
 
       const inventorySnapshot = inventory.getSnapshot(playerId);
       emitPlayerState(playerId);
@@ -203,32 +349,33 @@ export function createGameServer(httpServer: HttpServer) {
       });
 
       battles.removeBattleForPlayer(playerId);
-      socket.join(`location:${session.locationId}`);
-      io.to(`location:${session.locationId}`).emit(
+      socket.join(`location:${targetLocation}`);
+      io.to(`location:${targetLocation}`).emit(
         "worldState",
-        world.snapshot(session.locationId)
+        world.snapshot(targetLocation)
       );
     });
 
     socket.on("disconnect", () => {
-      if (!playerId) return;
-      const session = sessions.get(playerId);
-      battles.removeBattleForPlayer(playerId);
-      world.removePlayer(playerId);
-      inventory.removePlayer(playerId);
-      characters.removePlayer(playerId);
-      sessions.remove(playerId);
-      if (session) {
-        io.to(`location:${session.locationId}`).emit(
-          "worldState",
-          world.snapshot(session.locationId)
-        );
+      if (persistentDeps && accountId && activeConnection) {
+        persistentDeps.activeConnections.detach(accountId, activeConnection);
+      }
+
+      if (!closedByRegistry) {
+        removeRuntimePlayer();
       }
     });
   });
 
   return {
     io,
-    services: { sessions, world, inventory, loot, battles, characters }
+    services: {
+      sessions,
+      world,
+      inventory,
+      loot,
+      battles,
+      characters
+    }
   };
 }

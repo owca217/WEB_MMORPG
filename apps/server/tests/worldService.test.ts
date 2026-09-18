@@ -1,3 +1,4 @@
+import { DEFAULT_APPEARANCE } from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { InventoryService } from "../src/inventory/InventoryService";
 import { LootService } from "../src/loot/LootService";
@@ -9,6 +10,23 @@ function createTestWorld() {
 }
 
 describe("WorldService", () => {
+  it("hydrates a player at persisted coordinates instead of the canonical spawn", () => {
+    const world = createTestWorld();
+    world.addPlayer(
+      {
+        id: "p1",
+        nickname: "Owczy",
+        appearance: DEFAULT_APPEARANCE,
+        locationId: "forest-settlement-01",
+        x: 845,
+        y: 612
+      },
+      0
+    );
+
+    expect(world.getPlayer("p1")).toMatchObject({ x: 845, y: 612 });
+  });
+
   it("clamps player movement to world bounds", () => {
     const world = createTestWorld();
     world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);

@@ -96,7 +96,8 @@ export function createGameServer(
       if (!character) return;
       socket.emit("playerState", {
         character,
-        inventory: inventory.getSnapshot(targetPlayerId)
+        inventory: inventory.getSnapshot(targetPlayerId),
+        equipment: { items: [] }
       });
     };
 

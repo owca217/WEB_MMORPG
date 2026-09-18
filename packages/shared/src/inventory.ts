@@ -14,3 +14,12 @@ export interface InventoryItem {
 export interface InventorySnapshot {
   items: InventoryItem[];
 }
+
+export interface EquipmentEntry {
+  slot: string;
+  itemInstanceId: ItemInstanceId;
+}
+
+export interface EquipmentSnapshot {
+  items: EquipmentEntry[];
+}

@@ -1,7 +1,10 @@
 import type { AppearanceSelection } from "./appearance";
 import type { InjuryKind } from "./battle";
 import type { PlayerId } from "./ids";
-import type { InventorySnapshot } from "./inventory";
+import type {
+  EquipmentSnapshot,
+  InventorySnapshot
+} from "./inventory";
 
 export interface CharacterSnapshot {
   playerId: PlayerId;
@@ -25,4 +28,5 @@ export interface CharacterProfile {
 export interface PlayerStateSnapshot {
   character: CharacterSnapshot;
   inventory: InventorySnapshot;
+  equipment: EquipmentSnapshot;
 }

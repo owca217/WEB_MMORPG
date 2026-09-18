@@ -15,7 +15,8 @@ const snapshot: PlayerStateSnapshot = {
     severelyInjured: false,
     injuries: []
   },
-  inventory: { items: [] }
+  inventory: { items: [] },
+  equipment: { items: [] }
 };
 
 describe("PlayerStateStore", () => {

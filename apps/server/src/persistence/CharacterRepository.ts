@@ -118,6 +118,29 @@ export class CharacterRepository {
     return result.rows[0] ? mapCharacter(result.rows[0]) : null;
   }
 
+  async updateVitals(character: import("@web-mmorpg/shared").CharacterSnapshot): Promise<void> {
+    await this.db.query(
+      `UPDATE characters
+       SET level = $2,
+           hp = $3,
+           max_hp = $4,
+           max_ap = $5,
+           initiative = $6,
+           severely_injured = $7,
+           updated_at = now()
+       WHERE id = $1`,
+      [
+        character.playerId,
+        character.level,
+        character.hp,
+        character.maxHp,
+        character.maxAp,
+        character.initiative,
+        character.severelyInjured
+      ]
+    );
+  }
+
   async updatePosition(
     characterId: string,
     locationId: string,

@@ -10,7 +10,8 @@ import type {
   ServerToClientEvents,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
-import { io, type Socket } from "socket.io-client";
+import { io, type ManagerOptions, type Socket, type SocketOptions } from "socket.io-client";
+import { authSessionStore } from "../state/AuthSessionStore";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -21,16 +22,32 @@ export interface BattleEndedPayload {
   character: CharacterSnapshot;
 }
 
+export function resolveSocketAuth(
+  token: string | null,
+  persistentAccounts: boolean
+): Pick<Partial<ManagerOptions & SocketOptions>, "auth"> | Record<string, never> {
+  if (!persistentAccounts) return {};
+  if (!token) throw new Error("AUTH_TOKEN_REQUIRED");
+  return { auth: { token } };
+}
+
+const persistentAccountsEnabled =
+  import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
+
 export class GameSocket {
   private socket: GameClientSocket | null = null;
   private connectionState: ConnectionState = "connecting";
   private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
 
-  connect(): GameClientSocket {
+  connect(token = authSessionStore.getToken()): GameClientSocket {
     if (this.socket) return this.socket;
 
     const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
-    const socket = io(serverUrl, { transports: ["websocket"] });
+    const authOptions = resolveSocketAuth(token, persistentAccountsEnabled);
+    const socket = io(serverUrl, {
+      transports: ["websocket"],
+      ...authOptions
+    });
     this.socket = socket;
 
     socket.on("connect", () => this.setConnectionState("connected"));
@@ -38,8 +55,22 @@ export class GameSocket {
     socket.on("connect_error", () => this.setConnectionState("disconnected"));
     socket.io.on("reconnect_attempt", () => this.setConnectionState("connecting"));
     socket.io.on("reconnect_failed", () => this.setConnectionState("disconnected"));
+    socket.on("sessionReplaced", () => {
+      authSessionStore.clear();
+      socket.disconnect();
+      if (this.socket === socket) this.socket = null;
+      this.setConnectionState("disconnected");
+      if (typeof window !== "undefined") window.location.reload();
+    });
 
     return socket;
+  }
+
+  disconnect(): void {
+    const socket = this.socket;
+    this.socket = null;
+    socket?.disconnect();
+    this.setConnectionState("disconnected");
   }
 
   async login(nickname: string): Promise<LoginResult> {

@@ -4,6 +4,7 @@ import type { ConnectionState } from "../net/GameSocket";
 interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
+  onLogout?: () => void;
 }
 
 export class WorldHud {
@@ -36,8 +37,23 @@ export class WorldHud {
     this.hp = this.require("[data-hp]");
     this.ap = this.require("[data-ap]");
     this.connection = this.require("[data-connection]");
-    this.require<HTMLButtonElement>("[data-inventory]").addEventListener("click", handlers.onInventory);
-    this.require<HTMLButtonElement>("[data-character]").addEventListener("click", handlers.onCharacter);
+    this.require<HTMLButtonElement>("[data-inventory]").addEventListener(
+      "click",
+      handlers.onInventory
+    );
+    this.require<HTMLButtonElement>("[data-character]").addEventListener(
+      "click",
+      handlers.onCharacter
+    );
+
+    if (handlers.onLogout) {
+      const logout = document.createElement("button");
+      logout.type = "button";
+      logout.textContent = "Wyloguj";
+      logout.dataset.logout = "";
+      logout.addEventListener("click", handlers.onLogout);
+      this.require<HTMLElement>(".world-hud__actions").appendChild(logout);
+    }
   }
 
   update(state: PlayerStateSnapshot): void {

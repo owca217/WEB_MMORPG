@@ -2,6 +2,7 @@ import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { VirtualJoystick } from "../input/VirtualJoystick";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
+import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { CharacterPanel } from "../ui/CharacterPanel";
@@ -15,6 +16,9 @@ import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
 interface WorldSceneData {
   playerId: PlayerId;
 }
+
+const persistentAccountsEnabled =
+  import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
 
 const WORLD_ERROR_LABELS: Record<string, string> = {
   ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do wilków.",
@@ -88,7 +92,15 @@ export class WorldScene extends Phaser.Scene {
     });
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.toggle(),
-      onCharacter: () => this.characterPanel?.toggle()
+      onCharacter: () => this.characterPanel?.toggle(),
+      onLogout: persistentAccountsEnabled
+        ? () => {
+            gameSocket.disconnect();
+            void apiClient.logout().finally(() => {
+              if (typeof window !== "undefined") window.location.reload();
+            });
+          }
+        : undefined
     });
     this.joystick = new VirtualJoystick();
 

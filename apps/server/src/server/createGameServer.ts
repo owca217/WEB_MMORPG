@@ -64,7 +64,14 @@ export function createGameServer(
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: {
-      origin: persistentDeps ? persistentDeps.clientOrigin : true,
+      origin: persistentDeps
+        ? (origin, callback) => {
+            callback(
+              null,
+              origin === undefined || origin === persistentDeps.clientOrigin
+            );
+          }
+        : true,
       credentials: false
     }
   });

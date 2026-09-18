@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { authSessionStore } from "../state/AuthSessionStore";
+import { sceneForCharacterLifecycle } from "../state/sessionRouting";
 
 const persistentAccountsEnabled =
   import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
@@ -30,19 +31,27 @@ export class BootScene extends Phaser.Scene {
 
     try {
       const session = await apiClient.getSession();
-      if (session.character.state === "none") {
-        this.scene.start("CharacterCreatorScene");
-        return;
-      }
+      const destination = sceneForCharacterLifecycle(
+        session.character
+      );
 
-      if (session.character.state === "active") {
-        this.scene.start("WorldScene", {
+      if (destination === "WorldScene") {
+        if (session.character.state !== "active") return;
+        this.scene.start(destination, {
           playerId: session.character.characterId
         });
         return;
       }
 
-      this.scene.start("AuthScene");
+      if (destination === "CharacterDeletionScene") {
+        if (session.character.state !== "pendingDeletion") return;
+        this.scene.start(destination, {
+          character: session.character
+        });
+        return;
+      }
+
+      this.scene.start(destination);
     } catch {
       authSessionStore.clear();
       this.scene.start("AuthScene");

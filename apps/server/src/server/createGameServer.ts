@@ -14,6 +14,7 @@ import type { CharacterLifecycleService } from "../character/CharacterLifecycleS
 import { InventoryService } from "../inventory/InventoryService";
 import { CharacterRepository } from "../persistence/CharacterRepository";
 import { PositionPersistenceCoordinator } from "../persistence/PositionPersistenceCoordinator";
+import { PlayerPersistenceService } from "../persistence/PlayerPersistenceService";
 import { LootService } from "../loot/LootService";
 import { SessionStore } from "../session/SessionStore";
 import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
@@ -28,6 +29,7 @@ export interface PersistentGameServerDeps {
   characters: CharacterLifecycleService;
   activeConnections: ActiveConnectionRegistry;
   characterRepository: CharacterRepository;
+  playerPersistence: PlayerPersistenceService;
   positionCheckpointMs?: number;
 }
 
@@ -41,6 +43,7 @@ export function createGameServer(
   const loot = new LootService();
   const battles = new BattleService();
   const characters = new CharacterService();
+  const equipmentByPlayer = new Map<PlayerId, { items: Array<{ slot: string; itemInstanceId: string }> }>();
   const positions = persistentDeps
     ? new PositionPersistenceCoordinator({
         intervalMs: persistentDeps.positionCheckpointMs ?? 2000,
@@ -97,7 +100,7 @@ export function createGameServer(
       socket.emit("playerState", {
         character,
         inventory: inventory.getSnapshot(targetPlayerId),
-        equipment: { items: [] }
+        equipment: equipmentByPlayer.get(targetPlayerId) ?? { items: [] }
       });
     };
 
@@ -160,6 +163,7 @@ export function createGameServer(
       battles.removeBattleForPlayer(targetPlayerId);
       world.removePlayer(targetPlayerId);
       inventory.removePlayer(targetPlayerId);
+      equipmentByPlayer.delete(targetPlayerId);
       characters.removePlayer(targetPlayerId);
 
       if (!persistentDeps) {
@@ -206,21 +210,14 @@ export function createGameServer(
         "sessionReplaced"
       );
 
+      const durableState =
+        await persistentDeps.playerPersistence.loadPlayer(persisted.id);
+
       playerId = persisted.id;
       locationId = persisted.locationId;
-      characters.hydratePlayer({
-        playerId: persisted.id,
-        nickname: persisted.nickname,
-        appearance: persisted.appearance,
-        level: persisted.level,
-        hp: persisted.hp,
-        maxHp: persisted.maxHp,
-        maxAp: persisted.maxAp,
-        initiative: persisted.initiative,
-        severelyInjured: persisted.severelyInjured,
-        injuries: []
-      });
-      inventory.hydratePlayer(persisted.id, { items: [] });
+      characters.hydratePlayer(durableState.character);
+      inventory.hydratePlayer(persisted.id, durableState.inventory);
+      equipmentByPlayer.set(persisted.id, durableState.equipment);
       world.addPlayer({
         id: persisted.id,
         nickname: persisted.nickname,
@@ -317,13 +314,33 @@ export function createGameServer(
       }
     });
 
-    socket.on("healAtNpc", ({ npcId }) => {
+    socket.on("healAtNpc", async ({ npcId }) => {
       if (!playerId) return;
 
       try {
         const npc = world.interactNpc(playerId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
-        characters.healHp(playerId);
+
+        const healed = characters.healHp(playerId);
+        if (persistentDeps) {
+          try {
+            await persistentDeps.playerPersistence.saveCharacterState(healed);
+          } catch {
+            const restored =
+              await persistentDeps.playerPersistence.loadPlayer(playerId);
+            characters.hydratePlayer(restored.character);
+            inventory.hydratePlayer(playerId, restored.inventory);
+            equipmentByPlayer.set(playerId, restored.equipment);
+            reject(
+              new Error("PERSISTENCE_FAILED"),
+              "PERSISTENCE_FAILED",
+              "Nie udało się trwale zapisać leczenia."
+            );
+            emitPlayerState(playerId);
+            return;
+          }
+        }
+
         emitPlayerState(playerId);
       } catch (error) {
         reject(error, "HEAL_REJECTED", "Leczenie nie jest teraz dostępne.");
@@ -389,6 +406,35 @@ export function createGameServer(
       if (!character || !targetLocation) return;
 
       const inventorySnapshot = inventory.getSnapshot(playerId);
+
+      if (persistentDeps) {
+        try {
+          await persistentDeps.playerPersistence.saveBattleOutcome(
+            character,
+            inventorySnapshot
+          );
+        } catch {
+          const restored =
+            await persistentDeps.playerPersistence.loadPlayer(playerId);
+          characters.hydratePlayer(restored.character);
+          inventory.hydratePlayer(playerId, restored.inventory);
+          equipmentByPlayer.set(playerId, restored.equipment);
+          battles.removeBattleForPlayer(playerId);
+          socket.join(`location:${targetLocation}`);
+          reject(
+            new Error("PERSISTENCE_FAILED"),
+            "PERSISTENCE_FAILED",
+            "Nie udało się trwale zapisać wyniku walki."
+          );
+          emitPlayerState(playerId);
+          io.to(`location:${targetLocation}`).emit(
+            "worldState",
+            world.snapshot(targetLocation)
+          );
+          return;
+        }
+      }
+
       await positions?.flushPlayer(playerId);
       emitPlayerState(playerId);
       socket.emit("battleEnded", {
@@ -427,7 +473,8 @@ export function createGameServer(
       loot,
       battles,
       characters,
-      positions
+      positions,
+      playerPersistence: persistentDeps?.playerPersistence
     }
   };
 }

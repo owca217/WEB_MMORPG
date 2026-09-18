@@ -14,6 +14,7 @@ import { runMigrations } from "../../src/db/migrate";
 import { createApiHandler } from "../../src/http/createApiHandler";
 import { AccountRepository } from "../../src/persistence/AccountRepository";
 import { CharacterRepository } from "../../src/persistence/CharacterRepository";
+import { PlayerPersistenceService } from "../../src/persistence/PlayerPersistenceService";
 import { ActiveConnectionRegistry } from "../../src/server/ActiveConnectionRegistry";
 import { createGameServer } from "../../src/server/createGameServer";
 
@@ -68,6 +69,7 @@ export async function startTestApp(): Promise<TestApp> {
   );
   const activeConnections = new ActiveConnectionRegistry();
   const characterRepository = new CharacterRepository(pool);
+  const playerPersistence = new PlayerPersistenceService(pool);
   const httpServer = createServer(
     createApiHandler({
       authService,
@@ -81,6 +83,7 @@ export async function startTestApp(): Promise<TestApp> {
     characters,
     activeConnections,
     characterRepository,
+    playerPersistence,
     positionCheckpointMs: 2000
   });
 

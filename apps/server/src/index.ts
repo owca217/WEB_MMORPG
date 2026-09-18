@@ -6,6 +6,7 @@ import { runMigrations } from "./db/migrate";
 import { createApiHandler } from "./http/createApiHandler";
 import { AccountRepository } from "./persistence/AccountRepository";
 import { CharacterRepository } from "./persistence/CharacterRepository";
+import { PlayerPersistenceService } from "./persistence/PlayerPersistenceService";
 import { ActiveConnectionRegistry } from "./server/ActiveConnectionRegistry";
 import { createGameServer } from "./server/createGameServer";
 
@@ -22,6 +23,7 @@ let persistentGameDeps:
       characters: CharacterLifecycleService;
       activeConnections: ActiveConnectionRegistry;
       characterRepository: CharacterRepository;
+      playerPersistence: PlayerPersistenceService;
       positionCheckpointMs: number;
     }
   | undefined;
@@ -31,6 +33,7 @@ if (databaseUrl) {
   await runMigrations(pool);
   const characterService = new CharacterLifecycleService(pool);
   const characterRepository = new CharacterRepository(pool);
+  const playerPersistence = new PlayerPersistenceService(pool);
   const activeConnections = new ActiveConnectionRegistry();
   const authService = new AuthService(
     pool,
@@ -51,6 +54,7 @@ if (databaseUrl) {
     characters: characterService,
     activeConnections,
     characterRepository,
+    playerPersistence,
     positionCheckpointMs: Number(
       process.env.POSITION_CHECKPOINT_MS ?? 2000
     )

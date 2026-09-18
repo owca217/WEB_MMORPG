@@ -43,6 +43,7 @@ export class WorldScene extends Phaser.Scene {
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private joystick: VirtualJoystick | undefined;
+  private deletionDialog: HTMLDivElement | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {
@@ -95,6 +96,9 @@ export class WorldScene extends Phaser.Scene {
       onCharacter: () => this.characterPanel?.toggle(),
       ...(persistentAccountsEnabled
         ? {
+            onDeleteCharacter: () => {
+              this.showDeleteCharacterDialog();
+            },
             onLogout: () => {
               gameSocket.disconnect();
               void apiClient.logout().finally(() => {
@@ -236,6 +240,92 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private showDeleteCharacterDialog(): void {
+    this.deletionDialog?.remove();
+
+    const panel = document.createElement("div");
+    panel.className = "auth-panel character-delete-dialog";
+
+    const heading = document.createElement("h2");
+    heading.textContent = "Usuń postać";
+
+    const warning = document.createElement("p");
+    warning.className = "auth-panel__subtitle";
+    warning.textContent =
+      "Postać zostanie oznaczona do usunięcia na 24 godziny. W tym czasie możesz anulować operację.";
+
+    const password = document.createElement("input");
+    password.type = "password";
+    password.placeholder = "Aktualne hasło do konta";
+    password.autocomplete = "current-password";
+
+    const error = document.createElement("p");
+    error.className = "form-error";
+
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.textContent = "Zleć usunięcie";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Anuluj";
+
+    cancel.addEventListener("click", () => {
+      panel.remove();
+      if (this.deletionDialog === panel) {
+        this.deletionDialog = undefined;
+      }
+    });
+
+    confirm.addEventListener("click", () => {
+      if (!password.value) {
+        error.textContent = "Wpisz aktualne hasło.";
+        return;
+      }
+
+      confirm.disabled = true;
+      error.textContent = "Zapisywanie żądania usunięcia…";
+
+      void apiClient
+        .requestCharacterDeletion(password.value)
+        .then((lifecycle) => {
+          panel.remove();
+          this.deletionDialog = undefined;
+          gameSocket.disconnect();
+
+          if (lifecycle.state === "pendingDeletion") {
+            this.scene.start("CharacterDeletionScene", {
+              character: lifecycle
+            });
+            return;
+          }
+
+          if (lifecycle.state === "none") {
+            this.scene.start("CharacterCreatorScene");
+          }
+        })
+        .catch((caught: unknown) => {
+          confirm.disabled = false;
+          error.textContent =
+            caught instanceof Error
+              ? caught.message
+              : "Nie udało się zlecić usunięcia postaci.";
+        });
+    });
+
+    panel.append(
+      heading,
+      warning,
+      password,
+      confirm,
+      cancel,
+      error
+    );
+    document.body.appendChild(panel);
+    this.deletionDialog = panel;
+    password.focus();
+  }
+
   private showToast(message: string): void {
     const toast = this.add.text(this.cameras.main.centerX, 92, message, {
       fontFamily: "sans-serif",
@@ -255,6 +345,7 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
+    this.deletionDialog?.remove();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
     this.joystick = undefined;
@@ -262,6 +353,7 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;
     this.dialoguePanel = undefined;
+    this.deletionDialog = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;
   }

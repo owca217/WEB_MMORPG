@@ -193,17 +193,10 @@ export class AuthScene extends Phaser.Scene {
       return;
     }
 
-    const panel = this.createPanel(
-      "Postać oczekuje na usunięcie",
-      `Usunięcie nastąpi: ${new Date(
-        session.character.deletionEffectiveAt
-      ).toLocaleString("pl-PL")}. Możliwość anulowania dodamy w następnym etapie.`
-    );
-    const logout = this.button("Wyloguj");
-    logout.addEventListener("click", () => {
-      void apiClient.logout().finally(() => this.showLogin());
+    this.destroyPanel();
+    this.scene.start("CharacterDeletionScene", {
+      character: session.character
     });
-    panel.append(logout);
   }
 
   private destroyPanel(): void {

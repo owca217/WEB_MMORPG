@@ -1,5 +1,6 @@
 import type {
   AppearanceSelection,
+  CharacterLifecycleSummary,
   CharacterProfile,
   LoginResponse,
   RecoverResponse,
@@ -97,6 +98,25 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(input)
     });
+  }
+
+  async requestCharacterDeletion(
+    password: string
+  ): Promise<CharacterLifecycleSummary> {
+    return requestJson<CharacterLifecycleSummary>(
+      "/api/character/delete-request",
+      {
+        method: "POST",
+        body: JSON.stringify({ password })
+      }
+    );
+  }
+
+  async cancelCharacterDeletion(): Promise<CharacterLifecycleSummary> {
+    return requestJson<CharacterLifecycleSummary>(
+      "/api/character/delete-cancel",
+      { method: "POST" }
+    );
   }
 }
 

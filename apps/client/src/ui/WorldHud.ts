@@ -5,6 +5,7 @@ interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
   onLogout?: () => void;
+  onDeleteCharacter?: () => void;
 }
 
 export class WorldHud {
@@ -45,6 +46,20 @@ export class WorldHud {
       "click",
       handlers.onCharacter
     );
+
+    if (handlers.onDeleteCharacter) {
+      const deleteCharacter = document.createElement("button");
+      deleteCharacter.type = "button";
+      deleteCharacter.textContent = "Usuń postać";
+      deleteCharacter.dataset.deleteCharacter = "";
+      deleteCharacter.addEventListener(
+        "click",
+        handlers.onDeleteCharacter
+      );
+      this.require<HTMLElement>(
+        ".world-hud__actions"
+      ).appendChild(deleteCharacter);
+    }
 
     if (handlers.onLogout) {
       const logout = document.createElement("button");

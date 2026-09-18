@@ -118,6 +118,66 @@ export class CharacterRepository {
     return result.rows[0] ? mapCharacter(result.rows[0]) : null;
   }
 
+
+  async findByIdForUpdate(id: string): Promise<PersistedCharacterRecord | null> {
+    const result = await this.db.query<CharacterRow>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM characters
+       WHERE id = $1
+       FOR UPDATE`,
+      [id]
+    );
+    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
+  }
+
+  async findOverdueByNickname(
+    normalized: string,
+    now: Date
+  ): Promise<PersistedCharacterRecord | null> {
+    const result = await this.db.query<CharacterRow>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM characters
+       WHERE nickname_normalized = $1
+         AND deletion_effective_at IS NOT NULL
+         AND deletion_effective_at <= $2`,
+      [normalized, now]
+    );
+    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
+  }
+
+  async markDeletionRequested(
+    characterId: string,
+    requestedAt: Date,
+    effectiveAt: Date
+  ): Promise<void> {
+    await this.db.query(
+      `UPDATE characters
+       SET deletion_requested_at = $2,
+           deletion_effective_at = $3,
+           updated_at = now()
+       WHERE id = $1`,
+      [characterId, requestedAt, effectiveAt]
+    );
+  }
+
+  async cancelDeletion(characterId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE characters
+       SET deletion_requested_at = NULL,
+           deletion_effective_at = NULL,
+           updated_at = now()
+       WHERE id = $1`,
+      [characterId]
+    );
+  }
+
+  async deleteById(characterId: string): Promise<void> {
+    await this.db.query(
+      "DELETE FROM characters WHERE id = $1",
+      [characterId]
+    );
+  }
+
   async updateVitals(character: import("@web-mmorpg/shared").CharacterSnapshot): Promise<void> {
     await this.db.query(
       `UPDATE characters

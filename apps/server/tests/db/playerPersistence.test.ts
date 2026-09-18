@@ -78,6 +78,14 @@ describe("PlayerPersistenceService", () => {
     };
 
     await persistence.saveBattleOutcome(character, inventory);
+    await persistence.saveEquipment(characterId, {
+      items: [
+        {
+          slot: "mainHand",
+          itemInstanceId: inventory.items[0]!.instanceId
+        }
+      ]
+    });
 
     const restored = await persistence.loadPlayer(characterId);
     expect(restored.character).toMatchObject({
@@ -89,6 +97,18 @@ describe("PlayerPersistenceService", () => {
       itemId: "wolf-pelt",
       quantity: 2
     });
-    expect(restored.equipment).toEqual({ items: [] });
+    expect(restored.equipment).toEqual({
+      items: [
+        {
+          slot: "mainHand",
+          itemInstanceId: inventory.items[0]!.instanceId
+        }
+      ]
+    });
+
+    await persistence.saveBattleOutcome(restored.character, restored.inventory);
+    expect((await persistence.loadPlayer(characterId)).equipment).toEqual(
+      restored.equipment
+    );
   });
 });

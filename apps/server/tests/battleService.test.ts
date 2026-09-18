@@ -1,10 +1,11 @@
-import type { BattleSnapshot, CharacterSnapshot } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE, type BattleSnapshot, type CharacterSnapshot } from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { BattleService } from "../src/battle/BattleService";
 
 const character: CharacterSnapshot = {
   playerId: "player-1",
   nickname: "Hero",
+  appearance: DEFAULT_APPEARANCE,
   level: 1,
   hp: 37,
   maxHp: 100,

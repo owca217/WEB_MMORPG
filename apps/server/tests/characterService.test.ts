@@ -1,7 +1,32 @@
+import { DEFAULT_APPEARANCE } from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { CharacterService } from "../src/character/CharacterService";
 
 describe("CharacterService", () => {
+  it("hydrates an existing persisted character snapshot", () => {
+    const characters = new CharacterService();
+    const hydrated = characters.hydratePlayer({
+      playerId: "persisted-1",
+      nickname: "Owczy",
+      appearance: DEFAULT_APPEARANCE,
+      level: 3,
+      hp: 42,
+      maxHp: 120,
+      maxAp: 6,
+      initiative: 14,
+      severelyInjured: true,
+      injuries: ["legTrauma"]
+    });
+
+    expect(hydrated).toMatchObject({
+      playerId: "persisted-1",
+      level: 3,
+      hp: 42,
+      injuries: ["legTrauma"]
+    });
+  });
+
+
   it("creates stable MVP 2 base stats", () => {
     const characters = new CharacterService();
 

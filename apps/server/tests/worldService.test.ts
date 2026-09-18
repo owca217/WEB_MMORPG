@@ -100,6 +100,25 @@ describe("SessionStore", () => {
 });
 
 describe("Inventory and loot", () => {
+  it("hydrates persisted inventory state", () => {
+    const inventory = new InventoryService();
+    inventory.hydratePlayer("p1", {
+      items: [
+        {
+          itemId: "wolf-pelt",
+          name: "Wilcza skóra",
+          description: "Zdobycz z wilka.",
+          category: "material",
+          quantity: 3
+        }
+      ]
+    });
+
+    expect(inventory.getSnapshot("p1").items).toEqual([
+      expect.objectContaining({ itemId: "wolf-pelt", quantity: 3 })
+    ]);
+  });
+
   it("awards and stacks deterministic wolf loot", () => {
     const inventory = new InventoryService();
     const loot = new LootService();

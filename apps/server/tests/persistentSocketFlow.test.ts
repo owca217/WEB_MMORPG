@@ -50,6 +50,37 @@ describe("persistent authenticated socket flow", () => {
     );
   });
 
+  it("restores the last flushed world position on reconnect", async () => {
+    app = await startTestApp();
+    await app.register("position-owner");
+    const initialLogin = await app.login("position-owner");
+    const character = await app.createCharacter(initialLogin.token, "Walker");
+    const playableLogin = await app.login("position-owner");
+    const socket = await app.connectSocket(playableLogin.token);
+
+    app.game.services.world.movePlayer(
+      character.id,
+      { x: 845, y: 612 },
+      Date.now() + 10_000
+    );
+    app.game.services.positions!.markDirty(character.id);
+    await app.game.services.positions!.flushPlayer(character.id);
+    socket.disconnect();
+
+    const reconnectLogin = await app.login("position-owner");
+    const restoredSocket = await app.connectSocket(reconnectLogin.token);
+    const worldPromise = onceWithTimeout<WorldStateSnapshot>(
+      restoredSocket,
+      "worldState"
+    );
+    restoredSocket.emit("requestWorldState");
+    const world = await worldPromise;
+    const restored = world.players.find((player) => player.id === character.id);
+
+    expect(restored?.x).toBeCloseTo(845, 0);
+    expect(restored?.y).toBeCloseTo(612, 0);
+  });
+
   it("kicks the old live socket when the same account logs in again", async () => {
     app = await startTestApp();
     await app.register("same-account");

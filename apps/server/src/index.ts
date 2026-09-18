@@ -24,6 +24,7 @@ let persistentGameDeps:
       activeConnections: ActiveConnectionRegistry;
       characterRepository: CharacterRepository;
       playerPersistence: PlayerPersistenceService;
+      clientOrigin: string;
       positionCheckpointMs: number;
     }
   | undefined;
@@ -55,6 +56,7 @@ if (databaseUrl) {
     activeConnections,
     characterRepository,
     playerPersistence,
+    clientOrigin,
     positionCheckpointMs: Number(
       process.env.POSITION_CHECKPOINT_MS ?? 2000
     )

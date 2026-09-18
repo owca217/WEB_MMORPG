@@ -30,6 +30,7 @@ export interface PersistentGameServerDeps {
   activeConnections: ActiveConnectionRegistry;
   characterRepository: CharacterRepository;
   playerPersistence: PlayerPersistenceService;
+  clientOrigin: string;
   positionCheckpointMs?: number;
 }
 
@@ -62,7 +63,10 @@ export function createGameServer(
   positions?.start();
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-    cors: { origin: true, credentials: false }
+    cors: {
+      origin: persistentDeps ? persistentDeps.clientOrigin : true,
+      credentials: false
+    }
   });
 
   if (persistentDeps) {

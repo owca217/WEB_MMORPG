@@ -84,6 +84,7 @@ export async function startTestApp(): Promise<TestApp> {
     activeConnections,
     characterRepository,
     playerPersistence,
+    clientOrigin: "https://client.test",
     positionCheckpointMs: 2000
   });
 

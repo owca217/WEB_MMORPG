@@ -57,6 +57,9 @@ describe("persistent authenticated socket flow", () => {
     const character = await app.createCharacter(initialLogin.token, "Walker");
     const playableLogin = await app.login("position-owner");
     const socket = await app.connectSocket(playableLogin.token);
+    const readyWorld = onceWithTimeout<WorldStateSnapshot>(socket, "worldState");
+    socket.emit("requestWorldState");
+    await readyWorld;
 
     app.game.services.world.movePlayer(
       character.id,

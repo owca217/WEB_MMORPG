@@ -14,6 +14,7 @@ interface PartyState {
   id: string;
   leaderPlayerId: PlayerId;
   members: Map<PlayerId, string>;
+  partyBattleEnabled: boolean;
 }
 
 interface PendingInvite extends PartyInvitePayload {
@@ -123,7 +124,8 @@ export class PartyService {
       party = {
         id: randomUUID(),
         leaderPlayerId: invite.inviterPlayerId,
-        members: new Map([[invite.inviterPlayerId, invite.inviterNickname]])
+        members: new Map([[invite.inviterPlayerId, invite.inviterNickname]]),
+        partyBattleEnabled: true
       };
       this.parties.set(party.id, party);
       this.partyByPlayer.set(invite.inviterPlayerId, party.id);
@@ -139,6 +141,20 @@ export class PartyService {
       targetNickname: invite.targetNickname,
       affectedPlayerIds: [...party.members.keys()]
     };
+  }
+
+  setPartyBattleEnabled(
+    requesterPlayerId: PlayerId,
+    enabled: boolean
+  ): PlayerId[] {
+    const party = this.partyFor(requesterPlayerId);
+    if (!party) throw new Error("PARTY_NOT_FOUND");
+    if (party.leaderPlayerId !== requesterPlayerId) {
+      throw new Error("PARTY_ONLY_LEADER_CAN_TOGGLE_BATTLE");
+    }
+
+    party.partyBattleEnabled = enabled;
+    return [...party.members.keys()];
   }
 
   leave(playerId: PlayerId): PlayerId[] {
@@ -177,6 +193,7 @@ export class PartyService {
       id: party.id,
       leaderPlayerId: party.leaderPlayerId,
       maxMembers: this.maxMembers,
+      partyBattleEnabled: party.partyBattleEnabled,
       members: [...party.members].map(([memberId, nickname]) => ({
         playerId: memberId,
         nickname,

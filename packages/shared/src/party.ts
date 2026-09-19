@@ -10,6 +10,7 @@ export interface PartySnapshot {
   id: string;
   leaderPlayerId: PlayerId;
   maxMembers: number;
+  partyBattleEnabled: boolean;
   members: PartyMemberSnapshot[];
 }
 

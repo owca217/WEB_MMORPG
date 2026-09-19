@@ -36,6 +36,9 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
   PARTY_TARGET_BUSY: "Ten gracz jest teraz zajęty walką.",
   PARTY_ONLY_LEADER_CAN_START_BATTLE:
     "Tylko lider drużyny może rozpocząć wspólną walkę.",
+  PARTY_ONLY_LEADER_CAN_TOGGLE_BATTLE:
+    "Tylko lider drużyny może zmieniać tryb walk drużynowych.",
+  PARTY_INVALID_BATTLE_MODE: "Nieprawidłowy tryb walk drużynowych.",
   PLAYER_ALREADY_IN_BATTLE: "Ta postać jest już w walce."
 };
 
@@ -110,10 +113,12 @@ export class WorldScene extends Phaser.Scene {
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
-    this.partyPanel = new PartyPanel({
+    this.partyPanel = new PartyPanel(this.playerId, {
       onInvite: (targetPlayerId) => gameSocket.inviteToParty(targetPlayerId),
       onRespond: (inviteId, accept) =>
         gameSocket.respondPartyInvite(inviteId, accept),
+      onBattleModeChange: (enabled) =>
+        gameSocket.setPartyBattleMode(enabled),
       onLeave: () => gameSocket.leaveParty()
     });
     this.hud = new WorldHud({

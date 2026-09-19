@@ -11,7 +11,8 @@ import { DEFAULT_APPEARANCE } from "@web-mmorpg/shared";
 import {
   ENCOUNTER_ACTIVATION_RADIUS,
   FOREST_SETTLEMENT_01,
-  MAX_WORLD_SPEED
+  MAX_WORLD_SPEED,
+  PARTY_BATTLE_VISION_RADIUS
 } from "./worldFixtures";
 
 interface WorldPlayerState extends WorldPlayerSnapshot {
@@ -127,6 +128,20 @@ export class WorldService {
   getPlayer(playerId: PlayerId): WorldPlayerSnapshot | undefined {
     const player = this.players.get(playerId);
     return player ? this.toSnapshot(player) : undefined;
+  }
+
+  isWithinPartyBattleVision(
+    leaderPlayerId: PlayerId,
+    targetPlayerId: PlayerId,
+    radius = PARTY_BATTLE_VISION_RADIUS
+  ): boolean {
+    const leader = this.players.get(leaderPlayerId);
+    const target = this.players.get(targetPlayerId);
+    if (!leader || !target || leader.locationId !== target.locationId) {
+      return false;
+    }
+
+    return Math.hypot(target.x - leader.x, target.y - leader.y) <= radius;
   }
 
   snapshot(locationId: LocationId = FOREST_SETTLEMENT_01.id): WorldStateSnapshot {

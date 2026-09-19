@@ -109,6 +109,10 @@ export class GameSocket {
     this.connect().emit("respondPartyInvite", { inviteId, accept });
   }
 
+  setPartyBattleMode(enabled: boolean): void {
+    this.connect().emit("setPartyBattleMode", { enabled });
+  }
+
   leaveParty(): void {
     this.connect().emit("leaveParty");
   }

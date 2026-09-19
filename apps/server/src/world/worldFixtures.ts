@@ -43,4 +43,5 @@ export const FOREST_SETTLEMENT_01: WorldFixture = {
 };
 
 export const ENCOUNTER_ACTIVATION_RADIUS = 90;
+export const PARTY_BATTLE_VISION_RADIUS = 650;
 export const MAX_WORLD_SPEED = 220;

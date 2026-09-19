@@ -16,7 +16,8 @@ describe("PartyService", () => {
     expect(result.accepted).toBe(true);
     expect(parties.getSnapshot("p1")).toMatchObject({
       leaderPlayerId: "p1",
-      maxMembers: 5
+      maxMembers: 5,
+      partyBattleEnabled: true
     });
     expect(
       parties.getSnapshot("p2")?.members.map((member) => member.nickname)
@@ -37,6 +38,26 @@ describe("PartyService", () => {
         { playerId: "p3", nickname: "Boran" }
       )
     ).toThrowError("PARTY_ONLY_LEADER_CAN_INVITE");
+  });
+
+  it("allows only the leader to toggle party battles", () => {
+    const parties = new PartyService();
+    const invite = parties.createInvite(
+      { playerId: "p1", nickname: "Owczy" },
+      { playerId: "p2", nickname: "Karolina" }
+    );
+    parties.respondToInvite(invite.inviteId, "p2", true);
+
+    expect(() =>
+      parties.setPartyBattleEnabled("p2", false)
+    ).toThrowError("PARTY_ONLY_LEADER_CAN_TOGGLE_BATTLE");
+
+    expect(parties.setPartyBattleEnabled("p1", false)).toEqual([
+      "p1",
+      "p2"
+    ]);
+    expect(parties.getSnapshot("p1")?.partyBattleEnabled).toBe(false);
+    expect(parties.getSnapshot("p2")?.partyBattleEnabled).toBe(false);
   });
 
   it("promotes the next member when the leader leaves", () => {

@@ -19,6 +19,7 @@ export interface ClientToServerEvents {
   healAtNpc: (payload: { npcId: string }) => void;
   inviteToParty: (payload: { targetPlayerId: PlayerId }) => void;
   respondPartyInvite: (payload: { inviteId: string; accept: boolean }) => void;
+  setPartyBattleMode: (payload: { enabled: boolean }) => void;
   leaveParty: () => void;
   requestPartyState: () => void;
 }

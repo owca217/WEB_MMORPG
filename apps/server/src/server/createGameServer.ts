@@ -384,6 +384,25 @@ export function createGameServer(
       }
     });
 
+    socket.on("setPartyBattleMode", ({ enabled }) => {
+      if (!playerId) return;
+
+      try {
+        if (typeof enabled !== "boolean") {
+          throw new Error("PARTY_INVALID_BATTLE_MODE");
+        }
+        emitPartyStates(
+          parties.setPartyBattleEnabled(playerId, enabled)
+        );
+      } catch (error) {
+        reject(
+          error,
+          "PARTY_BATTLE_MODE_REJECTED",
+          "Nie udało się zmienić trybu walk drużynowych."
+        );
+      }
+    });
+
     socket.on("leaveParty", () => {
       if (!playerId) return;
       emitPartyStates(parties.leave(playerId));
@@ -472,9 +491,10 @@ export function createGameServer(
           throw new Error("PARTY_ONLY_LEADER_CAN_START_BATTLE");
         }
 
-        const candidateIds = party
-          ? party.members.map((member) => member.playerId)
-          : [playerId];
+        const candidateIds =
+          party?.partyBattleEnabled
+            ? party.members.map((member) => member.playerId)
+            : [playerId];
 
         const participantIds: PlayerId[] = [];
         const participantCharacters = [];
@@ -492,9 +512,10 @@ export function createGameServer(
             continue;
           }
 
-          try {
-            world.startEncounter(candidateId, encounterId);
-          } catch {
+          if (
+            candidateId !== playerId &&
+            !world.isWithinPartyBattleVision(playerId, candidateId)
+          ) {
             continue;
           }
 

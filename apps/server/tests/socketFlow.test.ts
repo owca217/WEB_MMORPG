@@ -331,7 +331,7 @@ describe("Socket.IO game flow", () => {
     );
     game.services.world.movePlayer(
       secondLogin.playerId,
-      { x: 1320, y: 455 },
+      { x: 800, y: 455 },
       Date.now() + 10_000
     );
 
@@ -398,6 +398,77 @@ describe("Socket.IO game flow", () => {
     expect(secondUpdated.activeCombatantId).toBe(
       firstUpdated.activeCombatantId
     );
+  });
+
+  it("lets the leader disable automatic party battle joining", async () => {
+    const { game, connectClient } = await startTestServer();
+    const first = await connectClient();
+    const second = await connectClient();
+
+    const firstLogin = await first.emitWithAck("login", { nickname: "Owczy" });
+    if (!firstLogin.ok) throw new Error("First login failed");
+    const secondLogin = await second.emitWithAck("login", { nickname: "Karolina" });
+    if (!secondLogin.ok) throw new Error("Second login failed");
+
+    const invitePromise = onceWithTimeout<PartyInvitePayload>(
+      second,
+      "partyInviteReceived"
+    );
+    first.emit("inviteToParty", { targetPlayerId: secondLogin.playerId });
+    const invite = await invitePromise;
+
+    const firstParty = onceWithTimeout<PartySnapshot>(first, "partyState");
+    const secondParty = onceWithTimeout<PartySnapshot>(second, "partyState");
+    second.emit("respondPartyInvite", {
+      inviteId: invite.inviteId,
+      accept: true
+    });
+    await Promise.all([firstParty, secondParty]);
+
+    const disabledForFirst = onceWithTimeout<PartySnapshot>(
+      first,
+      "partyState"
+    );
+    const disabledForSecond = onceWithTimeout<PartySnapshot>(
+      second,
+      "partyState"
+    );
+    first.emit("setPartyBattleMode", { enabled: false });
+    const [firstDisabled, secondDisabled] = await Promise.all([
+      disabledForFirst,
+      disabledForSecond
+    ]);
+    expect(firstDisabled.partyBattleEnabled).toBe(false);
+    expect(secondDisabled.partyBattleEnabled).toBe(false);
+
+    game.services.world.movePlayer(
+      firstLogin.playerId,
+      { x: 1320, y: 455 },
+      Date.now() + 10_000
+    );
+    game.services.world.movePlayer(
+      secondLogin.playerId,
+      { x: 900, y: 455 },
+      Date.now() + 10_000
+    );
+
+    let secondEnteredBattle = false;
+    second.once("battleStarted", () => {
+      secondEnteredBattle = true;
+    });
+
+    const firstStarted = onceWithTimeout<BattleSnapshot>(
+      first,
+      "battleStarted"
+    );
+    first.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    const battle = await firstStarted;
+
+    expect(
+      battle.combatants.filter((combatant) => combatant.ownerPlayerId)
+    ).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(secondEnteredBattle).toBe(false);
   });
 
   it("keeps another player in the shared world while one player battles", async () => {

@@ -1,4 +1,5 @@
 import type { CharacterSnapshot, InjuryKind } from "@web-mmorpg/shared";
+import { InterfaceWindowControls } from "./InterfaceWindowControls";
 
 const INJURY_LABELS: Record<InjuryKind, string> = {
   brokenArm: "Złamana ręka",
@@ -13,6 +14,7 @@ const INJURY_LABELS: Record<InjuryKind, string> = {
 export class CharacterPanel {
   private readonly root: HTMLDivElement;
   private readonly content: HTMLDivElement;
+  private readonly windowControls: InterfaceWindowControls;
 
   constructor() {
     this.root = document.createElement("div");
@@ -20,13 +22,16 @@ export class CharacterPanel {
     this.root.innerHTML = `
       <div class="game-panel__header">
         <h2>Postać</h2>
-        <button type="button" data-close aria-label="Zamknij">×</button>
       </div>
       <div class="character-sheet" data-content></div>
     `;
     document.body.appendChild(this.root);
     this.content = this.require<HTMLDivElement>("[data-content]");
-    this.require<HTMLButtonElement>("[data-close]").addEventListener("click", () => this.hide());
+    this.windowControls = new InterfaceWindowControls({
+      root: this.root,
+      header: this.require<HTMLElement>(".game-panel__header"),
+      onClose: () => this.hide()
+    });
   }
 
   update(character: CharacterSnapshot): void {
@@ -71,6 +76,7 @@ export class CharacterPanel {
   }
 
   destroy(): void {
+    this.windowControls.destroy();
     this.root.remove();
   }
 

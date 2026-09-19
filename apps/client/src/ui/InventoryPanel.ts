@@ -1,4 +1,5 @@
 import type { InventorySnapshot } from "@web-mmorpg/shared";
+import { InterfaceWindowControls } from "./InterfaceWindowControls";
 
 const CATEGORY_LABELS = {
   material: "Materiał",
@@ -8,6 +9,7 @@ const CATEGORY_LABELS = {
 export class InventoryPanel {
   private readonly root: HTMLDivElement;
   private readonly list: HTMLDivElement;
+  private readonly windowControls: InterfaceWindowControls;
 
   constructor() {
     this.root = document.createElement("div");
@@ -15,13 +17,16 @@ export class InventoryPanel {
     this.root.innerHTML = `
       <div class="game-panel__header">
         <h2>Ekwipunek</h2>
-        <button type="button" data-close aria-label="Zamknij">×</button>
       </div>
       <div class="inventory-list" data-list></div>
     `;
     document.body.appendChild(this.root);
     this.list = this.require<HTMLDivElement>("[data-list]");
-    this.require<HTMLButtonElement>("[data-close]").addEventListener("click", () => this.hide());
+    this.windowControls = new InterfaceWindowControls({
+      root: this.root,
+      header: this.require<HTMLElement>(".game-panel__header"),
+      onClose: () => this.hide()
+    });
   }
 
   update(snapshot: InventorySnapshot): void {
@@ -70,6 +75,7 @@ export class InventoryPanel {
   }
 
   destroy(): void {
+    this.windowControls.destroy();
     this.root.remove();
   }
 

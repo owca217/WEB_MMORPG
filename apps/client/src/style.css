@@ -971,3 +971,196 @@ button {
 .party-panel__header .party-panel__leave {
   min-height: 40px;
 }
+
+
+/* Shared controls for movable/scalable in-game interface windows. */
+.ui-window {
+  transform-origin: top left;
+}
+
+.ui-window__drag-handle {
+  position: relative;
+}
+
+.ui-window__drag-handle.ui-window__drag-enabled {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.ui-window__drag-handle.ui-window__dragging {
+  cursor: grabbing;
+}
+
+.ui-window__chrome {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.game-panel .ui-window__icon-button,
+.dialogue-panel .ui-window__icon-button,
+.party-panel .ui-window__icon-button,
+.character-delete-dialog .ui-window__icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 1px solid rgba(188, 167, 126, 0.5);
+  border-radius: 7px;
+  color: #f7eddb;
+  background: rgba(37, 43, 34, 0.92);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.game-panel .ui-window__close,
+.dialogue-panel .ui-window__close,
+.party-panel .ui-window__close,
+.character-delete-dialog .ui-window__close {
+  font-size: 24px;
+  background: rgba(73, 43, 38, 0.92);
+}
+
+.ui-window-settings {
+  position: absolute;
+  z-index: 40;
+  top: 54px;
+  right: 12px;
+  width: 190px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  color: #f4ead8;
+  background: rgba(17, 21, 18, 0.985);
+  border: 1px solid rgba(156, 139, 103, 0.72);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.48);
+}
+
+.ui-window-settings[hidden] {
+  display: none;
+}
+
+.ui-window-settings__label {
+  color: #d6c8aa;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ui-window-settings__scale {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.game-panel .ui-window-settings__scale button,
+.dialogue-panel .ui-window-settings__scale button,
+.party-panel .ui-window-settings__scale button,
+.character-delete-dialog .ui-window-settings__scale button {
+  width: auto;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid #667451;
+  border-radius: 7px;
+  color: #f7efdf;
+  background: #38452f;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ui-window-settings__move {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: #e6dcc9;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ui-window-settings__move input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #8fb777;
+}
+
+.party-panel__controls {
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.party-panel__controls > button {
+  box-sizing: border-box;
+  min-height: 38px;
+  border: 1px solid #7f6b4d;
+  border-radius: 7px;
+  color: #f6ecda;
+  background: #4a352c;
+  cursor: pointer;
+}
+
+.party-panel__controls .party-panel__battle-toggle {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 3px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: rgba(11, 15, 12, 0.72);
+}
+
+.party-panel__controls .party-panel__leave {
+  padding: 0 10px;
+}
+
+.world-hud__actions {
+  flex-wrap: wrap;
+}
+
+.world-hud__actions button {
+  flex: 1 1 92px;
+}
+
+@media (max-width: 600px) {
+  .ui-window-settings {
+    width: 176px;
+    right: 8px;
+  }
+
+  .game-panel .ui-window__icon-button,
+  .dialogue-panel .ui-window__icon-button,
+  .party-panel .ui-window__icon-button,
+.character-delete-dialog .ui-window__icon-button {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+  }
+}
+
+
+.character-delete-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.character-delete-dialog__header h2 {
+  margin: 0;
+}

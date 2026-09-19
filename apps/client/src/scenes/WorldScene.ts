@@ -8,6 +8,7 @@ import { playerStateStore } from "../state/PlayerStateStore";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
+import { InterfaceWindowControls } from "../ui/InterfaceWindowControls";
 import { PartyPanel } from "../ui/PartyPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
@@ -60,6 +61,7 @@ export class WorldScene extends Phaser.Scene {
   private partyPanel: PartyPanel | undefined;
   private joystick: VirtualJoystick | undefined;
   private deletionDialog: HTMLDivElement | undefined;
+  private deletionWindowControls: InterfaceWindowControls | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {
@@ -124,6 +126,7 @@ export class WorldScene extends Phaser.Scene {
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.toggle(),
       onCharacter: () => this.characterPanel?.toggle(),
+      onParty: () => this.partyPanel?.toggle(),
       ...(persistentAccountsEnabled
         ? {
             onDeleteCharacter: () => {
@@ -283,13 +286,19 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private showDeleteCharacterDialog(): void {
+    this.deletionWindowControls?.destroy();
+    this.deletionWindowControls = undefined;
     this.deletionDialog?.remove();
 
     const panel = document.createElement("div");
     panel.className = "auth-panel character-delete-dialog";
 
+    const header = document.createElement("div");
+    header.className = "character-delete-dialog__header";
+
     const heading = document.createElement("h2");
     heading.textContent = "Usuń postać";
+    header.appendChild(heading);
 
     const warning = document.createElement("p");
     warning.className = "auth-panel__subtitle";
@@ -312,12 +321,16 @@ export class WorldScene extends Phaser.Scene {
     cancel.type = "button";
     cancel.textContent = "Anuluj";
 
-    cancel.addEventListener("click", () => {
+    const closeDialog = () => {
+      this.deletionWindowControls?.destroy();
+      this.deletionWindowControls = undefined;
       panel.remove();
       if (this.deletionDialog === panel) {
         this.deletionDialog = undefined;
       }
-    });
+    };
+
+    cancel.addEventListener("click", closeDialog);
 
     confirm.addEventListener("click", () => {
       if (!password.value) {
@@ -331,6 +344,8 @@ export class WorldScene extends Phaser.Scene {
       void apiClient
         .requestCharacterDeletion(password.value)
         .then((lifecycle) => {
+          this.deletionWindowControls?.destroy();
+          this.deletionWindowControls = undefined;
           panel.remove();
           this.deletionDialog = undefined;
           gameSocket.disconnect();
@@ -356,7 +371,7 @@ export class WorldScene extends Phaser.Scene {
     });
 
     panel.append(
-      heading,
+      header,
       warning,
       password,
       confirm,
@@ -365,6 +380,11 @@ export class WorldScene extends Phaser.Scene {
     );
     document.body.appendChild(panel);
     this.deletionDialog = panel;
+    this.deletionWindowControls = new InterfaceWindowControls({
+      root: panel,
+      header,
+      onClose: closeDialog
+    });
     password.focus();
   }
 
@@ -388,6 +408,7 @@ export class WorldScene extends Phaser.Scene {
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.partyPanel?.destroy();
+    this.deletionWindowControls?.destroy();
     this.deletionDialog?.remove();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
@@ -397,6 +418,7 @@ export class WorldScene extends Phaser.Scene {
     this.characterPanel = undefined;
     this.dialoguePanel = undefined;
     this.partyPanel = undefined;
+    this.deletionWindowControls = undefined;
     this.deletionDialog = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;

@@ -1,4 +1,5 @@
 import type { NpcInteractionPayload } from "@web-mmorpg/shared";
+import { InterfaceWindowControls } from "./InterfaceWindowControls";
 
 interface DialoguePanelHandlers {
   onHeal: (npcId: string) => void;
@@ -10,6 +11,7 @@ export class DialoguePanel {
   private readonly title: HTMLElement;
   private readonly lines: HTMLDivElement;
   private readonly healButton: HTMLButtonElement;
+  private readonly windowControls: InterfaceWindowControls;
   private currentNpcId: string | null = null;
 
   constructor(handlers: DialoguePanelHandlers) {
@@ -21,7 +23,6 @@ export class DialoguePanel {
           <strong data-name>NPC</strong>
           <span data-title></span>
         </div>
-        <button type="button" data-close aria-label="Zamknij">×</button>
       </div>
       <div class="dialogue-panel__lines" data-lines></div>
       <div class="dialogue-panel__actions">
@@ -35,7 +36,11 @@ export class DialoguePanel {
     this.lines = this.require<HTMLDivElement>("[data-lines]");
     this.healButton = this.require<HTMLButtonElement>("[data-heal]");
 
-    this.require<HTMLButtonElement>("[data-close]").addEventListener("click", () => this.hide());
+    this.windowControls = new InterfaceWindowControls({
+      root: this.root,
+      header: this.require<HTMLElement>(".dialogue-panel__header"),
+      onClose: () => this.hide()
+    });
     this.healButton.addEventListener("click", () => {
       if (this.currentNpcId) handlers.onHeal(this.currentNpcId);
     });
@@ -63,6 +68,7 @@ export class DialoguePanel {
   }
 
   destroy(): void {
+    this.windowControls.destroy();
     this.root.remove();
   }
 

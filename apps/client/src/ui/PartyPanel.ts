@@ -4,6 +4,7 @@ import type {
   PlayerId,
   WorldPlayerSnapshot
 } from "@web-mmorpg/shared";
+import { InterfaceWindowControls } from "./InterfaceWindowControls";
 
 interface PartyPanelHandlers {
   onInvite: (targetPlayerId: PlayerId) => void;
@@ -22,10 +23,12 @@ export class PartyPanel {
   private readonly members: HTMLDivElement;
   private readonly battleToggle: HTMLButtonElement;
   private readonly battleToggleIcon: HTMLImageElement;
+  private readonly windowControls: InterfaceWindowControls;
   private contextMenu: HTMLDivElement | undefined;
   private inviteDialog: HTMLDivElement | undefined;
   private inviteTimer: number | undefined;
   private lastSnapshot: PartySnapshot | null = null;
+  private manuallyHidden = false;
 
   constructor(
     private readonly localPlayerId: PlayerId,
@@ -40,6 +43,8 @@ export class PartyPanel {
 
     const title = document.createElement("strong");
     title.textContent = "Drużyna";
+
+    header.appendChild(title);
 
     const controls = document.createElement("div");
     controls.className = "party-panel__controls";
@@ -71,11 +76,16 @@ export class PartyPanel {
     leave.addEventListener("click", () => this.handlers.onLeave());
 
     controls.append(this.battleToggle, leave);
-    header.append(title, controls);
     this.members = document.createElement("div");
     this.members.className = "party-panel__members";
-    this.root.append(header, this.members);
+    this.root.append(header, controls, this.members);
     document.body.appendChild(this.root);
+
+    this.windowControls = new InterfaceWindowControls({
+      root: this.root,
+      header,
+      onClose: () => this.hide()
+    });
   }
 
   update(snapshot: PartySnapshot | null): void {
@@ -83,11 +93,12 @@ export class PartyPanel {
     this.members.replaceChildren();
 
     if (!snapshot) {
+      this.manuallyHidden = false;
       this.root.hidden = true;
       return;
     }
 
-    this.root.hidden = false;
+    this.root.hidden = this.manuallyHidden;
     const isLeader = snapshot.leaderPlayerId === this.localPlayerId;
     this.battleToggle.disabled = !isLeader;
     this.battleToggle.dataset.enabled = String(
@@ -117,6 +128,26 @@ export class PartyPanel {
 
       row.append(name, role);
       this.members.appendChild(row);
+    }
+  }
+
+  show(): void {
+    if (!this.lastSnapshot) return;
+    this.manuallyHidden = false;
+    this.root.hidden = false;
+  }
+
+  hide(): void {
+    this.manuallyHidden = true;
+    this.root.hidden = true;
+  }
+
+  toggle(): void {
+    if (!this.lastSnapshot) return;
+    if (this.root.hidden) {
+      this.show();
+    } else {
+      this.hide();
     }
   }
 
@@ -216,6 +247,7 @@ export class PartyPanel {
 
   destroy(): void {
     if (this.inviteTimer !== undefined) window.clearTimeout(this.inviteTimer);
+    this.windowControls.destroy();
     this.root.remove();
     this.contextMenu?.remove();
     this.inviteDialog?.remove();

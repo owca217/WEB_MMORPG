@@ -65,6 +65,17 @@ describe("CharacterLifecycleService", () => {
     ).rejects.toMatchObject({ code: "CHARACTER_ALREADY_EXISTS" });
   });
 
+  it.each(["eyes-sad", "eyes-angry", "eyes-closed"])("persists and reloads %s", async (eyes) => {
+    const account = await createAccount(`Owner-${eyes}`);
+    const service = new CharacterLifecycleService(pool);
+    const created = await service.createCharacter(account.id, {
+      nickname: `Hero-${eyes.slice(5)}`,
+      appearance: { ...appearance, eyes }
+    });
+    const stored = await pool.query("SELECT appearance FROM characters WHERE id = $1", [created.id]);
+    expect(stored.rows[0].appearance.eyes).toBe(eyes);
+  });
+
   it("rejects appearance ids outside the shared catalog", async () => {
     const account = await createAccount("BadAppearanceOwner");
     const service = new CharacterLifecycleService(pool);

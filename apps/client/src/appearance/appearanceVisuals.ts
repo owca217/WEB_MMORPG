@@ -11,13 +11,16 @@ const hair = {
   "hair-color-01": "#2a211d",
   "hair-color-02": "#6a4329",
   "hair-color-03": "#8b5a2b",
-  "hair-color-04": "#d1b06f"
+  "hair-color-04": "#d1b06f",
+  "hair-color-05": "#b5542c",
+  "hair-color-06": "#c8c4cc"
 } as const;
 
 const outfit = {
   "outfit-01": "#56634f",
   "outfit-02": "#405a74",
-  "outfit-03": "#694957"
+  "outfit-03": "#694957",
+  "outfit-base": "#35363b"
 } as const;
 
 const faceScaleX = {

@@ -11,6 +11,8 @@ import {
   createHairGraphic,
   createMarkingGraphic
 } from "../appearance/AvatarGraphics";
+import { drawCharacterSprite } from "../appearance/drawCharacterSprite";
+import { SPRITE_WIDTH, SPRITE_HEIGHT } from "../appearance/characterSprites";
 import { appearanceVisuals } from "../appearance/appearanceVisuals";
 
 interface PlayerView {
@@ -28,6 +30,7 @@ export class WorldEntitiesRenderer {
     screen: { x: number; y: number }
   ) => void;
 
+  private readonly spriteTextures = new Set<string>();
   private readonly playerViews = new Map<PlayerId, PlayerView>();
   private readonly npcViews = new Map<string, Phaser.GameObjects.Container>();
   private readonly encounterViews = new Map<string, Phaser.GameObjects.Container>();
@@ -63,6 +66,8 @@ export class WorldEntitiesRenderer {
     for (const view of this.playerViews.values()) view.container.destroy(true);
     for (const view of this.npcViews.values()) view.destroy(true);
     for (const view of this.encounterViews.values()) view.destroy(true);
+    for (const key of this.spriteTextures) this.scene.textures.remove(key);
+    this.spriteTextures.clear();
     this.playerViews.clear();
     this.npcViews.clear();
     this.encounterViews.clear();
@@ -174,6 +179,28 @@ export class WorldEntitiesRenderer {
       facing,
       label
     ]);
+
+    // Use the same layered renderer as the creator, including saved eye expressions.
+    if (this.scene.textures.exists("character-base-atlas")) {
+      const key = `character-sprite:${JSON.stringify(player.appearance)}`;
+      if (!this.scene.textures.exists(key)) {
+        const texture = this.scene.textures.createCanvas(key, SPRITE_WIDTH, SPRITE_HEIGHT);
+        if (texture) {
+          drawCharacterSprite(texture.getContext(), this.scene.textures.get("character-base-atlas").getSourceImage() as HTMLImageElement, player.appearance);
+          texture.refresh();
+          texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+          this.spriteTextures.add(key);
+        }
+      }
+      if (this.scene.textures.exists(key)) {
+        for (const object of [outfit, face, leftEye, rightEye, hair, facialHair, marking]) {
+          container.remove(object, true);
+        }
+        const sprite = this.scene.add.image(0, 24, key).setOrigin(0.5, 1).setScale(0.6);
+        container.addAt(sprite, 1);
+        label.setY(-52);
+      }
+    }
 
     if (!local) {
       container.setSize(54, 72).setInteractive({ useHandCursor: true });

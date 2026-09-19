@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { CHARACTER_ATLAS_URL } from "../appearance/characterSprites";
 import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { authSessionStore } from "../state/AuthSessionStore";
@@ -10,6 +11,12 @@ const persistentAccountsEnabled =
 export class BootScene extends Phaser.Scene {
   constructor() {
     super("BootScene");
+  }
+
+  preload(): void {
+    if (!this.textures.exists("character-base-atlas")) {
+      this.load.image("character-base-atlas", CHARACTER_ATLAS_URL);
+    }
   }
 
   create(): void {

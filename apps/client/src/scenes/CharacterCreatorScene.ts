@@ -5,6 +5,7 @@ import {
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { CharacterPreview } from "../appearance/CharacterPreview";
+import { CHARACTER_PRESETS, EYE_LABELS } from "../appearance/characterSprites";
 import { apiClient } from "../net/ApiClient";
 
 type AppearanceKey = keyof typeof APPEARANCE_CATALOG;
@@ -32,7 +33,7 @@ export class CharacterCreatorScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.selection = { ...DEFAULT_APPEARANCE };
+    this.selection = { ...CHARACTER_PRESETS[0]!.appearance };
     this.buildCreator();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroyForm());
   }
@@ -70,6 +71,21 @@ export class CharacterCreatorScene extends Phaser.Scene {
     nicknameInput.placeholder = "Np. Owczy";
     nicknameLabel.appendChild(nicknameInput);
     form.appendChild(nicknameLabel);
+
+    const presets = document.createElement("div");
+    presets.className = "character-creator__presets";
+    presets.setAttribute("aria-label", "Gotowe zestawy wyglądu");
+    for (const preset of CHARACTER_PRESETS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = preset.name;
+      button.addEventListener("click", () => {
+        this.selection = { ...preset.appearance };
+        this.refreshSelection();
+      });
+      presets.appendChild(button);
+    }
+    form.appendChild(presets);
 
     for (const key of Object.keys(APPEARANCE_CATALOG) as AppearanceKey[]) {
       form.appendChild(this.createSelector(key));
@@ -164,7 +180,12 @@ export class CharacterCreatorScene extends Phaser.Scene {
     if (!node) return;
     const options = APPEARANCE_CATALOG[key] as readonly string[];
     const index = Math.max(0, options.indexOf(this.selection[key]));
-    node.textContent = `${index + 1} / ${options.length}`;
+    const names: Record<string, string> = {
+      ...EYE_LABELS, "outfit-base": "Bielizna", "body-01": "Męska", "body-02": "Żeńska",
+      "hair-01": "Z przedziałkiem", "hair-02": "Krótkie", "hair-03": "Kucyk", "hair-04": "Na bok", "hair-05": "Odwrócony przedziałek"
+    };
+    node.textContent = names[this.selection[key]] ?? `${index + 1} / ${options.length}`;
+    node.setAttribute("aria-live", "polite");
   }
 
   private destroyForm(): void {

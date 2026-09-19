@@ -256,10 +256,12 @@ export class BattleService {
       active.state.finished = true;
     }
 
+    const snapshot =
+      active.playerIds.length > 0 ? this.toSnapshot(active.state) : undefined;
+
     return {
       playerIds: [...active.playerIds],
-      snapshot:
-        active.playerIds.length > 0 ? this.toSnapshot(active.state) : undefined,
+      ...(snapshot ? { snapshot } : {}),
       finished: active.state.finished
     };
   }

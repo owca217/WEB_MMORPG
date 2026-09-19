@@ -4,6 +4,8 @@ import type {
   BattleCommand,
   BattleSnapshot,
   NpcInteractionPayload,
+  PartyInvitePayload,
+  PartySnapshot,
   PlayerId,
   PlayerStateSnapshot,
   WorldStateSnapshot
@@ -261,6 +263,40 @@ describe("Socket.IO game flow", () => {
     expect(ended.character.hp).toBe(25);
     expect(ended.character.severelyInjured).toBe(true);
     expect(ended.character.injuries.length).toBeGreaterThan(0);
+  });
+
+  it("creates a party after another player accepts an invite", async () => {
+    const { connectClient } = await startTestServer();
+    const first = await connectClient();
+    const second = await connectClient();
+
+    const firstLogin = await first.emitWithAck("login", { nickname: "Owczy" });
+    if (!firstLogin.ok) throw new Error("First login failed");
+    const secondLogin = await second.emitWithAck("login", { nickname: "Karolina" });
+    if (!secondLogin.ok) throw new Error("Second login failed");
+
+    const invitePromise = onceWithTimeout<PartyInvitePayload>(
+      second,
+      "partyInviteReceived"
+    );
+    first.emit("inviteToParty", { targetPlayerId: secondLogin.playerId });
+    const invite = await invitePromise;
+    expect(invite.inviterNickname).toBe("Owczy");
+
+    const firstPartyPromise = onceWithTimeout<PartySnapshot>(first, "partyState");
+    const secondPartyPromise = onceWithTimeout<PartySnapshot>(second, "partyState");
+    second.emit("respondPartyInvite", { inviteId: invite.inviteId, accept: true });
+
+    const [firstParty, secondParty] = await Promise.all([
+      firstPartyPromise,
+      secondPartyPromise
+    ]);
+    expect(firstParty.id).toBe(secondParty.id);
+    expect(firstParty.leaderPlayerId).toBe(firstLogin.playerId);
+    expect(firstParty.members.map((member) => member.nickname).sort()).toEqual([
+      "Karolina",
+      "Owczy"
+    ]);
   });
 
   it("keeps another player in the shared world while one player battles", async () => {

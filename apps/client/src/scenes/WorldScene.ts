@@ -8,6 +8,7 @@ import { playerStateStore } from "../state/PlayerStateStore";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
+import { PartyPanel } from "../ui/PartyPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
@@ -24,7 +25,15 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
   ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do wilków.",
   NPC_OUT_OF_RANGE: "Podejdź bliżej do tej postaci.",
   NPC_NOT_FOUND: "Nie znaleziono tej postaci.",
-  HEAL_REJECTED: "Leczenie nie jest teraz dostępne."
+  HEAL_REJECTED: "Leczenie nie jest teraz dostępne.",
+  PARTY_SELF_INVITE: "Nie możesz zaprosić samego siebie.",
+  PARTY_ONLY_LEADER_CAN_INVITE: "Tylko lider drużyny może zapraszać graczy.",
+  PARTY_TARGET_ALREADY_IN_PARTY: "Ten gracz jest już w drużynie.",
+  PARTY_FULL: "Drużyna jest pełna.",
+  PARTY_INVITE_NOT_FOUND: "To zaproszenie nie jest już aktywne.",
+  PARTY_INVITE_EXPIRED: "Zaproszenie do drużyny wygasło.",
+  PARTY_PLAYER_NOT_FOUND: "Ten gracz nie jest już dostępny.",
+  PARTY_TARGET_BUSY: "Ten gracz jest teraz zajęty walką."
 };
 
 export class WorldScene extends Phaser.Scene {
@@ -42,6 +51,7 @@ export class WorldScene extends Phaser.Scene {
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
+  private partyPanel: PartyPanel | undefined;
   private joystick: VirtualJoystick | undefined;
   private deletionDialog: HTMLDivElement | undefined;
   private readonly cleanups: Array<() => void> = [];
@@ -85,11 +95,23 @@ export class WorldScene extends Phaser.Scene {
       this.pointerTarget = null;
       gameSocket.startEncounter(encounterId);
     };
+    this.entitiesRenderer.onPlayerContextMenu = (player, screen) => {
+      this.pointerTarget = null;
+      this.partyPanel?.showPlayerMenu(player, screen.x, screen.y);
+    };
+
+    this.input.mouse?.disableContextMenu();
 
     this.inventoryPanel = new InventoryPanel();
     this.characterPanel = new CharacterPanel();
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
+    });
+    this.partyPanel = new PartyPanel({
+      onInvite: (targetPlayerId) => gameSocket.inviteToParty(targetPlayerId),
+      onRespond: (inviteId, accept) =>
+        gameSocket.respondPartyInvite(inviteId, accept),
+      onLeave: () => gameSocket.leaveParty()
     });
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.toggle(),
@@ -119,6 +141,8 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) return;
+      this.partyPanel?.hidePlayerMenu();
       this.pointerTarget = {
         x: Phaser.Math.Clamp(pointer.worldX, 0, FOREST_SETTLEMENT_LAYOUT.width),
         y: Phaser.Math.Clamp(pointer.worldY, 0, FOREST_SETTLEMENT_LAYOUT.height)
@@ -134,6 +158,15 @@ export class WorldScene extends Phaser.Scene {
         this.characterPanel?.update(state.character);
       }),
       gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
+      gameSocket.onPartyInviteReceived((payload) => this.partyPanel?.showInvite(payload)),
+      gameSocket.onPartyInviteResolved((payload) => {
+        this.showToast(
+          payload.accepted
+            ? `${payload.targetNickname} dołączył(a) do drużyny.`
+            : `${payload.targetNickname} odrzucił(a) zaproszenie.`
+        );
+      }),
+      gameSocket.onPartyState((snapshot) => this.partyPanel?.update(snapshot)),
       gameSocket.onConnectionState((state) => this.hud?.setConnectionState(state)),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.showToast(WORLD_ERROR_LABELS[code] ?? message);
@@ -145,6 +178,7 @@ export class WorldScene extends Phaser.Scene {
 
     gameSocket.requestWorldState();
     gameSocket.requestPlayerState();
+    gameSocket.requestPartyState();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
   }
@@ -345,6 +379,7 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
+    this.partyPanel?.destroy();
     this.deletionDialog?.remove();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
@@ -353,6 +388,7 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;
     this.dialoguePanel = undefined;
+    this.partyPanel = undefined;
     this.deletionDialog = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;

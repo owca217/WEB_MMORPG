@@ -783,3 +783,143 @@ button {
 .character-delete-dialog {
   z-index: 1200;
 }
+
+
+.party-panel {
+  position: fixed;
+  z-index: 920;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  width: min(270px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 12px;
+  color: #f5ecd9;
+  background: rgba(27, 32, 25, 0.95);
+  border: 1px solid #6f8059;
+  border-radius: 12px;
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.38);
+}
+
+.party-panel[hidden] {
+  display: none;
+}
+
+.party-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.party-panel__header strong {
+  font-size: 15px;
+}
+
+.party-panel__header button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #7f6b4d;
+  border-radius: 7px;
+  color: #f6ecda;
+  background: #4a352c;
+  cursor: pointer;
+}
+
+.party-panel__members {
+  display: grid;
+  gap: 6px;
+}
+
+.party-panel__member {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: rgba(8, 12, 9, 0.38);
+}
+
+.party-panel__leader {
+  color: #e7cb77;
+  font-size: 12px;
+}
+
+.player-context-menu {
+  position: fixed;
+  z-index: 1500;
+  min-width: 190px;
+  padding: 7px;
+  color: #f7efdf;
+  background: rgba(22, 26, 21, 0.98);
+  border: 1px solid #7a865e;
+  border-radius: 9px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.player-context-menu strong {
+  display: block;
+  padding: 6px 8px 8px;
+}
+
+.player-context-menu button {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #667451;
+  border-radius: 7px;
+  color: #f7efdf;
+  background: #38452f;
+  cursor: pointer;
+  text-align: left;
+}
+
+.party-invite-dialog {
+  position: fixed;
+  z-index: 1550;
+  top: max(18px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(380px, calc(100vw - 28px));
+  box-sizing: border-box;
+  padding: 14px;
+  color: #f7efdf;
+  background: rgba(27, 32, 25, 0.98);
+  border: 1px solid #849263;
+  border-radius: 12px;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.52);
+}
+
+.party-invite-dialog p {
+  margin: 0 0 12px;
+}
+
+.party-invite-dialog__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.party-invite-dialog button {
+  min-height: 44px;
+  border: 1px solid #71805a;
+  border-radius: 8px;
+  color: #f7efdf;
+  background: #3a4932;
+  cursor: pointer;
+}
+
+.party-invite-dialog button[data-decline] {
+  border-color: #785951;
+  background: #4b302d;
+}
+
+@media (max-width: 600px) {
+  .party-panel {
+    top: auto;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(170px, calc(env(safe-area-inset-bottom) + 170px));
+    width: min(235px, calc(100vw - 16px));
+    font-size: 13px;
+  }
+}

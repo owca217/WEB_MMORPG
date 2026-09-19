@@ -2,6 +2,7 @@ import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type { InventorySnapshot } from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
+import type { PartyInvitePayload, PartySnapshot } from "./party";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
 export interface ClientToServerEvents {
@@ -16,6 +17,10 @@ export interface ClientToServerEvents {
   requestWorldState: () => void;
   interactNpc: (payload: { npcId: string }) => void;
   healAtNpc: (payload: { npcId: string }) => void;
+  inviteToParty: (payload: { targetPlayerId: PlayerId }) => void;
+  respondPartyInvite: (payload: { inviteId: string; accept: boolean }) => void;
+  leaveParty: () => void;
+  requestPartyState: () => void;
 }
 
 export interface ServerToClientEvents {
@@ -23,6 +28,13 @@ export interface ServerToClientEvents {
   worldState: (snapshot: WorldStateSnapshot) => void;
   playerState: (snapshot: PlayerStateSnapshot) => void;
   npcInteraction: (payload: NpcInteractionPayload) => void;
+  partyInviteReceived: (payload: PartyInvitePayload) => void;
+  partyInviteResolved: (payload: {
+    targetPlayerId: PlayerId;
+    targetNickname: string;
+    accepted: boolean;
+  }) => void;
+  partyState: (snapshot: PartySnapshot | null) => void;
   battleStarted: (snapshot: BattleSnapshot) => void;
   battleState: (snapshot: BattleSnapshot) => void;
   battleEnded: (payload: {

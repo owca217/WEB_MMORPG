@@ -23,6 +23,10 @@ interface PlayerView {
 export class WorldEntitiesRenderer {
   onNpcSelected?: (npcId: string) => void;
   onEncounterSelected?: (encounterId: string) => void;
+  onPlayerContextMenu?: (
+    player: WorldPlayerSnapshot,
+    screen: { x: number; y: number }
+  ) => void;
 
   private readonly playerViews = new Map<PlayerId, PlayerView>();
   private readonly npcViews = new Map<string, Phaser.GameObjects.Container>();
@@ -170,6 +174,18 @@ export class WorldEntitiesRenderer {
       facing,
       label
     ]);
+
+    if (!local) {
+      container.setSize(54, 72).setInteractive({ useHandCursor: true });
+      container.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+        if (!pointer.rightButtonDown()) return;
+        this.onPlayerContextMenu?.(player, {
+          x: pointer.x,
+          y: pointer.y
+        });
+      });
+    }
+
     return { container, label, targetX: player.x, targetY: player.y };
   }
 

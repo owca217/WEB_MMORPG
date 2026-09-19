@@ -6,6 +6,9 @@ import type {
   InventorySnapshot,
   LoginResult,
   NpcInteractionPayload,
+  PartyInvitePayload,
+  PartySnapshot,
+  PlayerId,
   PlayerStateSnapshot,
   ServerToClientEvents,
   WorldStateSnapshot
@@ -98,6 +101,22 @@ export class GameSocket {
     this.connect().emit("healAtNpc", { npcId });
   }
 
+  inviteToParty(targetPlayerId: PlayerId): void {
+    this.connect().emit("inviteToParty", { targetPlayerId });
+  }
+
+  respondPartyInvite(inviteId: string, accept: boolean): void {
+    this.connect().emit("respondPartyInvite", { inviteId, accept });
+  }
+
+  leaveParty(): void {
+    this.connect().emit("leaveParty");
+  }
+
+  requestPartyState(): void {
+    this.connect().emit("requestPartyState");
+  }
+
   startEncounter(encounterId: string): void {
     this.connect().emit("startEncounter", { encounterId });
   }
@@ -122,6 +141,30 @@ export class GameSocket {
     const socket = this.connect();
     socket.on("npcInteraction", handler);
     return () => socket.off("npcInteraction", handler);
+  }
+
+  onPartyInviteReceived(handler: (payload: PartyInvitePayload) => void): () => void {
+    const socket = this.connect();
+    socket.on("partyInviteReceived", handler);
+    return () => socket.off("partyInviteReceived", handler);
+  }
+
+  onPartyInviteResolved(
+    handler: (payload: {
+      targetPlayerId: PlayerId;
+      targetNickname: string;
+      accepted: boolean;
+    }) => void
+  ): () => void {
+    const socket = this.connect();
+    socket.on("partyInviteResolved", handler);
+    return () => socket.off("partyInviteResolved", handler);
+  }
+
+  onPartyState(handler: (snapshot: PartySnapshot | null) => void): () => void {
+    const socket = this.connect();
+    socket.on("partyState", handler);
+    return () => socket.off("partyState", handler);
   }
 
   onBattleStarted(handler: (snapshot: BattleSnapshot) => void): () => void {

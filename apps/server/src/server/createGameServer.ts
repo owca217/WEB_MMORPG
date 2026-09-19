@@ -16,6 +16,7 @@ import { CharacterRepository } from "../persistence/CharacterRepository";
 import { PositionPersistenceCoordinator } from "../persistence/PositionPersistenceCoordinator";
 import { PlayerPersistenceService } from "../persistence/PlayerPersistenceService";
 import { LootService } from "../loot/LootService";
+import { PartyService } from "../party/PartyService";
 import { SessionStore } from "../session/SessionStore";
 import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
 import { WorldService } from "../world/WorldService";
@@ -44,6 +45,7 @@ export function createGameServer(
   const loot = new LootService();
   const battles = new BattleService();
   const characters = new CharacterService();
+  const parties = new PartyService();
   const equipmentByPlayer = new Map<PlayerId, { items: Array<{ slot: string; itemInstanceId: string }> }>();
   const positions = persistentDeps
     ? new PositionPersistenceCoordinator({
@@ -104,6 +106,19 @@ export function createGameServer(
     let locationId: LocationId | null = null;
     let activeConnection: ActiveConnection | null = null;
     let closedByRegistry = false;
+
+    const emitPartyState = (targetPlayerId: PlayerId): void => {
+      io.to(`player:${targetPlayerId}`).emit(
+        "partyState",
+        parties.getSnapshot(targetPlayerId)
+      );
+    };
+
+    const emitPartyStates = (targetPlayerIds: PlayerId[]): void => {
+      for (const targetPlayerId of new Set(targetPlayerIds)) {
+        emitPartyState(targetPlayerId);
+      }
+    };
 
     const emitPlayerState = (targetPlayerId: PlayerId): void => {
       const character = characters.getSnapshot(targetPlayerId);
@@ -172,6 +187,7 @@ export function createGameServer(
       }
 
       battles.removeBattleForPlayer(targetPlayerId);
+      const partyAffected = parties.removePlayer(targetPlayerId);
       world.removePlayer(targetPlayerId);
       inventory.removePlayer(targetPlayerId);
       equipmentByPlayer.delete(targetPlayerId);
@@ -180,6 +196,8 @@ export function createGameServer(
       if (!persistentDeps) {
         sessions.remove(targetPlayerId);
       }
+
+      emitPartyStates(partyAffected);
 
       if (targetLocation) {
         io.to(`location:${targetLocation}`).emit(
@@ -238,6 +256,7 @@ export function createGameServer(
         y: persisted.y
       });
       socket.join(`location:${locationId}`);
+      socket.join(`player:${persisted.id}`);
 
       activeConnection = {
         async close(reason) {
@@ -272,6 +291,7 @@ export function createGameServer(
         characters.createPlayer(result.playerId, resolvedNickname);
         world.addPlayer({ id: result.playerId, nickname: resolvedNickname });
         socket.join(`location:${result.locationId}`);
+        socket.join(`player:${result.playerId}`);
         ack(result);
         emitPlayerState(result.playerId);
         io.to(`location:${result.locationId}`).emit(
@@ -291,6 +311,74 @@ export function createGameServer(
       const targetLocation = currentLocationId();
       if (!targetLocation) return;
       socket.emit("worldState", world.snapshot(targetLocation));
+    });
+
+    socket.on("requestPartyState", () => {
+      if (!playerId) return;
+      socket.emit("partyState", parties.getSnapshot(playerId));
+    });
+
+    socket.on("inviteToParty", ({ targetPlayerId }) => {
+      if (!playerId) return;
+
+      try {
+        if (battles.hasBattle(targetPlayerId)) {
+          throw new Error("PARTY_TARGET_BUSY");
+        }
+
+        const targetLocation = currentLocationId();
+        const inviter = world.getPlayer(playerId);
+        const target = world.getPlayer(targetPlayerId);
+        const targetVisible = Boolean(
+          targetLocation &&
+            world
+              .snapshot(targetLocation)
+              .players.some((candidate) => candidate.id === targetPlayerId)
+        );
+        if (!inviter || !target || !targetVisible) {
+          throw new Error("PARTY_PLAYER_NOT_FOUND");
+        }
+
+        const invite = parties.createInvite(
+          { playerId: inviter.id, nickname: inviter.nickname },
+          { playerId: target.id, nickname: target.nickname }
+        );
+        io.to(`player:${targetPlayerId}`).emit("partyInviteReceived", invite);
+      } catch (error) {
+        reject(
+          error,
+          "PARTY_INVITE_REJECTED",
+          "Nie udało się wysłać zaproszenia do drużyny."
+        );
+      }
+    });
+
+    socket.on("respondPartyInvite", ({ inviteId, accept }) => {
+      if (!playerId) return;
+
+      try {
+        const result = parties.respondToInvite(inviteId, playerId, accept);
+        io.to(`player:${result.inviterPlayerId}`).emit(
+          "partyInviteResolved",
+          {
+            targetPlayerId: playerId,
+            targetNickname: result.targetNickname,
+            accepted: result.accepted
+          }
+        );
+        if (result.accepted) emitPartyStates(result.affectedPlayerIds);
+      } catch (error) {
+        reject(
+          error,
+          "PARTY_INVITE_RESPONSE_REJECTED",
+          "Nie udało się odpowiedzieć na zaproszenie."
+        );
+      }
+    });
+
+    socket.on("leaveParty", () => {
+      if (!playerId) return;
+      emitPartyStates(parties.leave(playerId));
     });
 
     socket.on("moveIntent", (intent) => {
@@ -484,6 +572,7 @@ export function createGameServer(
       loot,
       battles,
       characters,
+      parties,
       positions,
       playerPersistence: persistentDeps?.playerPersistence
     }

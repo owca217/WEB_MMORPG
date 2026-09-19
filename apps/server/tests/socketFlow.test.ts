@@ -299,6 +299,107 @@ describe("Socket.IO game flow", () => {
     ]);
   });
 
+  it("starts one synchronized battle for nearby party members", async () => {
+    const { game, connectClient } = await startTestServer();
+    const first = await connectClient();
+    const second = await connectClient();
+
+    const firstLogin = await first.emitWithAck("login", { nickname: "Owczy" });
+    if (!firstLogin.ok) throw new Error("First login failed");
+    const secondLogin = await second.emitWithAck("login", { nickname: "Karolina" });
+    if (!secondLogin.ok) throw new Error("Second login failed");
+
+    const invitePromise = onceWithTimeout<PartyInvitePayload>(
+      second,
+      "partyInviteReceived"
+    );
+    first.emit("inviteToParty", { targetPlayerId: secondLogin.playerId });
+    const invite = await invitePromise;
+
+    const firstParty = onceWithTimeout<PartySnapshot>(first, "partyState");
+    const secondParty = onceWithTimeout<PartySnapshot>(second, "partyState");
+    second.emit("respondPartyInvite", {
+      inviteId: invite.inviteId,
+      accept: true
+    });
+    await Promise.all([firstParty, secondParty]);
+
+    game.services.world.movePlayer(
+      firstLogin.playerId,
+      { x: 1320, y: 455 },
+      Date.now() + 10_000
+    );
+    game.services.world.movePlayer(
+      secondLogin.playerId,
+      { x: 1320, y: 455 },
+      Date.now() + 10_000
+    );
+
+    const firstStarted = onceWithTimeout<BattleSnapshot>(
+      first,
+      "battleStarted"
+    );
+    const secondStarted = onceWithTimeout<BattleSnapshot>(
+      second,
+      "battleStarted"
+    );
+    first.emit("startEncounter", { encounterId: "wolf-pack-01" });
+
+    const [firstBattle, secondBattle] = await Promise.all([
+      firstStarted,
+      secondStarted
+    ]);
+
+    expect(firstBattle.id).toBe(secondBattle.id);
+    expect(
+      firstBattle.combatants
+        .filter((combatant) => combatant.ownerPlayerId)
+        .map((combatant) => combatant.ownerPlayerId)
+        .sort()
+    ).toEqual(
+      [firstLogin.playerId, secondLogin.playerId].sort()
+    );
+    expect(
+      firstBattle.combatants.filter(
+        (combatant) => combatant.ownerPlayerId === undefined
+      )
+    ).toHaveLength(2);
+
+    const active = firstBattle.combatants.find(
+      (combatant) =>
+        combatant.id === firstBattle.activeCombatantId
+    );
+    if (!active?.ownerPlayerId) {
+      throw new Error("Expected a player-owned opening turn.");
+    }
+
+    const activeSocket =
+      active.ownerPlayerId === firstLogin.playerId ? first : second;
+    const firstState = onceWithTimeout<BattleSnapshot>(
+      first,
+      "battleState"
+    );
+    const secondState = onceWithTimeout<BattleSnapshot>(
+      second,
+      "battleState"
+    );
+
+    activeSocket.emit("battleCommand", {
+      type: "endTurn",
+      combatantId: active.id
+    });
+
+    const [firstUpdated, secondUpdated] = await Promise.all([
+      firstState,
+      secondState
+    ]);
+    expect(firstUpdated.id).toBe(firstBattle.id);
+    expect(secondUpdated.id).toBe(firstBattle.id);
+    expect(secondUpdated.activeCombatantId).toBe(
+      firstUpdated.activeCombatantId
+    );
+  });
+
   it("keeps another player in the shared world while one player battles", async () => {
     const { game, connectClient } = await startTestServer();
     const first = await connectClient();

@@ -33,7 +33,10 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
   PARTY_INVITE_NOT_FOUND: "To zaproszenie nie jest już aktywne.",
   PARTY_INVITE_EXPIRED: "Zaproszenie do drużyny wygasło.",
   PARTY_PLAYER_NOT_FOUND: "Ten gracz nie jest już dostępny.",
-  PARTY_TARGET_BUSY: "Ten gracz jest teraz zajęty walką."
+  PARTY_TARGET_BUSY: "Ten gracz jest teraz zajęty walką.",
+  PARTY_ONLY_LEADER_CAN_START_BATTLE:
+    "Tylko lider drużyny może rozpocząć wspólną walkę.",
+  PLAYER_ALREADY_IN_BATTLE: "Ta postać jest już w walce."
 };
 
 export class WorldScene extends Phaser.Scene {

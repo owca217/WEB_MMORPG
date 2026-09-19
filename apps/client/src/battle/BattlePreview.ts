@@ -155,7 +155,7 @@ export function reachableCells(
 function sameSide(a: CombatantSnapshot, b: CombatantSnapshot): boolean {
   if (a.ownerPlayerId === undefined && b.ownerPlayerId === undefined) return true;
   if (a.ownerPlayerId === undefined || b.ownerPlayerId === undefined) return false;
-  return a.ownerPlayerId === b.ownerPlayerId;
+  return true;
 }
 
 export function attackPreview(

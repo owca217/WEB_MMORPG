@@ -268,6 +268,7 @@ export class BattleScene extends Phaser.Scene {
     const x = centerX + local.x;
     const y = centerY + local.y;
     const owned = combatant.ownerPlayerId === this.playerId;
+    const playerSide = combatant.ownerPlayerId !== undefined;
     const active = combatant.id === snapshot.activeCombatantId;
     const attackMode = this.actionMode === "meleeAttack" || this.actionMode === "rangedAttack"
       ? this.actionMode
@@ -286,7 +287,7 @@ export class BattleScene extends Phaser.Scene {
       this.renderObjects.push(targetHalo);
     }
 
-    const actorObjects = owned
+    const actorObjects = playerSide
       ? this.createHeroActor(x, y, hexSize, combatant.hp <= 0)
       : this.createWolfActor(x, y, hexSize, combatant.hp <= 0);
     this.renderObjects.push(...actorObjects);
@@ -300,7 +301,7 @@ export class BattleScene extends Phaser.Scene {
     const label = this.add.text(x, y - hexSize * 0.84, combatant.name, {
       fontFamily: "sans-serif",
       fontSize: `${Math.max(11, Math.round(hexSize * 0.36))}px`,
-      color: owned ? "#e4f3ff" : "#ffe0d2",
+      color: owned ? "#e4f3ff" : playerSide ? "#d8f0c6" : "#ffe0d2",
       backgroundColor: "#10160fdd",
       padding: { x: 5, y: 2 }
     }).setOrigin(0.5).setDepth(20);
@@ -313,7 +314,7 @@ export class BattleScene extends Phaser.Scene {
       y + hexSize * 0.68,
       barWidth * hpRatio,
       4,
-      owned ? 0x69b6e6 : 0xd16d58,
+      owned ? 0x69b6e6 : playerSide ? 0x85bd72 : 0xd16d58,
       1
     ).setDepth(20);
     this.renderObjects.push(label, barBack, barFill);

@@ -39,6 +39,49 @@ describe("BattleService character state and NPC turns", () => {
     });
   });
 
+  it("starts one shared battle for multiple player-owned heroes", () => {
+    const service = new BattleService();
+    const second: CharacterSnapshot = {
+      ...character,
+      playerId: "player-2",
+      nickname: "Ally",
+      hp: 100,
+      severelyInjured: false,
+      injuries: []
+    };
+
+    const initial = service.startPartyBattle(
+      [
+        { ...character, hp: 100, severelyInjured: false, injuries: [] },
+        second
+      ],
+      "encounter:wolf"
+    );
+
+    expect(
+      initial.combatants.filter((combatant) => combatant.ownerPlayerId)
+    ).toHaveLength(2);
+    expect(
+      initial.combatants.filter((combatant) => !combatant.ownerPlayerId)
+    ).toHaveLength(2);
+    expect(service.getSnapshot("player-1")?.id).toBe(initial.id);
+    expect(service.getSnapshot("player-2")?.id).toBe(initial.id);
+
+    const ally = initial.combatants.find(
+      (combatant) => combatant.ownerPlayerId === "player-2"
+    );
+    if (!ally) throw new Error("Expected ally combatant.");
+
+    const rejected = service.applyCommand("player-1", {
+      type: "endTurn",
+      combatantId: ally.id
+    });
+    expect(rejected.result).toMatchObject({
+      ok: false,
+      code: "NOT_OWNER"
+    });
+  });
+
   it("runs the wolf turn automatically and returns control to the player", () => {
     const service = new BattleService();
     const startBattle = service.startBattle as unknown as (

@@ -61,7 +61,7 @@ describe("character deletion lifecycle", () => {
 
     expect(await service.getLifecycle(account.id, requestedAt)).toEqual(pending);
 
-    const restored = await service.cancelDeletion(account.id);
+    const restored = await service.cancelDeletion(account.id, requestedAt);
     expect(restored).toMatchObject({
       state: "active",
       nickname: "DeleteHero"

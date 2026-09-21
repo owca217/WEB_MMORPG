@@ -119,14 +119,23 @@ export class PartyPanel {
       const row = document.createElement("div");
       row.className = "party-panel__member";
 
-      const name = document.createElement("span");
+      const avatar = document.createElement("span");
+      avatar.className = "party-panel__avatar";
+      avatar.textContent = member.nickname.trim().charAt(0).toUpperCase() || "?";
+      avatar.setAttribute("aria-hidden", "true");
+
+      const identity = document.createElement("span");
+      identity.className = "party-panel__identity";
+
+      const name = document.createElement("strong");
       name.textContent = member.nickname;
 
-      const role = document.createElement("span");
+      const role = document.createElement("small");
       role.className = "party-panel__leader";
-      role.textContent = member.leader ? "Lider" : "";
+      role.textContent = member.leader ? "Lider drużyny" : "Członek drużyny";
 
-      row.append(name, role);
+      identity.append(name, role);
+      row.append(avatar, identity);
       this.members.appendChild(row);
     }
   }

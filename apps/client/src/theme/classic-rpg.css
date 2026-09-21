@@ -1,0 +1,209 @@
+/* Presentation only: existing window, focus, drag, scale and visibility logic stays shared. */
+:root {
+  --rpg-ink: #110c0b;
+  --rpg-copper: #926342;
+  --rpg-light: #d5aa75;
+  --rpg-text: #f0dfbd;
+  --rpg-muted: #baa58b;
+  --rpg-panel: radial-gradient(ellipse at 48% 8%, #28191280, transparent 65%),
+    repeating-linear-gradient(133deg, #ffffff02 0 1px, transparent 1px 6px),
+    linear-gradient(115deg, #100c0d, #1b1110 50%, #100c0d);
+  --rpg-button: linear-gradient(#9c683733, transparent 25%, #0005), linear-gradient(110deg, #4b210d, #613015 48%, #391706);
+}
+
+:is(.ui-window, .game-panel, .world-hud, .battle-hud, .auth-panel, .login-panel,
+    .character-creator, .party-invite-dialog, .player-context-menu, .inventory-tooltip) {
+  color: var(--rpg-text);
+  border: 1px solid var(--rpg-copper);
+  border-radius: 0;
+  background: var(--rpg-panel);
+  box-shadow: inset 0 0 0 2px #080605, inset 0 0 0 3px #70513d,
+    inset 0 0 0 5px #090706, 0 0 0 1px #090706, 0 15px 40px #0009;
+  scrollbar-width: thin;
+  scrollbar-color: #855231 #140e0c;
+}
+
+/* Four independent corner ornaments never stretch with a window's dimensions. */
+:is(.ui-window, .game-panel, .auth-panel, .login-panel, .character-creator) {
+  background-image: url('./corner.svg'), url('./corner-tr.svg'), url('./corner-bl.svg'), url('./corner-br.svg'), var(--rpg-panel);
+  background-position: left top, right top, left bottom, right bottom, center, center, center;
+  background-size: 44px 44px, 44px 44px, 44px 44px, 44px 44px, auto, auto, auto;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat, no-repeat;
+}
+
+.ui-window { padding: 20px; }
+.ui-window__drag-handle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  margin: -10px -8px 18px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid #79513755;
+}
+.ui-window__drag-handle > :first-child:not(.ui-window__chrome) {
+  justify-self: center;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 9px 18px;
+  border: 1px solid #a87851;
+  background: linear-gradient(120deg, #261813, #100b0c 70%);
+  box-shadow: inset 0 0 0 2px #0a0707, inset 0 0 0 3px #5d3f2d, 0 3px 8px #0008;
+  color: #f4dfb5;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 2px #000;
+}
+.ui-window__drag-handle > div:first-child span { color: #c9ac84; font: 12px/1.4 system-ui, sans-serif; }
+.ui-window__chrome { gap: 5px; margin: 0; align-self: start; padding-top: 5px; }
+
+/* The themed controls retain their original semantic buttons and hit targets. */
+:is(.world-hud, .ui-window, .battle-hud, .auth-panel, .login-panel, .character-creator,
+    .party-invite-dialog, .player-context-menu, .loot-summary) button {
+  border: 1px solid #a8794e;
+  border-radius: 0;
+  background: var(--rpg-button);
+  box-shadow: inset 0 0 0 2px #1b0b07, inset 0 0 0 3px #ad774e66, 0 2px 3px #0007;
+  color: #f6dfbc;
+  text-shadow: 0 1px 2px #160905;
+  transition: background-color 120ms, border-color 120ms, box-shadow 120ms;
+}
+:is(.world-hud, .ui-window, .battle-hud, .auth-panel, .login-panel, .character-creator,
+    .party-invite-dialog, .player-context-menu, .loot-summary) button:not(:disabled):hover {
+  border-color: #e0b77f;
+  background-color: #ad7548;
+  box-shadow: inset 0 0 0 2px #32180e, inset 0 0 0 3px #e5af7777, 0 0 10px #c58a3a22;
+}
+:is(.world-hud, .ui-window, .battle-hud, .auth-panel, .login-panel, .character-creator,
+    .party-invite-dialog, .player-context-menu, .loot-summary) button:not(:disabled):active {
+  box-shadow: inset 0 3px 7px #000b, inset 0 0 0 2px #211109;
+}
+:is(.world-hud, .ui-window, .battle-hud, .auth-panel, .login-panel, .character-creator,
+    .party-invite-dialog, .player-context-menu, .loot-summary) button:disabled {
+  filter: saturate(.2);
+  opacity: .55;
+  cursor: not-allowed;
+}
+:is(.ui-window, .world-hud, .battle-hud, .auth-panel, .login-panel, .character-creator,
+    .party-invite-dialog, .player-context-menu) :is(button, input):focus-visible {
+  outline: 2px solid #ffe0a6;
+  outline-offset: 3px;
+}
+.ui-window .ui-window__icon-button {
+  width: 32px; min-width: 32px; height: 32px; min-height: 32px;
+  padding: 0;
+  border-radius: 0;
+  background: linear-gradient(#32221a, #130e0d);
+  color: #dfb988;
+  font-size: 21px;
+}
+.ui-window .ui-window__close {
+  background: linear-gradient(#6a2416, #321009);
+  font-size: 26px;
+  color: #ead6b5;
+}
+.ui-window .ui-window-settings {
+  top: 60px;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  border: 1px solid #a6754f;
+  border-radius: 0;
+  color: var(--rpg-text);
+  background: var(--rpg-panel);
+  box-shadow: inset 0 0 0 2px #0c0807, inset 0 0 0 3px #69462e, 0 8px 22px #000b;
+  padding: 12px;
+}
+.ui-window .ui-window-settings__scale button { border-radius: 0; background: var(--rpg-button); border-color: #a8794e; }
+.ui-window-settings__label { color: #e1c79d; }
+.ui-window-settings__move { color: #e1cfb0; }
+.ui-window-settings__move input { accent-color: #ac7949; }
+
+/* Item slots and tooltips stay real controls, with the existing hover/touch behavior. */
+.game-panel--inventory .inventory-list { gap: 7px; }
+.game-panel--inventory .inventory-slot {
+  border: 1px solid #8e684d;
+  border-radius: 0;
+  background: radial-gradient(ellipse at 50% 30%, #39292166, transparent 70%), #110d0c;
+  box-shadow: inset 0 0 0 2px #070505, inset 0 0 0 3px #6d503b55;
+}
+.game-panel--inventory .inventory-slot:hover,
+.game-panel--inventory .inventory-slot:focus-visible {
+  background: radial-gradient(ellipse at 50% 30%, #73523488, transparent 75%), #21170e;
+  border-color: #e0b77f;
+}
+.inventory-slot__quantity { border-radius: 0; border-color: #92714c; background: #160e0c; }
+.inventory-tooltip { border-color: #b98a56; padding: 15px; }
+.inventory-tooltip__header strong { font-family: Georgia, serif; color: #f4dfb5; }
+.inventory-tooltip__description { color: #d7c6ae; }
+
+.character-sheet__stats, .character-sheet__section, .party-panel__member,
+.loot-summary__item, .loot-summary__hp, .battle-hud__order,
+.world-hud__stats span, .battle-hud__stats span {
+  border: 1px solid #78513a;
+  border-radius: 0;
+  padding: 10px;
+  background: linear-gradient(110deg, #281a1388, #120d0c);
+  box-shadow: inset 0 0 0 2px #080605;
+}
+.character-sheet__stats > div { border-color: #79513744; }
+.character-sheet__stats dt, .character-sheet__section p { color: var(--rpg-muted); }
+.character-sheet__stats dd { color: #f0dfbd; }
+.character-sheet__section h3, .world-hud__identity strong,
+.battle-hud__name, .loot-summary h2 { font-family: Georgia, serif; color: #e9c899; }
+.party-panel__controls { margin-bottom: 12px; }
+.party-panel__controls .party-panel__battle-toggle { border-radius: 0; background: #160f0c; }
+.party-panel__battle-toggle[data-enabled="true"] { border-color: #88b77b; }
+.party-panel__battle-toggle[data-enabled="false"] { border-color: #b85a43; }
+
+.dialogue-panel__lines {
+  padding: 18px;
+  min-height: 70px;
+  border: 1px solid #735033;
+  box-shadow: inset 0 0 18px #4d2d1744, 0 0 0 3px #0c0807;
+  color: #2d1b11;
+  background: radial-gradient(ellipse at 20% 30%, #e5ce9d77, transparent 60%),
+    repeating-linear-gradient(132deg, #39231308 0 1px, transparent 1px 5px), #bda079;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.dialogue-panel { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.auth-panel, .login-panel { box-sizing: border-box; }
+:is(.auth-panel, .login-panel, .character-creator) h1 { font-family: Georgia, serif; color: #efcea0; }
+:is(.auth-panel, .login-panel, .character-creator) input:not([type="checkbox"]) {
+  border-radius: 0; border-color: #79583e; background: #100b09; color: #f0dfbd;
+}
+.auth-panel__subtitle, .character-creator > p { color: var(--rpg-muted); }
+.character-preview { border: 1px solid #705039; border-radius: 0; background: radial-gradient(ellipse, #493124, #100b0b 75%); }
+.character-preview input { accent-color: #ac7949; }
+.character-deletion-panel__countdown, .auth-panel__recovery-code { border-radius: 0; background: #100b09; color: #e9c899; }
+.battle-hud--mvp2 button.is-active { background: linear-gradient(#845627, #41250f); border-color: #ebc58b; }
+.virtual-joystick { border-color: #ad8157; background: #24170e88; }
+.virtual-joystick__thumb { border-color: #d6ac73; background: #69462de6; }
+
+@media (max-width: 600px) {
+  .ui-window { padding: 15px; }
+  .ui-window__drag-handle { margin: -5px -5px 12px; gap: 6px; }
+  .ui-window__drag-handle > :first-child:not(.ui-window__chrome) { padding: 10px 8px; font-size: 19px; }
+  .ui-window .ui-window__icon-button { width: 34px; min-width: 34px; height: 36px; min-height: 36px; }
+  .party-panel { width: min(290px, calc(100vw - 16px)); }
+}
+@media (pointer: coarse) {
+  .ui-window .ui-window__icon-button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .ui-window .ui-window-settings__scale button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-window button { transition: none; }
+}
+
+/* Dialogue headers also contain a two-line NPC title; chrome is always horizontal. */
+.ui-window .ui-window__chrome { display: flex; }
+/* Leave enough room for the settings popup even when the inventory is empty. */
+.game-panel--inventory { min-height: 220px; }

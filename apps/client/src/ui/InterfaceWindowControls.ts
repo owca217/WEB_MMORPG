@@ -61,7 +61,7 @@ export class InterfaceWindowControls {
     this.settings.className = "ui-window-settings";
     this.settings.hidden = true;
     this.settings.innerHTML = `
-      <div class="ui-window-settings__label">Skalowanie okna</div>
+      <div class="ui-window-settings__label">Skala</div>
       <div class="ui-window-settings__scale">
         <button type="button" data-scale-down aria-label="Pomniejsz okno">−</button>
         <button type="button" data-scale-reset aria-label="Przywróć domyślny rozmiar" title="100%">↻</button>
@@ -69,7 +69,7 @@ export class InterfaceWindowControls {
       </div>
       <label class="ui-window-settings__move">
         <input type="checkbox" data-move-window>
-        <span>Przenoszenie okna</span>
+        <span>Przenoszenie</span>
       </label>
     `;
     this.root.appendChild(this.settings);

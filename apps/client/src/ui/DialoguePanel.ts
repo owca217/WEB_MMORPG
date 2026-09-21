@@ -19,12 +19,15 @@ export class DialoguePanel {
     this.root.className = "dialogue-panel is-hidden";
     this.root.innerHTML = `
       <div class="dialogue-panel__header">
-        <div>
+        <h2>Rozmowa</h2>
+      </div>
+      <div class="dialogue-panel__paper">
+        <div class="dialogue-panel__speaker">
           <strong data-name>NPC</strong>
           <span data-title></span>
         </div>
+        <div class="dialogue-panel__lines" data-lines></div>
       </div>
-      <div class="dialogue-panel__lines" data-lines></div>
       <div class="dialogue-panel__actions">
         <button type="button" data-heal>Opatrz rany</button>
       </div>

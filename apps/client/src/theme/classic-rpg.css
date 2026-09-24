@@ -45,25 +45,49 @@
 .ui-window {
   overflow: visible;
   padding: 52px 18px 18px;
+  background-color: #0d0a09;
+  /*
+    Keep every background layer explicit. --rpg-panel-texture expands to
+    several comma-separated gradients, so using it as a single background-image
+    layer made the size/repeat lists wrap and produced the dark square visible
+    behind the bottom-left ornament.
+  */
   background-image:
     url('./corner.svg'),
     url('./corner-tr.svg'),
     url('./corner-bl.svg'),
     url('./corner-br.svg'),
-    var(--rpg-panel-texture);
+    radial-gradient(ellipse at 48% 10%, rgba(87, 47, 27, .20), transparent 53%),
+    radial-gradient(ellipse at 78% 65%, rgba(68, 36, 24, .13), transparent 52%),
+    repeating-linear-gradient(132deg, rgba(255,255,255,.012) 0 1px, transparent 1px 7px),
+    linear-gradient(118deg, #0d0a09 0%, #1a110e 48%, #0c0908 100%);
   background-position:
     left top,
     right top,
     left bottom,
     right bottom,
+    center,
+    center,
+    center,
     center;
   background-size:
-    62px 62px,
-    62px 62px,
-    62px 62px,
-    62px 62px,
-    auto;
-  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat;
+    56px 56px,
+    56px 56px,
+    56px 56px,
+    56px 56px,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%;
+  background-repeat:
+    no-repeat,
+    no-repeat,
+    no-repeat,
+    no-repeat,
+    no-repeat,
+    no-repeat,
+    no-repeat,
+    no-repeat;
 }
 
 .ui-window::before,
@@ -195,8 +219,9 @@
     radial-gradient(ellipse at 50% 0%, rgba(151,58,36,.35), transparent 52%),
     linear-gradient(180deg, #5c2115, #2b0e08);
   color: #ead6b7;
-  font-size: 31px;
+  font-size: 29px;
   font-weight: 400;
+  line-height: .9;
 }
 
 .ui-window .ui-window__icon-button:not(:disabled):hover {
@@ -318,12 +343,13 @@
 /* ---------- inventory ---------- */
 .game-panel--inventory {
   width: min(470px, calc(100vw - 34px));
-  min-height: 630px;
+  min-height: 550px;
   max-height: calc(100dvh - 54px);
 }
 
 .game-panel--inventory .inventory-list {
   position: relative;
+  margin: 0 auto;
   isolation: isolate;
   display: grid;
   grid-template-columns: repeat(5, 72px);
@@ -743,6 +769,16 @@
 
 .player-context-menu button,
 .party-invite-dialog button { border-radius: 0; }
+
+.world-hud {
+  padding: 10px 12px 12px;
+  gap: 8px;
+}
+
+.world-hud__actions button {
+  min-height: 40px;
+  padding-inline: 12px;
+}
 
 .world-hud,
 .battle-hud,

@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { CHARACTER_ATLAS_URL } from "../appearance/characterSprites";
+import { WALK_SHEETS } from "../appearance/walkSprites";
 import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { authSessionStore } from "../state/AuthSessionStore";
@@ -14,6 +15,9 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    for (const sheet of WALK_SHEETS) {
+      if (!this.textures.exists(sheet.key)) this.load.image(sheet.key, sheet.url);
+    }
     if (!this.textures.exists("character-base-atlas")) {
       this.load.image("character-base-atlas", CHARACTER_ATLAS_URL);
     }

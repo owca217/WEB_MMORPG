@@ -195,6 +195,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    const previousPosition = this.localPosition;
     const keyboardIntent = resolveKeyboardIntent({
       left: Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
       right: Boolean(this.cursors?.right.isDown || this.wasd?.D.isDown),
@@ -241,6 +242,11 @@ export class WorldScene extends Phaser.Scene {
       };
     }
 
+    // Animate player-driven motion, not reconciliation drift from the server.
+    const movement = hasDirectionalIntent || this.pointerTarget
+      ? { dx: this.localPosition.x - previousPosition.x, dy: this.localPosition.y - previousPosition.y }
+      : { dx: 0, dy: 0 };
+
     if (this.authoritativePosition) {
       const correctionDistance = Phaser.Math.Distance.Between(
         this.localPosition.x,
@@ -257,7 +263,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x, this.localPosition.y);
-    this.entitiesRenderer?.updateRemotePlayers();
+    this.entitiesRenderer?.update(delta, movement);
 
     if ((hasDirectionalIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;

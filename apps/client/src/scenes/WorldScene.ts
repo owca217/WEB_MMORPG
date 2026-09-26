@@ -6,6 +6,7 @@ import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { CharacterPanel } from "../ui/CharacterPanel";
+import { StatisticsPanel } from "../ui/StatisticsPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
 import { InterfaceWindowControls } from "../ui/InterfaceWindowControls";
@@ -57,6 +58,7 @@ export class WorldScene extends Phaser.Scene {
   private hud: WorldHud | undefined;
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
+  private statisticsPanel: StatisticsPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private partyPanel: PartyPanel | undefined;
   private joystick: VirtualJoystick | undefined;
@@ -112,6 +114,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.inventoryPanel = new InventoryPanel();
     this.characterPanel = new CharacterPanel();
+    this.statisticsPanel = new StatisticsPanel();
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
@@ -126,6 +129,7 @@ export class WorldScene extends Phaser.Scene {
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.toggle(),
       onCharacter: () => this.characterPanel?.toggle(),
+      onStatistics: () => this.statisticsPanel?.toggle(),
       onParty: () => this.partyPanel?.toggle(),
       ...(persistentAccountsEnabled
         ? {
@@ -166,7 +170,8 @@ export class WorldScene extends Phaser.Scene {
         playerStateStore.set(state);
         this.hud?.update(state);
         this.inventoryPanel?.update(state.inventory);
-        this.characterPanel?.update(state.character);
+        this.characterPanel?.update(state);
+        this.statisticsPanel?.update(state.character);
       }),
       gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
       gameSocket.onPartyInviteReceived((payload) => this.partyPanel?.showInvite(payload)),
@@ -412,6 +417,7 @@ export class WorldScene extends Phaser.Scene {
     this.hud?.destroy();
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
+    this.statisticsPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.partyPanel?.destroy();
     this.deletionWindowControls?.destroy();
@@ -422,6 +428,7 @@ export class WorldScene extends Phaser.Scene {
     this.hud = undefined;
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;
+    this.statisticsPanel = undefined;
     this.dialoguePanel = undefined;
     this.partyPanel = undefined;
     this.deletionWindowControls = undefined;

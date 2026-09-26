@@ -12,7 +12,7 @@ export class CharacterPreview {
   private showOutfit = true;
   private destroyed = false;
 
-  constructor() {
+  constructor(options: { showOutfitToggle?: boolean } = {}) {
     this.element.className = "character-preview";
     this.canvas.width = SPRITE_WIDTH; this.canvas.height = SPRITE_HEIGHT;
     this.canvas.getContext("2d", { willReadFrequently: true });
@@ -30,7 +30,8 @@ export class CharacterPreview {
       if (this.selection) this.render(this.selection);
     });
     label.append(checkbox, " Pokaż ubiór startowy");
-    this.element.append(this.canvas, this.status, label);
+    this.element.append(this.canvas, this.status);
+    if (options.showOutfitToggle !== false) this.element.append(label);
     void loadWalkSheets().then(sheets => {
       if (this.destroyed) return;
       this.sheets = sheets; this.status.textContent = "";

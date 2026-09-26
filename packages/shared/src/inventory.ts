@@ -1,6 +1,6 @@
 import type { ItemInstanceId } from "./ids";
 
-export type ItemCategory = "material" | "medical";
+export type ItemCategory = "material" | "medical" | "armor" | "weapon" | "accessory";
 
 export interface InventoryItem {
   instanceId: ItemInstanceId;

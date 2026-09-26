@@ -458,7 +458,7 @@
 .inventory-tooltip__section-title { color: #ddb987; }
 
 /* ---------- character ---------- */
-.game-panel--character {
+.game-panel--statistics {
   width: min(480px, calc(100vw - 34px));
   max-height: calc(100dvh - 54px);
 }
@@ -923,7 +923,7 @@
 
   .inventory-slot__icon { width: 50px; height: 50px; font-size: 29px; }
 
-  .game-panel--character { width: calc(100vw - 20px); }
+  .game-panel--statistics { width: calc(100vw - 20px); }
   .character-sheet__showcase { min-height: 235px; }
   .character-sheet__silhouette { inset: 8px 52px; }
   .character-sheet__stats { grid-template-columns: 1fr; }

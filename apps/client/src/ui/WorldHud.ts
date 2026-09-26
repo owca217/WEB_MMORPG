@@ -4,6 +4,7 @@ import type { ConnectionState } from "../net/GameSocket";
 interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
+  onStatistics: () => void;
   onParty?: () => void;
   onLogout?: () => void;
   onDeleteCharacter?: () => void;
@@ -31,6 +32,7 @@ export class WorldHud {
       <div class="world-hud__actions">
         <button type="button" data-inventory>Ekwipunek</button>
         <button type="button" data-character>Postać</button>
+        <button type="button" data-statistics>Statystyki</button>
       </div>
     `;
     document.body.appendChild(this.root);
@@ -47,6 +49,7 @@ export class WorldHud {
       "click",
       handlers.onCharacter
     );
+    this.require<HTMLButtonElement>("[data-statistics]").addEventListener("click", handlers.onStatistics);
 
     if (handlers.onParty) {
       const party = document.createElement("button");

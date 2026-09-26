@@ -3,7 +3,10 @@ import { InterfaceWindowControls } from "./InterfaceWindowControls";
 
 const CATEGORY_LABELS = {
   material: "Materiał",
-  medical: "Medyczne"
+  medical: "Medyczne",
+  armor: "Pancerz",
+  weapon: "Broń",
+  accessory: "Dodatek"
 } as const;
 
 const ITEM_ICONS: Record<string, string> = {

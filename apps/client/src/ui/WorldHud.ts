@@ -1,11 +1,13 @@
 import type { PlayerStateSnapshot } from "@web-mmorpg/shared";
 import type { ConnectionState } from "../net/GameSocket";
+import { worldWindowMenuItem } from "./windowMenuItems";
 import "./world-hud.css";
 
 interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
   onStatistics: () => void;
+  onProfessions: () => void;
   onParty?: () => void;
   onLogout: () => void;
 }
@@ -62,11 +64,30 @@ export class WorldHud {
     this.menu = this.require("[data-window-menu]");
     this.menuToggle = this.require<HTMLButtonElement>("[data-menu-toggle]");
 
-    this.addAction("inventory", "Ekwipunek", handlers.onInventory);
-    this.addAction("character", "Postać", handlers.onCharacter);
-    this.addAction("statistics", "Statystyki", handlers.onStatistics);
-    if (handlers.onParty) this.addAction("party", "Drużyna", handlers.onParty);
-    this.addAction("logout", "Wyloguj", handlers.onLogout);
+    this.addAction(
+      "inventory",
+      worldWindowMenuItem("inventory").label,
+      handlers.onInventory
+    );
+    this.addAction(
+      "character",
+      worldWindowMenuItem("character").label,
+      handlers.onCharacter
+    );
+    this.addAction(
+      "statistics",
+      worldWindowMenuItem("statistics").label,
+      handlers.onStatistics
+    );
+    this.addAction(
+      "professions",
+      worldWindowMenuItem("professions").label,
+      handlers.onProfessions
+    );
+    if (handlers.onParty) {
+      this.addAction("party", worldWindowMenuItem("party").label, handlers.onParty);
+    }
+    this.addAction("logout", worldWindowMenuItem("logout").label, handlers.onLogout);
 
     this.menuToggle.addEventListener("click", () => this.setMenuOpen(this.menu.hidden));
     this.root.addEventListener("keydown", (event) => this.navigateMenu(event));

@@ -11,6 +11,7 @@ import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
 import { InterfaceWindowControls } from "../ui/InterfaceWindowControls";
 import { PartyPanel } from "../ui/PartyPanel";
+import { ProfessionsPanel } from "../ui/ProfessionsPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
@@ -59,6 +60,7 @@ export class WorldScene extends Phaser.Scene {
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
   private statisticsPanel: StatisticsPanel | undefined;
+  private professionsPanel: ProfessionsPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private partyPanel: PartyPanel | undefined;
   private joystick: VirtualJoystick | undefined;
@@ -119,6 +121,7 @@ export class WorldScene extends Phaser.Scene {
         ? { onDeleteCharacter: () => this.showDeleteCharacterDialog() }
         : {}
     );
+    this.professionsPanel = new ProfessionsPanel();
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
@@ -134,6 +137,7 @@ export class WorldScene extends Phaser.Scene {
       onInventory: () => this.inventoryPanel?.toggle(),
       onCharacter: () => this.characterPanel?.toggle(),
       onStatistics: () => this.statisticsPanel?.toggle(),
+      onProfessions: () => this.professionsPanel?.toggle(),
       onParty: () => this.partyPanel?.toggle(),
       onLogout: () => {
         gameSocket.disconnect();
@@ -419,6 +423,7 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
     this.statisticsPanel?.destroy();
+    this.professionsPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.partyPanel?.destroy();
     this.deletionWindowControls?.destroy();
@@ -430,6 +435,7 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;
     this.statisticsPanel = undefined;
+    this.professionsPanel = undefined;
     this.dialoguePanel = undefined;
     this.partyPanel = undefined;
     this.deletionWindowControls = undefined;

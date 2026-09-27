@@ -609,6 +609,168 @@
   line-height: 1.4;
 }
 
+/* ---------- professions ---------- */
+.game-panel--professions {
+  width: min(720px, calc(100vw - 28px));
+}
+
+.professions {
+  display: grid;
+  gap: 10px;
+}
+
+.professions__category {
+  border: 1px solid #714c32;
+  background: linear-gradient(110deg, rgba(47,28,20,.72), rgba(14,10,9,.88));
+  box-shadow: inset 0 0 0 2px #070504;
+}
+
+.professions__category > summary {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, auto) 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 9px 14px;
+  color: #f0d5a9;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.professions__category > summary::-webkit-details-marker { display: none; }
+
+.professions__category > summary::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 1px;
+  background: rgba(148,93,56,.38);
+  opacity: 0;
+}
+
+.professions__category[open] > summary::after { opacity: 1; }
+
+.professions__category > summary:focus-visible {
+  outline: 2px solid #efc98e;
+  outline-offset: -3px;
+}
+
+.professions__category-title {
+  color: #efc98e;
+  font-family: Georgia, serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.professions__category-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: #bca98d;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.professions__category-chevron {
+  color: #d0a06d;
+  font-family: Georgia, serif;
+  font-size: 23px;
+  line-height: 1;
+  transform: translateY(-2px);
+  transition: transform 160ms ease-out;
+}
+
+.professions__category[open] .professions__category-chevron {
+  transform: translateY(2px) rotate(180deg);
+}
+
+.professions__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.profession-card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #68472f;
+  background:
+    linear-gradient(110deg, rgba(72,42,26,.26), transparent 50%),
+    #0f0b0a;
+  box-shadow: inset 0 0 0 2px #070504;
+}
+
+.profession-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.profession-card h3 {
+  margin: 0;
+  color: #e6c08a;
+  font-family: Georgia, serif;
+  font-size: 15px;
+}
+
+.profession-card__header span:not(.profession-card__badge) {
+  color: #bca98d;
+  font-size: 11px;
+}
+
+.profession-card__badge {
+  flex: 0 0 auto;
+  color: #efc98e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.profession-card p {
+  min-height: 32px;
+  margin: 7px 0 9px;
+  color: var(--rpg-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.profession-card__progress {
+  height: 9px;
+  overflow: hidden;
+  border: 1px solid #5d3c28;
+  background: #0a0706;
+  box-shadow: inset 0 0 0 1px #050303;
+}
+
+.profession-card__progress span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: linear-gradient(#b88637, #704018 55%, #4e2812);
+  box-shadow: inset 0 1px #f0ca76, inset 0 -1px #2c1208;
+}
+
+.profession-card footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+  color: #d0a06d;
+  font-size: 11px;
+}
+
+.profession-card footer small {
+  color: #89745e;
+  font-size: 10px;
+  text-align: right;
+}
+
 /* ---------- party ---------- */
 .party-panel {
   top: max(36px, env(safe-area-inset-top));
@@ -970,10 +1132,14 @@
   .inventory-slot__icon { width: 50px; height: 50px; font-size: 29px; }
 
   .game-panel--statistics { width: calc(100vw - 20px); }
+  .game-panel--professions { width: calc(100vw - 20px); }
   .character-sheet__showcase { min-height: 235px; }
   .character-sheet__silhouette { inset: 8px 52px; }
   .character-sheet__stats { grid-template-columns: 1fr; }
   .character-sheet__details { grid-template-columns: 1fr; }
+  .professions__category > summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .professions__category-summary { display: none; }
+  .professions__grid { grid-template-columns: 1fr; }
 
   .party-panel {
     top: max(28px, env(safe-area-inset-top));

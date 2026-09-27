@@ -611,12 +611,22 @@
 
 /* ---------- professions ---------- */
 .game-panel--professions {
-  width: min(720px, calc(100vw - 28px));
+  width: 720px;
+  height: 680px;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
 }
 
 .professions {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
   display: grid;
   gap: 10px;
+  scrollbar-gutter: stable;
 }
 
 .professions__category {
@@ -1132,7 +1142,10 @@
   .inventory-slot__icon { width: 50px; height: 50px; font-size: 29px; }
 
   .game-panel--statistics { width: calc(100vw - 20px); }
-  .game-panel--professions { width: calc(100vw - 20px); }
+  .game-panel--professions {
+    width: calc(100vw - 20px);
+    height: calc(100vh - 32px);
+  }
   .character-sheet__showcase { min-height: 235px; }
   .character-sheet__silhouette { inset: 8px 52px; }
   .character-sheet__stats { grid-template-columns: 1fr; }

@@ -615,7 +615,7 @@
   height: 680px;
   max-width: calc(100vw - 28px);
   max-height: calc(100vh - 32px);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .professions {
@@ -626,13 +626,21 @@
   padding-right: 4px;
   display: grid;
   gap: 10px;
+  align-content: start;
   scrollbar-gutter: stable;
 }
 
 .professions__category {
+  align-self: start;
   border: 1px solid #714c32;
   background: linear-gradient(110deg, rgba(47,28,20,.72), rgba(14,10,9,.88));
   box-shadow: inset 0 0 0 2px #070504;
+}
+
+.professions__category:not([open]) > summary {
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
 }
 
 .professions__category > summary {
@@ -1083,6 +1091,13 @@
     max-width: calc(100% - 94px);
     padding: 10px 16px 9px;
     font-size: 21px;
+  }
+
+  .game-panel--professions .game-panel__header h2 {
+    left: calc(50% - 44px);
+    width: calc(100% - 88px);
+    min-width: 0;
+    max-width: none;
   }
 
   .game-panel__header h2::before,

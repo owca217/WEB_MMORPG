@@ -1,4 +1,8 @@
-import type { CharacterSnapshot, InjuryKind } from "@web-mmorpg/shared";
+import {
+  experienceRequiredForLevelUp,
+  type CharacterSnapshot,
+  type InjuryKind
+} from "@web-mmorpg/shared";
 import { InterfaceWindowControls } from "./InterfaceWindowControls";
 
 const INJURY_LABELS: Record<InjuryKind, string> = {
@@ -50,6 +54,17 @@ export class StatisticsPanel {
     const injuries = character.injuries.length
       ? character.injuries.map((injury) => INJURY_LABELS[injury]).join(", ")
       : "Brak";
+    const currentExperience = normalizeExperience(character.experience);
+    const requiredExperience = experienceRequiredForLevelUp(character.level);
+    const remainingExperience = Math.max(
+      requiredExperience - currentExperience,
+      0
+    );
+    const progress = Math.min(
+      100,
+      Math.round((currentExperience / requiredExperience) * 100)
+    );
+    const nextLevel = character.level + 1;
 
     this.content.innerHTML = `
       <div class="character-sheet__showcase" aria-hidden="true">
@@ -62,7 +77,19 @@ export class StatisticsPanel {
         <div><dt>PM</dt><dd>${character.maxAp}</dd></div>
         <div><dt>Inicjatywa</dt><dd>${character.initiative}</dd></div>
         <div><dt>Stan</dt><dd>${character.severelyInjured ? "Ciężko ranny" : "Stabilny"}</dd></div>
+        <div><dt>Doświadczenie</dt><dd>${formatExperience(currentExperience)} EXP</dd></div>
+        <div><dt>Wymagane do awansu</dt><dd>${formatExperience(requiredExperience)} EXP</dd></div>
       </dl>
+      <section class="character-sheet__experience" aria-label="Postęp doświadczenia">
+        <div class="character-sheet__experience-heading">
+          <strong>Postęp do poziomu ${nextLevel}</strong>
+          <span>${remainingExperience > 0 ? `Brakuje ${formatExperience(remainingExperience)} EXP` : "Gotowe do awansu"}</span>
+        </div>
+        <div class="character-sheet__experience-bar" role="progressbar" aria-label="Doświadczenie do następnego poziomu" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
+          <span style="width: ${progress}%"></span>
+        </div>
+        <small>${formatExperience(currentExperience)} / ${formatExperience(requiredExperience)} EXP</small>
+      </section>
       <div class="character-sheet__details">
         <section class="character-sheet__section">
           <h3>Urazy</h3>
@@ -105,4 +132,13 @@ export class StatisticsPanel {
     if (!element) throw new Error(`Statistics panel element missing: ${selector}`);
     return element;
   }
+}
+
+function normalizeExperience(experience: number | undefined): number {
+  if (typeof experience !== "number" || !Number.isFinite(experience)) return 0;
+  return Math.max(0, Math.trunc(experience));
+}
+
+function formatExperience(experience: number): string {
+  return experience.toLocaleString("pl-PL");
 }

@@ -533,6 +533,52 @@
 .character-sheet__stats dt { color: #d1b894; }
 .character-sheet__stats dd { margin: 0; color: #f0dcb9; font-weight: 700; }
 
+.character-sheet__experience {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 10px 12px;
+  border: 1px solid #714c32;
+  background: linear-gradient(110deg, rgba(47,28,20,.72), rgba(14,10,9,.88));
+  box-shadow: inset 0 0 0 2px #070504;
+}
+
+.character-sheet__experience-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #e4c28e;
+  font-size: 12px;
+}
+
+.character-sheet__experience-heading span {
+  color: #c9aa7d;
+  text-align: right;
+}
+
+.character-sheet__experience-bar {
+  height: 12px;
+  overflow: hidden;
+  border: 1px solid #5d3c28;
+  background: #0a0706;
+  box-shadow: inset 0 0 0 2px #050303;
+}
+
+.character-sheet__experience-bar span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: linear-gradient(#b88637, #704018 55%, #4e2812);
+  box-shadow: inset 0 1px #f0ca76, inset 0 -1px #2c1208;
+  transition: width 180ms ease-out;
+}
+
+.character-sheet__experience small {
+  color: #bda17d;
+  font-size: 11px;
+  text-align: right;
+}
+
 .character-sheet__details {
   display: grid;
   grid-template-columns: 1fr 1fr;

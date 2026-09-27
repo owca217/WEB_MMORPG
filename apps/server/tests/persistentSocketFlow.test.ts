@@ -215,6 +215,52 @@ describe("persistent authenticated socket flow", () => {
     ).toBe(true);
   });
 
+  it("persists a moved container slot across reconnect", async () => {
+    app = await startTestApp();
+    await app.register("container-owner");
+    const initialLogin = await app.login("container-owner");
+    const character = await app.createCharacter(
+      initialLogin.token,
+      "ContainerHero"
+    );
+    const playableLogin = await app.login("container-owner");
+    const socket = await app.connectSocket(playableLogin.token);
+
+    const initialState = onceWithTimeout<PlayerStateSnapshot>(socket, "playerState");
+    socket.emit("requestPlayerState");
+    const state = await initialState;
+    const starterBag = state.inventory.items.find(
+      (item) => item.itemId === "simple-bag"
+    );
+    expect(starterBag).toBeDefined();
+
+    const movedState = onceWithTimeout<PlayerStateSnapshot>(socket, "playerState");
+    socket.emit("setContainerSlot", {
+      slot: "bag-3",
+      itemInstanceId: starterBag!.instanceId
+    });
+    expect((await movedState).equipment.items).toContainEqual({
+      slot: "bag-3",
+      itemInstanceId: starterBag!.instanceId
+    });
+
+    socket.disconnect();
+    const reconnectLogin = await app.login("container-owner");
+    const restoredSocket = await app.connectSocket(reconnectLogin.token);
+    const restoredState = onceWithTimeout<PlayerStateSnapshot>(
+      restoredSocket,
+      "playerState"
+    );
+    restoredSocket.emit("requestPlayerState");
+    const restored = await restoredState;
+
+    expect(restored.character.playerId).toBe(character.id);
+    expect(restored.equipment.items).toContainEqual({
+      slot: "bag-3",
+      itemInstanceId: starterBag!.instanceId
+    });
+  });
+
   it("kicks the old live socket when the same account logs in again", async () => {
     app = await startTestApp();
     await app.register("same-account");

@@ -1,6 +1,9 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
-import type { InventorySnapshot } from "./inventory";
+import type {
+  BagEquipmentSlot,
+  InventorySnapshot
+} from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
 import type { PartyInvitePayload, PartySnapshot } from "./party";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
@@ -14,6 +17,10 @@ export interface ClientToServerEvents {
   startEncounter: (payload: { encounterId: string }) => void;
   battleCommand: (payload: BattleCommand) => void;
   requestPlayerState: () => void;
+  setContainerSlot: (payload: {
+    slot: BagEquipmentSlot;
+    itemInstanceId: string | null;
+  }) => void;
   requestWorldState: () => void;
   interactNpc: (payload: { npcId: string }) => void;
   healAtNpc: (payload: { npcId: string }) => void;

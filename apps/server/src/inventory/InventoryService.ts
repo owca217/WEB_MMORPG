@@ -12,6 +12,7 @@ export interface LootItemDefinition {
   quantity: number;
   category: ItemCategory;
   description: string;
+  containerCapacity?: number;
 }
 
 export class InventoryService {
@@ -21,6 +22,23 @@ export class InventoryService {
     const inventory = this.inventories.get(playerId) ?? [];
 
     for (const item of items) {
+      if (item.category === "container") {
+        for (let index = 0; index < item.quantity; index += 1) {
+          inventory.push({
+            instanceId: randomUUID(),
+            itemId: item.itemId,
+            name: item.name,
+            quantity: 1,
+            category: item.category,
+            description: item.description,
+            ...(item.containerCapacity === undefined
+              ? {}
+              : { containerCapacity: item.containerCapacity })
+          });
+        }
+        continue;
+      }
+
       const existing = inventory.find((entry) => entry.itemId === item.itemId);
       if (existing) {
         existing.quantity += item.quantity;
@@ -31,7 +49,10 @@ export class InventoryService {
           name: item.name,
           quantity: item.quantity,
           category: item.category,
-          description: item.description
+          description: item.description,
+          ...(item.containerCapacity === undefined
+            ? {}
+            : { containerCapacity: item.containerCapacity })
         });
       }
     }

@@ -1,6 +1,7 @@
 import type {
   BattleCommand,
   BattleSnapshot,
+  BagEquipmentSlot,
   CharacterSnapshot,
   ClientToServerEvents,
   InventorySnapshot,
@@ -87,6 +88,10 @@ export class GameSocket {
 
   requestPlayerState(): void {
     this.connect().emit("requestPlayerState");
+  }
+
+  setContainerSlot(slot: BagEquipmentSlot, itemInstanceId: string | null): void {
+    this.connect().emit("setContainerSlot", { slot, itemInstanceId });
   }
 
   requestWorldState(): void {

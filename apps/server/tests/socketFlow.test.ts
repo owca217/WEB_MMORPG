@@ -154,6 +154,19 @@ describe("Socket.IO game flow", () => {
 
     const playerState = await playerStatePromise;
     expect(playerState.character).toMatchObject({ nickname: "Owczy", hp: 100, maxHp: 100 });
+    const starterBag = playerState.inventory.items.find(
+      (item) => item.itemId === "simple-bag"
+    );
+    expect(starterBag).toMatchObject({
+      name: "Zwykły worek",
+      category: "container",
+      containerCapacity: 8,
+      quantity: 1
+    });
+    expect(playerState.equipment.items).toContainEqual({
+      slot: "bag-1",
+      itemInstanceId: starterBag?.instanceId
+    });
 
     game.services.world.movePlayer(
       loginResult.playerId,
@@ -171,6 +184,34 @@ describe("Socket.IO game flow", () => {
       npcName: "Boran",
       canHeal: false
     });
+  });
+
+  it("moves a container between the four bag slots and supports unequipping it", async () => {
+    const { connectClient } = await startTestServer();
+    const client = await connectClient();
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const loginResult = await client.emitWithAck("login", { nickname: "BagMover" });
+    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+    const initialState = await initialStatePromise;
+    const bag = initialState.inventory.items.find((item) => item.itemId === "simple-bag");
+    if (!bag) throw new Error("Starter bag is missing");
+
+    const movedStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    client.emit("setContainerSlot", {
+      slot: "bag-2",
+      itemInstanceId: bag.instanceId
+    });
+    const movedState = await movedStatePromise;
+    expect(movedState.equipment.items).toContainEqual({
+      slot: "bag-2",
+      itemInstanceId: bag.instanceId
+    });
+    expect(movedState.equipment.items.some((entry) => entry.slot === "bag-1")).toBe(false);
+
+    const removedStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    client.emit("setContainerSlot", { slot: "bag-2", itemInstanceId: null });
+    const removedState = await removedStatePromise;
+    expect(removedState.equipment.items.some((entry) => entry.slot.startsWith("bag-"))).toBe(false);
   });
 
   it("rejects attempts to control the server-owned wolf", async () => {

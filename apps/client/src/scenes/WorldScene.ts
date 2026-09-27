@@ -42,7 +42,11 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
   PARTY_ONLY_LEADER_CAN_TOGGLE_BATTLE:
     "Tylko lider drużyny może zmieniać tryb walk drużynowych.",
   PARTY_INVALID_BATTLE_MODE: "Nieprawidłowy tryb walk drużynowych.",
-  PLAYER_ALREADY_IN_BATTLE: "Ta postać jest już w walce."
+  PLAYER_ALREADY_IN_BATTLE: "Ta postać jest już w walce.",
+  INVALID_CONTAINER_SLOT: "Nieprawidłowy slot pojemnika.",
+  CONTAINER_ITEM_NOT_FOUND: "Nie znaleziono tego pojemnika.",
+  ITEM_IS_NOT_CONTAINER: "Ten przedmiot nie jest pojemnikiem.",
+  CONTAINER_SLOT_REJECTED: "Nie można założyć tego przedmiotu w slocie pojemnika."
 };
 
 export class WorldScene extends Phaser.Scene {
@@ -114,7 +118,11 @@ export class WorldScene extends Phaser.Scene {
 
     this.input.mouse?.disableContextMenu();
 
-    this.inventoryPanel = new InventoryPanel();
+    this.inventoryPanel = new InventoryPanel({
+      onEquipContainer: (slot, itemInstanceId) =>
+        gameSocket.setContainerSlot(slot, itemInstanceId),
+      onUnequipContainer: (slot) => gameSocket.setContainerSlot(slot, null)
+    });
     this.characterPanel = new CharacterPanel();
     this.statisticsPanel = new StatisticsPanel(
       persistentAccountsEnabled
@@ -134,7 +142,9 @@ export class WorldScene extends Phaser.Scene {
       onLeave: () => gameSocket.leaveParty()
     });
     this.hud = new WorldHud({
-      onInventory: () => this.inventoryPanel?.toggle(),
+      onInventory: () => this.inventoryPanel?.show(),
+      onContainerSlotChange: (slot, itemInstanceId) =>
+        gameSocket.setContainerSlot(slot, itemInstanceId),
       onCharacter: () => this.characterPanel?.toggle(),
       onStatistics: () => this.statisticsPanel?.toggle(),
       onProfessions: () => this.professionsPanel?.toggle(),

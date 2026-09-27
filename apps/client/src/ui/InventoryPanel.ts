@@ -1,18 +1,35 @@
-import type { InventoryItem, InventorySnapshot } from "@web-mmorpg/shared";
+import type {
+  BagEquipmentSlot,
+  InventoryItem,
+  InventorySnapshot
+} from "@web-mmorpg/shared";
 import { InterfaceWindowControls } from "./InterfaceWindowControls";
+import {
+  bindContainerPointerDrag,
+  cancelContainerPointerDrag,
+  CONTAINER_ITEM_DRAG_TYPE,
+  CONTAINER_SLOT_DRAG_TYPE
+} from "./containerDrag";
 
 const CATEGORY_LABELS = {
   material: "Materiał",
   medical: "Medyczne",
   armor: "Pancerz",
   weapon: "Broń",
-  accessory: "Dodatek"
+  accessory: "Dodatek",
+  container: "Pojemnik"
 } as const;
 
 const ITEM_ICONS: Record<string, string> = {
   "wolf-pelt": "🐺",
-  "field-bandage": "✚"
+  "field-bandage": "✚",
+  "simple-bag": "🎒"
 };
+
+interface InventoryPanelOptions {
+  onEquipContainer?: (slot: BagEquipmentSlot, itemInstanceId: string) => void;
+  onUnequipContainer?: (slot: BagEquipmentSlot) => void;
+}
 
 type InventoryItemWithStats = InventoryItem & {
   stats?: Record<string, string | number>;
@@ -23,10 +40,14 @@ export class InventoryPanel {
   private readonly list: HTMLDivElement;
   private readonly tooltip: HTMLDivElement;
   private readonly windowControls: InterfaceWindowControls;
+  private readonly onEquipContainer:
+    | ((slot: BagEquipmentSlot, itemInstanceId: string) => void)
+    | undefined;
   private pinnedItemId: string | null = null;
   private readonly onDocumentPointerDown: (event: PointerEvent) => void;
 
-  constructor() {
+  constructor(options: InventoryPanelOptions = {}) {
+    this.onEquipContainer = options.onEquipContainer;
     this.root = document.createElement("div");
     this.root.className = "game-panel game-panel--inventory is-hidden";
     this.root.innerHTML = `
@@ -38,6 +59,23 @@ export class InventoryPanel {
     document.body.appendChild(this.root);
 
     this.list = this.require<HTMLDivElement>("[data-list]");
+    this.list.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer?.types.includes(CONTAINER_SLOT_DRAG_TYPE)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      this.list.dataset.dropTarget = "true";
+    });
+    this.list.addEventListener("dragleave", () => {
+      delete this.list.dataset.dropTarget;
+    });
+    this.list.addEventListener("drop", (event) => {
+      event.preventDefault();
+      delete this.list.dataset.dropTarget;
+      const sourceSlot = event.dataTransfer?.getData(CONTAINER_SLOT_DRAG_TYPE);
+      if (sourceSlot && options.onUnequipContainer) {
+        options.onUnequipContainer(sourceSlot as BagEquipmentSlot);
+      }
+    });
     this.tooltip = document.createElement("div");
     this.tooltip.className = "inventory-tooltip";
     this.tooltip.hidden = true;
@@ -77,6 +115,7 @@ export class InventoryPanel {
       slot.type = "button";
       slot.className = `inventory-slot inventory-slot--${item.category}`;
       slot.dataset.itemId = item.instanceId;
+      slot.draggable = item.category === "container";
       slot.setAttribute(
         "aria-label",
         `${item.name}, ilość: ${item.quantity}`
@@ -86,9 +125,36 @@ export class InventoryPanel {
       icon.className = "inventory-slot__icon";
       icon.textContent =
         ITEM_ICONS[item.itemId] ??
-        (item.category === "medical" ? "✚" : "◆");
+        (item.category === "container"
+          ? "🎒"
+          : item.category === "medical" ? "✚" : "◆");
 
       slot.appendChild(icon);
+
+      if (item.category === "container") {
+        bindContainerPointerDrag(
+          slot,
+          () => ({ itemInstanceId: item.instanceId }),
+          (target, payload) => {
+            this.pinnedItemId = null;
+            this.hideTooltip();
+            const destinationSlot = target?.closest<HTMLButtonElement>(
+              "[data-container-slot]"
+            );
+            if (destinationSlot?.dataset.containerSlot) {
+              this.onEquipContainer?.(
+                destinationSlot.dataset.containerSlot as BagEquipmentSlot,
+                payload.itemInstanceId
+              );
+            }
+          }
+        );
+        slot.addEventListener("dragstart", (event) => {
+          if (!event.dataTransfer) return;
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData(CONTAINER_ITEM_DRAG_TYPE, item.instanceId);
+        });
+      }
 
       if (item.quantity > 1) {
         const quantity = document.createElement("span");
@@ -166,6 +232,7 @@ export class InventoryPanel {
   }
 
   destroy(): void {
+    cancelContainerPointerDrag();
     document.removeEventListener("pointerdown", this.onDocumentPointerDown);
     this.windowControls.destroy();
     this.tooltip.remove();
@@ -198,6 +265,9 @@ export class InventoryPanel {
     const meta = document.createElement("dl");
     meta.className = "inventory-tooltip__meta";
     this.appendStat(meta, "Ilość", String(item.quantity));
+    if (item.containerCapacity !== undefined) {
+      this.appendStat(meta, "Miejsca", String(item.containerCapacity));
+    }
 
     const stats = item.stats ? Object.entries(item.stats) : [];
     if (stats.length > 0) {

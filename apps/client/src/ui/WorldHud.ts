@@ -1,10 +1,25 @@
-import type { PlayerStateSnapshot } from "@web-mmorpg/shared";
+import {
+  BAG_EQUIPMENT_SLOTS,
+  type BagEquipmentSlot,
+  type PlayerStateSnapshot
+} from "@web-mmorpg/shared";
 import type { ConnectionState } from "../net/GameSocket";
+import {
+  bindContainerPointerDrag,
+  cancelContainerPointerDrag,
+  CONTAINER_ITEM_DRAG_TYPE,
+  CONTAINER_SLOT_DRAG_TYPE,
+  consumeSuppressedContainerClick
+} from "./containerDrag";
 import { worldWindowMenuItem } from "./windowMenuItems";
 import "./world-hud.css";
 
 interface WorldHudHandlers {
   onInventory: () => void;
+  onContainerSlotChange: (
+    slot: BagEquipmentSlot,
+    itemInstanceId: string | null
+  ) => void;
   onCharacter: () => void;
   onStatistics: () => void;
   onProfessions: () => void;
@@ -55,6 +70,16 @@ export class WorldHud {
         <span>Menu</span>
         <svg class="world-hud__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
       </button>
+      <div class="world-hud__containers" data-container-slots aria-label="Pojemniki">
+        ${BAG_EQUIPMENT_SLOTS.map((slot, index) => `
+          <button class="world-hud__container-slot" type="button" data-container-slot="${slot}"
+            data-occupied="false" draggable="false" aria-label="Pojemnik ${index + 1}: Puste miejsce">
+            <span class="world-hud__container-icon" data-container-icon aria-hidden="true">＋</span>
+            <span class="world-hud__container-name" data-container-name>Puste miejsce</span>
+            <span class="world-hud__container-capacity" data-container-capacity>—</span>
+          </button>
+        `).join("")}
+      </div>
       <nav class="world-hud__menu" id="${menuId}" data-window-menu aria-label="Okna gry" hidden></nav>
       <span class="world-hud__connection" data-connection role="status">Łączenie…</span>
     `;
@@ -64,11 +89,69 @@ export class WorldHud {
     this.menu = this.require("[data-window-menu]");
     this.menuToggle = this.require<HTMLButtonElement>("[data-menu-toggle]");
 
-    this.addAction(
-      "inventory",
-      worldWindowMenuItem("inventory").label,
-      handlers.onInventory
-    );
+    for (const slot of Array.from(
+      this.root.querySelectorAll<HTMLButtonElement>("[data-container-slot]")
+    )) {
+      const slotId = slot.dataset.containerSlot as BagEquipmentSlot;
+      slot.addEventListener("click", () => {
+        if (consumeSuppressedContainerClick()) return;
+        handlers.onInventory();
+      });
+      bindContainerPointerDrag(
+        slot,
+        () => {
+          const itemInstanceId = slot.dataset.itemInstanceId;
+          return itemInstanceId
+            ? { itemInstanceId, sourceSlot: slotId }
+            : null;
+        },
+        (target, payload) => {
+          const destinationSlot = target?.closest<HTMLButtonElement>(
+            "[data-container-slot]"
+          );
+          if (destinationSlot?.dataset.containerSlot) {
+            handlers.onContainerSlotChange(
+              destinationSlot.dataset.containerSlot as BagEquipmentSlot,
+              payload.itemInstanceId
+            );
+            return;
+          }
+
+          if (payload.sourceSlot && target?.closest(".inventory-list")) {
+            handlers.onContainerSlotChange(
+              payload.sourceSlot as BagEquipmentSlot,
+              null
+            );
+          }
+        }
+      );
+      slot.addEventListener("dragstart", (event) => {
+        const itemInstanceId = slot.dataset.itemInstanceId;
+        if (!itemInstanceId || !event.dataTransfer) {
+          event.preventDefault();
+          return;
+        }
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(CONTAINER_ITEM_DRAG_TYPE, itemInstanceId);
+        event.dataTransfer.setData(CONTAINER_SLOT_DRAG_TYPE, slotId);
+      });
+      slot.addEventListener("dragover", (event) => {
+        if (!event.dataTransfer?.types.includes(CONTAINER_ITEM_DRAG_TYPE)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        slot.dataset.dropTarget = "true";
+      });
+      slot.addEventListener("dragleave", () => {
+        delete slot.dataset.dropTarget;
+      });
+      slot.addEventListener("drop", (event) => {
+        event.preventDefault();
+        delete slot.dataset.dropTarget;
+        const itemInstanceId = event.dataTransfer?.getData(CONTAINER_ITEM_DRAG_TYPE);
+        if (itemInstanceId) handlers.onContainerSlotChange(slotId, itemInstanceId);
+      });
+    }
+
     this.addAction(
       "character",
       worldWindowMenuItem("character").label,
@@ -109,6 +192,36 @@ export class WorldHud {
     this.experience.textContent = typeof experience === "number" && Number.isFinite(experience)
       ? Math.max(0, Math.trunc(experience)).toLocaleString("pl-PL")
       : "0";
+
+    const inventoryByInstance = new Map(
+      state.inventory.items.map((item) => [item.instanceId, item])
+    );
+    const equipmentBySlot = new Map(
+      state.equipment.items.map((entry) => [entry.slot, entry.itemInstanceId])
+    );
+    for (const slot of Array.from(
+      this.root.querySelectorAll<HTMLButtonElement>("[data-container-slot]")
+    )) {
+      const slotId = slot.dataset.containerSlot as BagEquipmentSlot;
+      const itemInstanceId = equipmentBySlot.get(slotId) ?? null;
+      const item = itemInstanceId ? inventoryByInstance.get(itemInstanceId) : undefined;
+      const occupied = Boolean(itemInstanceId);
+      const capacity = item?.containerCapacity;
+      slot.dataset.occupied = String(occupied);
+      if (itemInstanceId) slot.dataset.itemInstanceId = itemInstanceId;
+      else delete slot.dataset.itemInstanceId;
+      slot.draggable = Boolean(itemInstanceId && item?.category === "container");
+      slot.setAttribute(
+        "aria-label",
+        `${slot.dataset.containerSlot}: ${item?.name ?? (occupied ? "Założony pojemnik" : "Puste miejsce")}`
+      );
+      slot.querySelector<HTMLElement>("[data-container-icon]")!.textContent =
+        item?.category === "container" ? "🎒" : occupied ? "◆" : "＋";
+      slot.querySelector<HTMLElement>("[data-container-name]")!.textContent =
+        item?.name ?? (occupied ? "Założony pojemnik" : "Puste miejsce");
+      slot.querySelector<HTMLElement>("[data-container-capacity]")!.textContent =
+        capacity ? `${capacity} miejsc` : occupied ? "?" : "—";
+    }
   }
 
   setConnectionState(state: ConnectionState): void {
@@ -119,6 +232,7 @@ export class WorldHud {
   }
 
   destroy(): void {
+    cancelContainerPointerDrag();
     document.removeEventListener("pointerdown", this.onOutsidePointer);
     document.removeEventListener("keydown", this.onEscape);
     this.root.remove();

@@ -1092,6 +1092,25 @@ button {
     0 7px 18px rgba(0, 0, 0, 0.32);
 }
 
+.game-panel--inventory .inventory-slot[draggable="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.game-panel--inventory .inventory-slot[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.game-panel--inventory .inventory-list[data-drop-target="true"] {
+  outline: 1px dashed #d0a06d;
+  outline-offset: 6px;
+  background: rgba(155, 101, 63, 0.12);
+}
+
+.game-panel--inventory .inventory-slot[data-pointer-dragging="true"] {
+  opacity: .42;
+}
+
 .game-panel--inventory .inventory-slot--medical {
   background:
     radial-gradient(circle at 38% 30%, rgba(142, 87, 76, 0.32), transparent 44%),

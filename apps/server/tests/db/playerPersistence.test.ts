@@ -75,16 +75,27 @@ describe("PlayerPersistenceService", () => {
           quantity: 2,
           category: "material",
           description: "A rough wolf pelt."
+        },
+        {
+          instanceId: randomUUID(),
+          itemId: "simple-bag",
+          name: "Zwykły worek",
+          quantity: 1,
+          category: "container",
+          description: "Prosty worek.",
+          containerCapacity: 8
         }
       ]
     };
+
+    const wolfPeltId = inventory.items[0]!.instanceId;
 
     await persistence.saveBattleOutcome(character, inventory);
     await persistence.saveEquipment(characterId, {
       items: [
         {
           slot: "mainHand",
-          itemInstanceId: inventory.items[0]!.instanceId
+          itemInstanceId: wolfPeltId
         }
       ]
     });
@@ -96,15 +107,20 @@ describe("PlayerPersistenceService", () => {
       severelyInjured: true,
       injuries: ["legTrauma"]
     });
-    expect(restored.inventory.items[0]).toMatchObject({
+    expect(restored.inventory.items.find((item) => item.itemId === "wolf-pelt")).toMatchObject({
       itemId: "wolf-pelt",
       quantity: 2
+    });
+    expect(restored.inventory.items.find((item) => item.itemId === "simple-bag")).toMatchObject({
+      itemId: "simple-bag",
+      quantity: 1,
+      containerCapacity: 8
     });
     expect(restored.equipment).toEqual({
       items: [
         {
           slot: "mainHand",
-          itemInstanceId: inventory.items[0]!.instanceId
+          itemInstanceId: wolfPeltId
         }
       ]
     });

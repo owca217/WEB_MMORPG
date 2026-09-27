@@ -12,6 +12,9 @@ import { BattleService } from "../battle/BattleService";
 import { CharacterService } from "../character/CharacterService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { InventoryService } from "../inventory/InventoryService";
+import { createStarterContainer } from "../inventory/containers";
+import { setContainerSlot } from "../inventory/containerEquipment";
+import { BAG_EQUIPMENT_SLOTS } from "@web-mmorpg/shared";
 import { CharacterRepository } from "../persistence/CharacterRepository";
 import { PositionPersistenceCoordinator } from "../persistence/PositionPersistenceCoordinator";
 import { PlayerPersistenceService } from "../persistence/PlayerPersistenceService";
@@ -47,6 +50,7 @@ export function createGameServer(
   const characters = new CharacterService();
   const parties = new PartyService();
   const equipmentByPlayer = new Map<PlayerId, { items: Array<{ slot: string; itemInstanceId: string }> }>();
+  const containerSlotQueues = new Map<PlayerId, Promise<void>>();
   const positions = persistentDeps
     ? new PositionPersistenceCoordinator({
         intervalMs: persistentDeps.positionCheckpointMs ?? 2000,
@@ -199,6 +203,7 @@ export function createGameServer(
       world.removePlayer(targetPlayerId);
       inventory.removePlayer(targetPlayerId);
       equipmentByPlayer.delete(targetPlayerId);
+      containerSlotQueues.delete(targetPlayerId);
       characters.removePlayer(targetPlayerId);
 
       if (!persistentDeps) {
@@ -297,6 +302,14 @@ export function createGameServer(
         const session = sessions.get(result.playerId);
         const resolvedNickname = session?.nickname ?? nickname.trim();
         characters.createPlayer(result.playerId, resolvedNickname);
+        const starterContainer = createStarterContainer();
+        inventory.hydratePlayer(result.playerId, { items: [starterContainer] });
+        equipmentByPlayer.set(result.playerId, {
+          items: [{
+            slot: BAG_EQUIPMENT_SLOTS[0],
+            itemInstanceId: starterContainer.instanceId
+          }]
+        });
         world.addPlayer({ id: result.playerId, nickname: resolvedNickname });
         socket.join(`location:${result.locationId}`);
         socket.join(`player:${result.playerId}`);
@@ -312,6 +325,78 @@ export function createGameServer(
     socket.on("requestPlayerState", () => {
       if (!playerId) return;
       emitPlayerState(playerId);
+    });
+
+    socket.on("setContainerSlot", async ({ slot, itemInstanceId }) => {
+      if (!playerId) return;
+      const targetPlayerId = playerId;
+      const applyChange = async (): Promise<void> => {
+        if (
+          closedByRegistry
+          || playerId !== targetPlayerId
+          || !characters.getSnapshot(targetPlayerId)
+        ) return;
+
+        const previous = equipmentByPlayer.get(targetPlayerId) ?? { items: [] };
+        try {
+          const next = setContainerSlot(
+            previous,
+            inventory.getSnapshot(targetPlayerId),
+            slot,
+            itemInstanceId
+          );
+
+          if (persistentDeps) {
+            try {
+              await persistentDeps.playerPersistence.saveEquipment(
+                targetPlayerId,
+                next
+              );
+            } catch {
+              const restored =
+                await persistentDeps.playerPersistence.loadPlayer(targetPlayerId);
+              if (
+                closedByRegistry
+                || playerId !== targetPlayerId
+                || !characters.getSnapshot(targetPlayerId)
+              ) return;
+              characters.hydratePlayer(restored.character);
+              inventory.hydratePlayer(targetPlayerId, restored.inventory);
+              equipmentByPlayer.set(targetPlayerId, restored.equipment);
+              reject(
+                new Error("PERSISTENCE_FAILED"),
+                "PERSISTENCE_FAILED",
+                "Nie udało się zapisać założonego pojemnika."
+              );
+              emitPlayerState(targetPlayerId);
+              return;
+            }
+          }
+
+          if (
+            closedByRegistry
+            || playerId !== targetPlayerId
+            || !characters.getSnapshot(targetPlayerId)
+          ) return;
+
+          equipmentByPlayer.set(targetPlayerId, next);
+          emitPlayerState(targetPlayerId);
+        } catch (error) {
+          reject(
+            error,
+            "CONTAINER_SLOT_REJECTED",
+            "Nie można założyć tego przedmiotu w slocie pojemnika."
+          );
+        }
+      };
+
+      const previousChange = containerSlotQueues.get(targetPlayerId) ?? Promise.resolve();
+      const queuedChange = previousChange.then(applyChange, applyChange);
+      containerSlotQueues.set(targetPlayerId, queuedChange);
+      await queuedChange;
+      if (containerSlotQueues.get(targetPlayerId) === queuedChange) {
+        containerSlotQueues.delete(targetPlayerId);
+      }
     });
 
     socket.on("requestWorldState", () => {

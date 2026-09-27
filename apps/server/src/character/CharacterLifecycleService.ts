@@ -4,7 +4,10 @@ import type {
   CharacterLifecycleSummary,
   CharacterProfile
 } from "@web-mmorpg/shared";
-import { isAppearanceSelection } from "@web-mmorpg/shared";
+import {
+  BAG_EQUIPMENT_SLOTS,
+  isAppearanceSelection
+} from "@web-mmorpg/shared";
 import type { Pool } from "pg";
 import { verifyPassword } from "../auth/credentials";
 import { withTransaction } from "../db/transaction";
@@ -13,7 +16,10 @@ import {
   CharacterRepository,
   type PersistedCharacterRecord
 } from "../persistence/CharacterRepository";
+import { EquipmentRepository } from "../persistence/EquipmentRepository";
+import { InventoryRepository } from "../persistence/InventoryRepository";
 import { NicknameReservationRepository } from "../persistence/NicknameReservationRepository";
+import { createStarterContainer } from "../inventory/containers";
 import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
 import { validateNickname } from "./nickname";
 
@@ -140,7 +146,7 @@ export class CharacterLifecycleService {
           );
         }
 
-        return characters.create({
+        const created = await characters.create({
           id: randomUUID(),
           accountId,
           nickname: nickname.display,
@@ -150,6 +156,19 @@ export class CharacterLifecycleService {
           x: FOREST_SETTLEMENT_01.spawn.x,
           y: FOREST_SETTLEMENT_01.spawn.y
         });
+
+        const starterContainer = createStarterContainer();
+        await new InventoryRepository(client).replaceAll(created.id, {
+          items: [starterContainer]
+        });
+        await new EquipmentRepository(client).replaceAll(created.id, {
+          items: [{
+            slot: BAG_EQUIPMENT_SLOTS[0],
+            itemInstanceId: starterContainer.instanceId
+          }]
+        });
+
+        return created;
       });
 
       return toProfile(created);

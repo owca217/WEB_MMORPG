@@ -60,6 +60,23 @@ describe("CharacterLifecycleService", () => {
       nickname: "Owczy"
     });
 
+    const starterState = await pool.query(
+      `SELECT i.item_id, i.name, i.category, i.quantity, i.description,
+              i.instance_id, e.slot
+       FROM character_items i
+       LEFT JOIN character_equipment e ON e.item_instance_id = i.instance_id
+       WHERE i.character_id = $1`,
+      [created.id]
+    );
+    expect(starterState.rows).toHaveLength(1);
+    expect(starterState.rows[0]).toMatchObject({
+      item_id: "simple-bag",
+      name: "Zwykły worek",
+      category: "container",
+      quantity: 1,
+      slot: "bag-1"
+    });
+
     await expect(
       service.createCharacter(account.id, { nickname: "Second", appearance })
     ).rejects.toMatchObject({ code: "CHARACTER_ALREADY_EXISTS" });

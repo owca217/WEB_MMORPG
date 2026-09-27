@@ -145,7 +145,18 @@ describe("persistent account lifecycle end to end", () => {
       state.inventory.items.some((item) => item.itemId === "wolf-pelt")
     ).toBe(true);
     expect(state.character.hp).toBeGreaterThan(0);
-    expect(state.equipment).toEqual({ items: [] });
+    const starterBag = state.inventory.items.find(
+      (item) => item.itemId === "simple-bag"
+    );
+    expect(starterBag).toMatchObject({
+      name: "Zwykły worek",
+      category: "container",
+      containerCapacity: 8
+    });
+    expect(state.equipment.items).toContainEqual({
+      slot: "bag-1",
+      itemInstanceId: starterBag?.instanceId
+    });
   });
 
   it("rejects invalid socket tokens and revokes the old token after a new login", async () => {

@@ -11,6 +11,8 @@ export interface CharacterSnapshot {
   nickname: string;
   appearance: AppearanceSelection;
   level: number;
+  /** Total earned experience. Optional for compatibility with older snapshots. */
+  experience?: number;
   hp: number;
   maxHp: number;
   maxAp: number;

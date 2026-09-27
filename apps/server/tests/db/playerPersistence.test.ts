@@ -55,12 +55,14 @@ describe("PlayerPersistenceService", () => {
 
     const loaded = await persistence.loadPlayer(characterId);
     expect(loaded.character.hp).toBe(100);
+    expect(loaded.character.experience).toBe(0);
     expect(loaded.inventory.items).toEqual([]);
     expect(loaded.equipment).toEqual({ items: [] });
 
     const character: CharacterSnapshot = {
       ...loaded.character,
       hp: 37,
+      experience: 275,
       severelyInjured: true,
       injuries: ["legTrauma"]
     };
@@ -90,6 +92,7 @@ describe("PlayerPersistenceService", () => {
     const restored = await persistence.loadPlayer(characterId);
     expect(restored.character).toMatchObject({
       hp: 37,
+      experience: 275,
       severelyInjured: true,
       injuries: ["legTrauma"]
     });
@@ -110,5 +113,10 @@ describe("PlayerPersistenceService", () => {
     expect((await persistence.loadPlayer(characterId)).equipment).toEqual(
       restored.equipment
     );
+
+    // A snapshot from an older server must not erase stored experience.
+    const { experience: _experience, ...legacyCharacter } = restored.character;
+    await persistence.saveCharacterState(legacyCharacter);
+    expect((await persistence.loadPlayer(characterId)).character.experience).toBe(275);
   });
 });

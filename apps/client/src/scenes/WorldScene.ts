@@ -114,7 +114,11 @@ export class WorldScene extends Phaser.Scene {
 
     this.inventoryPanel = new InventoryPanel();
     this.characterPanel = new CharacterPanel();
-    this.statisticsPanel = new StatisticsPanel();
+    this.statisticsPanel = new StatisticsPanel(
+      persistentAccountsEnabled
+        ? { onDeleteCharacter: () => this.showDeleteCharacterDialog() }
+        : {}
+    );
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
@@ -131,19 +135,16 @@ export class WorldScene extends Phaser.Scene {
       onCharacter: () => this.characterPanel?.toggle(),
       onStatistics: () => this.statisticsPanel?.toggle(),
       onParty: () => this.partyPanel?.toggle(),
-      ...(persistentAccountsEnabled
-        ? {
-            onDeleteCharacter: () => {
-              this.showDeleteCharacterDialog();
-            },
-            onLogout: () => {
-              gameSocket.disconnect();
-              void apiClient.logout().finally(() => {
-                if (typeof window !== "undefined") window.location.reload();
-              });
-            }
-          }
-        : {})
+      onLogout: () => {
+        gameSocket.disconnect();
+        if (!persistentAccountsEnabled) {
+          this.scene.start("LoginScene");
+          return;
+        }
+        void apiClient.logout().finally(() => {
+          if (typeof window !== "undefined") window.location.reload();
+        });
+      }
     });
     this.joystick = new VirtualJoystick();
 

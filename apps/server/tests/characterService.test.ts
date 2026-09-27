@@ -21,6 +21,7 @@ describe("CharacterService", () => {
     expect(hydrated).toMatchObject({
       playerId: "persisted-1",
       level: 3,
+      experience: 0,
       hp: 42,
       injuries: ["legTrauma"]
     });
@@ -34,6 +35,7 @@ describe("CharacterService", () => {
       playerId: "p1",
       nickname: "Owczy",
       level: 1,
+      experience: 0,
       hp: 100,
       maxHp: 100,
       maxAp: 5,

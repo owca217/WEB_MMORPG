@@ -16,7 +16,7 @@ export class StatisticsPanel {
   private readonly content: HTMLDivElement;
   private readonly windowControls: InterfaceWindowControls;
 
-  constructor() {
+  constructor(handlers: { onDeleteCharacter?: () => void } = {}) {
     this.root = document.createElement("div");
     this.root.className = "game-panel game-panel--statistics is-hidden";
     this.root.innerHTML = `
@@ -32,6 +32,18 @@ export class StatisticsPanel {
       header: this.require<HTMLElement>(".game-panel__header"),
       onClose: () => this.hide()
     });
+
+    if (handlers.onDeleteCharacter) {
+      const actions = document.createElement("div");
+      actions.className = "character-sheet__account-actions";
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.dataset.deleteCharacter = "";
+      deleteButton.textContent = "Usuń postać";
+      deleteButton.addEventListener("click", handlers.onDeleteCharacter);
+      actions.appendChild(deleteButton);
+      this.root.appendChild(actions);
+    }
   }
 
   update(character: CharacterSnapshot): void {

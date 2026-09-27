@@ -21,6 +21,7 @@ export class CharacterService {
       nickname,
       appearance: { ...appearance },
       level: 1,
+      experience: 0,
       hp: 100,
       maxHp: 100,
       maxAp: 5,
@@ -80,6 +81,7 @@ export class CharacterService {
   private clone(character: CharacterSnapshot): CharacterSnapshot {
     return {
       ...character,
+      experience: character.experience ?? 0,
       appearance: { ...character.appearance },
       injuries: [...character.injuries]
     };

@@ -30,6 +30,7 @@ export class PlayerPersistenceService {
         nickname: row.nickname,
         appearance: row.appearance,
         level: row.level,
+        experience: row.experience,
         hp: row.hp,
         maxHp: row.maxHp,
         maxAp: row.maxAp,

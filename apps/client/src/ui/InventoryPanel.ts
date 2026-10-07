@@ -7,12 +7,12 @@ import { InterfaceWindowControls } from "./InterfaceWindowControls";
 import {
   bindContainerPointerDrag,
   cancelContainerPointerDrag,
-  consumeSuppressedContainerClick,
   CONTAINER_ITEM_DRAG_TYPE,
   CONTAINER_SLOT_DRAG_TYPE,
   INVENTORY_ITEM_DRAG_TYPE,
   type ContainerPointerDragPayload
 } from "./containerDrag";
+import { resolveInventoryDropAction } from "./inventoryDropRouting";
 import { getInventoryView } from "./inventoryViewModel";
 
 const CATEGORY_LABELS = {
@@ -44,9 +44,12 @@ export class InventoryPanel {
   private readonly root: HTMLDivElement;
   private readonly list: HTMLDivElement;
   private readonly bagList: HTMLDivElement;
+  private readonly workspace: HTMLDivElement;
+  private readonly generalPane: HTMLElement;
+  private readonly bagPane: HTMLElement;
   private readonly bagTitle: HTMLElement;
   private readonly bagCapacity: HTMLElement;
-  private readonly bagEmpty: HTMLParagraphElement;
+  private readonly generalDropTarget: HTMLButtonElement;
   private readonly tooltip: HTMLDivElement;
   private readonly windowControls: InterfaceWindowControls;
   private readonly onEquipContainer:
@@ -73,20 +76,21 @@ export class InventoryPanel {
       <div class="game-panel__header">
         <h2>Ekwipunek</h2>
       </div>
-      <div class="inventory-workspace">
-        <section class="inventory-pane" aria-label="Przedmioty">
+      <div class="inventory-workspace" data-mode="general">
+        <section class="inventory-pane inventory-pane--general" data-general-pane aria-label="Przedmioty">
           <div class="inventory-pane__header"><h3>Przedmioty</h3></div>
           <div class="inventory-list" data-list data-inventory-drop-target="general"></div>
         </section>
-        <section class="inventory-pane inventory-pane--bag" aria-label="Zawartość torby">
+        <section class="inventory-pane inventory-pane--bag" data-bag-pane aria-label="Zawartość torby" hidden>
           <div class="inventory-pane__header">
-            <h3 data-bag-title>Wybierz torbę</h3>
+            <h3 data-bag-title></h3>
             <span data-bag-capacity></span>
+            <button class="inventory-pane__transfer" type="button"
+              data-inventory-drop-target="general" title="Otwórz ekwipunek lub upuść tu przedmiot">
+              Do ekwipunku
+            </button>
           </div>
-          <div class="inventory-list inventory-list--bag" data-bag-list hidden></div>
-          <p class="inventory-bag-empty" data-bag-empty>
-            Kliknij worek w ekwipunku albo w jednym ze slotów pod menu.
-          </p>
+          <div class="inventory-list inventory-list--bag" data-bag-list data-inventory-drop-target="" hidden></div>
         </section>
       </div>
     `;
@@ -94,11 +98,16 @@ export class InventoryPanel {
 
     this.list = this.require<HTMLDivElement>("[data-list]");
     this.bagList = this.require<HTMLDivElement>("[data-bag-list]");
+    this.workspace = this.require<HTMLDivElement>(".inventory-workspace");
+    this.generalPane = this.require<HTMLElement>("[data-general-pane]");
+    this.bagPane = this.require<HTMLElement>("[data-bag-pane]");
     this.bagTitle = this.require<HTMLElement>("[data-bag-title]");
     this.bagCapacity = this.require<HTMLElement>("[data-bag-capacity]");
-    this.bagEmpty = this.require<HTMLParagraphElement>("[data-bag-empty]");
+    this.generalDropTarget = this.require<HTMLButtonElement>(".inventory-pane__transfer");
+    this.generalDropTarget.addEventListener("click", () => this.openGeneralInventory());
     this.bindDropHandlers(this.list);
     this.bindDropHandlers(this.bagList);
+    this.bindDropHandlers(this.generalDropTarget);
     this.tooltip = document.createElement("div");
     this.tooltip.className = "inventory-tooltip";
     this.tooltip.hidden = true;
@@ -140,6 +149,10 @@ export class InventoryPanel {
   private render(): void {
     const view = getInventoryView(this.snapshot, this.selectedBagId);
     if (!view.selectedBag) this.selectedBagId = null;
+    const showingBag = Boolean(view.selectedBag);
+    this.workspace.dataset.mode = showingBag ? "bag" : "general";
+    this.generalPane.hidden = showingBag;
+    this.bagPane.hidden = !showingBag;
 
     this.list.replaceChildren();
     this.pinnedItemId = null;
@@ -162,9 +175,13 @@ export class InventoryPanel {
       : "";
     this.bagList.replaceChildren();
     this.bagList.hidden = !view.selectedBag;
-    this.bagEmpty.hidden = Boolean(view.selectedBag);
     if (view.selectedBag) {
       this.bagList.dataset.inventoryDropTarget = view.selectedBag.instanceId;
+      this.bagList.dataset.scrollable = String(view.isScrollable);
+      this.bagList.style.setProperty(
+        "--bag-visible-height",
+        `${view.visibleRows * 36 + 10}px`
+      );
       for (let index = 0; index < view.capacity; index += 1) {
         const item = view.bagContents[index];
         if (item) {
@@ -179,6 +196,8 @@ export class InventoryPanel {
       }
     } else {
       delete this.bagList.dataset.inventoryDropTarget;
+      delete this.bagList.dataset.scrollable;
+      this.bagList.style.removeProperty("--bag-visible-height");
     }
   }
 
@@ -216,11 +235,6 @@ export class InventoryPanel {
         : INVENTORY_ITEM_DRAG_TYPE;
       event.dataTransfer.setData(dragType, item.instanceId);
     });
-    slot.addEventListener("click", () => {
-      if (consumeSuppressedContainerClick()) return;
-      if (item.category === "bag") this.openBagStorage(item.instanceId);
-    });
-
     slot.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "touch") return;
       this.showTooltip(item, event.clientX, event.clientY);
@@ -255,7 +269,7 @@ export class InventoryPanel {
     return slot;
   }
 
-  private bindDropHandlers(list: HTMLDivElement): void {
+  private bindDropHandlers(list: HTMLElement): void {
     list.addEventListener("dragover", (event) => {
       const types = event.dataTransfer?.types;
       if (!types) return;
@@ -276,21 +290,24 @@ export class InventoryPanel {
       const transfer = event.dataTransfer;
       if (!transfer) return;
       const destination = list.dataset.inventoryDropTarget;
-      if (destination === "general") {
-        const sourceSlot = transfer.getData(CONTAINER_SLOT_DRAG_TYPE);
-        if (sourceSlot) {
-          this.onUnequipContainer?.(sourceSlot as BagEquipmentSlot);
-          return;
-        }
-      }
-
+      if (!destination) return;
       const itemInstanceId = transfer.getData(CONTAINER_ITEM_DRAG_TYPE)
         || transfer.getData(INVENTORY_ITEM_DRAG_TYPE);
-      if (!itemInstanceId || !destination) return;
+      if (!itemInstanceId) return;
       const item = this.snapshot.items.find((entry) => entry.instanceId === itemInstanceId);
       if (!item) return;
-      if (destination !== "general" && item.category === "bag") return;
-      this.onMoveItem?.(itemInstanceId, destination === "general" ? null : destination);
+      const sourceSlot = transfer.getData(CONTAINER_SLOT_DRAG_TYPE);
+      const action = resolveInventoryDropAction(
+        {
+          itemInstanceId,
+          isBag: item.category === "bag",
+          ...(sourceSlot ? { sourceSlot: sourceSlot as BagEquipmentSlot } : {})
+        },
+        destination === "general"
+          ? { type: "general" }
+          : { type: "bag-content", containerInstanceId: destination }
+      );
+      this.applyDropAction(action);
     });
   }
 
@@ -302,10 +319,22 @@ export class InventoryPanel {
     this.pinnedItemId = null;
     this.hideTooltip();
     const equipmentSlot = target?.closest<HTMLButtonElement>("[data-container-slot]");
-    if (equipmentSlot?.dataset.containerSlot && payload.canEquip) {
-      this.onEquipContainer?.(
-        equipmentSlot.dataset.containerSlot as BagEquipmentSlot,
-        payload.itemInstanceId
+    if (equipmentSlot?.dataset.containerSlot) {
+      this.applyDropAction(
+        resolveInventoryDropAction(
+          {
+            itemInstanceId: payload.itemInstanceId,
+            isBag: item.category === "bag",
+            ...(payload.sourceSlot
+              ? { sourceSlot: payload.sourceSlot as BagEquipmentSlot }
+              : {})
+          },
+          {
+            type: "bag-slot",
+            slot: equipmentSlot.dataset.containerSlot as BagEquipmentSlot,
+            containerInstanceId: equipmentSlot.dataset.itemInstanceId ?? null
+          }
+        )
       );
       return;
     }
@@ -313,17 +342,31 @@ export class InventoryPanel {
     const dropTarget = target?.closest<HTMLElement>("[data-inventory-drop-target]");
     const destination = dropTarget?.dataset.inventoryDropTarget;
     if (!destination) return;
-    if (payload.sourceSlot) {
-      if (destination === "general") {
-        this.onUnequipContainer?.(payload.sourceSlot as BagEquipmentSlot);
-      }
-      return;
-    }
-    if (destination !== "general" && item.category === "bag") return;
-    this.onMoveItem?.(
-      payload.itemInstanceId,
-      destination === "general" ? null : destination
+    this.applyDropAction(
+      resolveInventoryDropAction(
+        {
+          itemInstanceId: payload.itemInstanceId,
+          isBag: item.category === "bag",
+          ...(payload.sourceSlot
+            ? { sourceSlot: payload.sourceSlot as BagEquipmentSlot }
+            : {})
+        },
+        destination === "general"
+          ? { type: "general" }
+          : { type: "bag-content", containerInstanceId: destination }
+      )
     );
+  }
+
+  private applyDropAction(action: ReturnType<typeof resolveInventoryDropAction>): void {
+    if (!action) return;
+    if (action.type === "move-item") {
+      this.onMoveItem?.(action.itemInstanceId, action.containerInstanceId);
+    } else if (action.type === "equip-bag") {
+      this.onEquipContainer?.(action.slot, action.itemInstanceId);
+    } else {
+      this.onUnequipContainer?.(action.slot);
+    }
   }
 
   show(): void {

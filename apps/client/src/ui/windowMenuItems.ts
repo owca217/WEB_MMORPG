@@ -1,4 +1,5 @@
 export const WORLD_WINDOW_MENU_ITEMS = [
+  { key: "inventory", label: "Ekwipunek" },
   { key: "character", label: "Postać" },
   { key: "statistics", label: "Statystyki" },
   { key: "professions", label: "Profesje" },

@@ -150,6 +150,8 @@ export class WorldScene extends Phaser.Scene {
         this.inventoryPanel?.openBagStorage(containerInstanceId),
       onContainerSlotChange: (slot, itemInstanceId) =>
         gameSocket.setContainerSlot(slot, itemInstanceId),
+      onMoveItem: (itemInstanceId, containerInstanceId) =>
+        gameSocket.moveInventoryItem(itemInstanceId, containerInstanceId),
       onCharacter: () => this.characterPanel?.toggle(),
       onStatistics: () => this.statisticsPanel?.toggle(),
       onProfessions: () => this.professionsPanel?.toggle(),

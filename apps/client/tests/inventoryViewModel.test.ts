@@ -65,6 +65,20 @@ describe("inventory view model", () => {
     expect(view).toMatchObject({ occupiedSlots: 2, capacity: 8, emptySlots: 6 });
   });
 
+  it.each([
+    [8, 2, false],
+    [20, 4, false],
+    [25, 5, false],
+    [40, 5, true],
+    [60, 5, true]
+  ])("sizes a %i-slot bag viewport to %i visible rows (scrollable: %s)", (capacity, visibleRows, isScrollable) => {
+    const snapshot: InventorySnapshot = {
+      items: [{ ...item("bag-1", "bag"), containerCapacity: capacity }]
+    };
+
+    expect(getInventoryView(snapshot, "bag-1")).toMatchObject({ visibleRows, isScrollable });
+  });
+
   it("returns an empty bag view when no valid bag is selected", () => {
     const view = getInventoryView({ items: [item("bag-1", "bag")] }, "missing-bag");
     expect(view.selectedBag).toBeNull();

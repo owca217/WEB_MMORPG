@@ -25,11 +25,12 @@ afterAll(async () => {
 async function createPersistentCharacter(): Promise<string> {
   const accountId = randomUUID();
   const characterId = randomUUID();
+  const uniqueSuffix = characterId.slice(0, 8);
 
   await new AccountRepository(pool).create({
     id: accountId,
-    username: "PersistenceOwner",
-    usernameNormalized: "persistenceowner",
+    username: `Persistence-${uniqueSuffix}`,
+    usernameNormalized: `persistence-${uniqueSuffix.toLowerCase()}`,
     passwordHash: "hash",
     recoveryCodeHash: "recovery"
   });
@@ -37,8 +38,8 @@ async function createPersistentCharacter(): Promise<string> {
   await new CharacterRepository(pool).create({
     id: characterId,
     accountId,
-    nickname: "PersistedHero",
-    nicknameNormalized: "persistedhero",
+    nickname: `Hero-${uniqueSuffix}`,
+    nicknameNormalized: `hero-${uniqueSuffix.toLowerCase()}`,
     appearance: defaultAppearance,
     locationId: "forest-settlement-01",
     x: 360,

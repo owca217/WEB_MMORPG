@@ -220,7 +220,7 @@ describe("Socket.IO game flow", () => {
     const { connectClient } = await startTestServer();
     const client = await connectClient();
     const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
-    const login = await client.emitWithAck("login", { nickname: "QuartermasterOccupied" });
+    const login = await client.emitWithAck("login", { nickname: "QuarterBagTaken" });
     if (!login.ok) throw new Error("Login unexpectedly failed");
     const initialState = await initialStatePromise;
 

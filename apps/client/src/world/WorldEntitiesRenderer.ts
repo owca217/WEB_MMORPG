@@ -310,15 +310,22 @@ export class WorldEntitiesRenderer {
   private createNpc(npc: NpcSnapshot): Phaser.GameObjects.Container {
     const container = this.scene.add.container(npc.x, npc.y).setDepth(18);
     const shadow = this.scene.add.ellipse(0, 18, 34, 12, 0x101713, 0.34);
-    const accent = npc.kind === "healer" ? 0x9b594e : 0x6f7f9e;
+    const accent = npc.kind === "healer"
+      ? 0x9b594e
+      : npc.kind === "quartermaster" ? 0x94623e : 0x6f7f9e;
     const body = this.scene.add.rectangle(0, 2, 22, 30, accent).setStrokeStyle(2, 0x302b26);
     const head = this.scene.add.circle(0, -18, 9, 0xcfa06d).setStrokeStyle(2, 0x3f3328);
-    const symbol = this.scene.add.text(0, 4, npc.kind === "healer" ? "+" : "!", {
+    const symbol = this.scene.add.text(
+      0,
+      4,
+      npc.kind === "healer" ? "+" : npc.kind === "quartermaster" ? "B" : "!",
+      {
       fontFamily: "sans-serif",
       fontSize: "15px",
       color: "#fff5cf",
       fontStyle: "bold"
-    }).setOrigin(0.5);
+      }
+    ).setOrigin(0.5);
     const label = this.scene.add.text(0, -42, npc.name, {
       fontFamily: "sans-serif",
       fontSize: "13px",

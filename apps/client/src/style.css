@@ -308,8 +308,16 @@ button {
   line-height: 1.45;
 }
 
+.dialogue-panel__reward-state {
+  margin-top: 10px !important;
+  color: #d9b778;
+  font-style: italic;
+}
+
 .dialogue-panel__actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
   margin-top: 13px;
 }
@@ -1046,7 +1054,49 @@ button {
 
 /* Icon-grid inventory */
 .game-panel--inventory {
-  width: min(560px, calc(100vw - 28px));
+  width: min(900px, calc(100vw - 28px));
+  padding: 12px;
+}
+
+.inventory-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.85fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+.inventory-pane {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(163, 120, 76, 0.52);
+  background: linear-gradient(145deg, rgba(30, 20, 15, 0.94), rgba(12, 9, 8, 0.94));
+  box-shadow: inset 0 0 0 1px rgba(255, 220, 163, 0.035);
+}
+
+.inventory-pane__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 25px;
+  margin-bottom: 7px;
+  color: #e6c18d;
+}
+
+.inventory-pane__header h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 14px Georgia, serif;
+}
+
+.inventory-pane__header span {
+  flex: none;
+  color: #c19a6b;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .game-panel--inventory .inventory-list {
@@ -1054,8 +1104,38 @@ button {
   grid-template-columns: repeat(auto-fill, 68px);
   gap: 10px;
   align-items: start;
+  align-content: start;
   justify-content: start;
-  min-height: 76px;
+  min-height: 68px;
+  max-height: min(480px, calc(100vh - 190px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #8e5631 #160e0a;
+}
+
+.game-panel--inventory .inventory-list--bag {
+  grid-template-columns: repeat(auto-fill, 58px);
+  gap: 6px;
+}
+
+.game-panel--inventory .inventory-slot--empty {
+  box-sizing: border-box;
+  width: 58px;
+  min-width: 58px;
+  height: 58px;
+  min-height: 58px;
+  border-style: dashed;
+  border-color: rgba(147, 110, 77, 0.36);
+  background: rgba(8, 6, 5, 0.4);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+
+.inventory-bag-empty {
+  margin: 10px 2px;
+  color: #b99a74;
+  font: 12px/1.45 Georgia, serif;
 }
 
 .game-panel--inventory .inventory-slot {
@@ -1229,22 +1309,47 @@ button {
 }
 
 @media (max-width: 600px) {
+  .game-panel--inventory {
+    padding: 9px;
+  }
+
+  .inventory-workspace {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .inventory-pane {
+    padding: 6px;
+  }
+
+  .inventory-pane__header h3 {
+    font-size: 12px;
+  }
+
   .game-panel--inventory .inventory-list {
-    grid-template-columns: repeat(auto-fill, 62px);
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, 44px);
+    gap: 4px;
+    max-height: min(440px, calc(100vh - 220px));
   }
 
   .game-panel--inventory .inventory-slot {
-    width: 62px;
-    min-width: 62px;
-    height: 62px;
-    min-height: 62px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .game-panel--inventory .inventory-slot--empty {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
   }
 
   .inventory-slot__icon {
-    width: 48px;
-    height: 48px;
-    font-size: 28px;
+    width: 36px;
+    height: 36px;
+    font-size: 24px;
   }
 
   .inventory-tooltip {

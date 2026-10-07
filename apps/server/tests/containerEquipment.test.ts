@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { EquipmentSnapshot, InventoryItem } from "@web-mmorpg/shared";
+import { BAG_DEFINITIONS, type BagItemId } from "@web-mmorpg/shared";
 import {
+  createBagItem,
   createStarterContainer,
   STARTER_CONTAINER_CAPACITY,
   STARTER_CONTAINER_ITEM_ID
@@ -11,32 +13,55 @@ import {
 } from "../src/inventory/containerEquipment";
 import { InventoryService } from "../src/inventory/InventoryService";
 
-function container(instanceId: string, itemId = "simple-bag"): InventoryItem {
+function bag(instanceId: string, itemId: BagItemId = "simple-bag"): InventoryItem {
+  const definition = BAG_DEFINITIONS[itemId];
   return {
     instanceId,
     itemId,
-    name: "Zwykły worek",
+    name: definition.name,
     quantity: 1,
-    category: "container",
-    description: "Prosty worek na przedmioty.",
-    containerCapacity: STARTER_CONTAINER_CAPACITY
+    category: "bag",
+    description: definition.description,
+    containerCapacity: definition.capacity
   };
 }
 
-describe("container equipment", () => {
+describe("bag equipment", () => {
   it("creates a unique starter bag with eight places", () => {
-    const first = createStarterContainer();
+    const first = createBagItem("simple-bag");
     const second = createStarterContainer();
 
     expect(first.instanceId).not.toBe(second.instanceId);
     expect(first.itemId).toBe(STARTER_CONTAINER_ITEM_ID);
-    expect(first.category).toBe("container");
+    expect(first.category).toBe("bag");
     expect(first.containerCapacity).toBe(8);
     expect(first.quantity).toBe(1);
   });
 
+  it("creates each bag as a separate non-stackable item", () => {
+    const inventory = new InventoryService();
+
+    for (const [itemId, definition] of Object.entries(BAG_DEFINITIONS)) {
+      const before = inventory.getSnapshot("p1").items.length;
+      const created = inventory.addItems("p1", [{
+        itemId,
+        name: definition.name,
+        quantity: 2,
+        category: "bag",
+        description: definition.description,
+        containerCapacity: definition.capacity
+      }]);
+      const added = created.items.slice(before);
+
+      expect(added).toHaveLength(2);
+      expect(added.every((item) => item.quantity === 1)).toBe(true);
+      expect(new Set(added.map((item) => item.instanceId)).size).toBe(2);
+      expect(added.every((item) => item.category === "bag")).toBe(true);
+    }
+  });
+
   it("equips a container into a bag slot and moves it from another bag slot", () => {
-    const inventory = { items: [container("bag-1"), container("bag-2", "large-bag")] };
+    const inventory = { items: [bag("bag-1"), bag("bag-2", "traditional-backpack")] };
     const equipment: EquipmentSnapshot = {
       items: [{ slot: BAG_EQUIPMENT_SLOTS[0], itemInstanceId: "bag-1" }]
     };
@@ -53,10 +78,10 @@ describe("container equipment", () => {
     ]);
   });
 
-  it("rejects missing and non-container items", () => {
+  it("rejects missing bags and non-bag items", () => {
     const inventory = {
       items: [
-        container("bag-1"),
+        bag("bag-1"),
         {
           instanceId: "sword-1",
           itemId: "iron-sword",
@@ -74,13 +99,13 @@ describe("container equipment", () => {
       .toThrow("ITEM_IS_NOT_CONTAINER");
   });
 
-  it("keeps separate container instances instead of stacking bags", () => {
+  it("keeps separate bag instances instead of stacking them", () => {
     const inventory = new InventoryService();
     const definition = {
       itemId: STARTER_CONTAINER_ITEM_ID,
       name: "Zwykły worek",
       quantity: 1,
-      category: "container" as const,
+      category: "bag" as const,
       description: "Prosty worek.",
       containerCapacity: STARTER_CONTAINER_CAPACITY
     };

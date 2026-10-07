@@ -94,6 +94,10 @@ export class GameSocket {
     this.connect().emit("setContainerSlot", { slot, itemInstanceId });
   }
 
+  moveInventoryItem(itemInstanceId: string, containerInstanceId: string | null): void {
+    this.connect().emit("moveInventoryItem", { itemInstanceId, containerInstanceId });
+  }
+
   requestWorldState(): void {
     this.connect().emit("requestWorldState");
   }
@@ -104,6 +108,10 @@ export class GameSocket {
 
   healAtNpc(npcId: string): void {
     this.connect().emit("healAtNpc", { npcId });
+  }
+
+  claimSimpleBag(npcId: string): void {
+    this.connect().emit("claimSimpleBag", { npcId });
   }
 
   inviteToParty(targetPlayerId: PlayerId): void {

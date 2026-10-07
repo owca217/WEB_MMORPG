@@ -1,5 +1,6 @@
 import type {
   BattleSnapshot,
+  NpcInteractionPayload,
   PlayerStateSnapshot,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
@@ -258,6 +259,91 @@ describe("persistent authenticated socket flow", () => {
     expect(restored.equipment.items).toContainEqual({
       slot: "bag-3",
       itemInstanceId: starterBag!.instanceId
+    });
+  });
+
+  it("persists a moved bag item across reconnect", async () => {
+    app = await startTestApp();
+    await app.register("bag-storage-owner");
+    const initialLogin = await app.login("bag-storage-owner");
+    const character = await app.createCharacter(initialLogin.token, "BagStorageHero");
+    const playableLogin = await app.login("bag-storage-owner");
+    const socket = await app.connectSocket(playableLogin.token);
+
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(socket, "playerState");
+    socket.emit("requestPlayerState");
+    const initialState = await initialStatePromise;
+    const starterBag = initialState.inventory.items.find((item) => item.itemId === "simple-bag");
+    if (!starterBag) throw new Error("Starter bag is missing");
+
+    const created = app.game.services.inventory.addItems(character.id, [{
+      itemId: "wolf-pelt",
+      name: "Wilcza skóra",
+      quantity: 1,
+      category: "material",
+      description: "Skóra."
+    }]);
+    const pelt = created.items.find((item) => item.itemId === "wolf-pelt");
+    if (!pelt) throw new Error("Test pelt was not created");
+
+    const storedStatePromise = onceWithTimeout<PlayerStateSnapshot>(socket, "playerState");
+    socket.emit("moveInventoryItem", {
+      itemInstanceId: pelt.instanceId,
+      containerInstanceId: starterBag.instanceId
+    });
+    expect((await storedStatePromise).inventory.items.find((item) => item.instanceId === pelt.instanceId))
+      .toMatchObject({ containerInstanceId: starterBag.instanceId });
+    socket.disconnect();
+
+    const reconnectLogin = await app.login("bag-storage-owner");
+    const restoredSocket = await app.connectSocket(reconnectLogin.token);
+    const restoredStatePromise = onceWithTimeout<PlayerStateSnapshot>(restoredSocket, "playerState");
+    restoredSocket.emit("requestPlayerState");
+    const restored = await restoredStatePromise;
+
+    expect(restored.character.playerId).toBe(character.id);
+    expect(restored.inventory.items.find((item) => item.instanceId === pelt.instanceId))
+      .toMatchObject({ containerInstanceId: starterBag.instanceId });
+  });
+
+  it("remembers the quartermaster bag claim across reconnect", async () => {
+    app = await startTestApp();
+    await app.register("quartermaster-owner");
+    const initialLogin = await app.login("quartermaster-owner");
+    const character = await app.createCharacter(initialLogin.token, "QuartermasterHero");
+    const playableLogin = await app.login("quartermaster-owner");
+    const socket = await app.connectSocket(playableLogin.token);
+
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(socket, "playerState");
+    socket.emit("requestPlayerState");
+    const initialState = await initialStatePromise;
+    const claimStatePromise = onceWithTimeout<PlayerStateSnapshot>(socket, "playerState");
+    const claimDialoguePromise = onceWithTimeout<NpcInteractionPayload>(socket, "npcInteraction");
+    socket.emit("claimSimpleBag", { npcId: "quartermaster-runa" });
+    const [claimedState, claimedDialogue] = await Promise.all([
+      claimStatePromise,
+      claimDialoguePromise
+    ]);
+
+    expect(claimedState.character.playerId).toBe(character.id);
+    expect(claimedState.inventory.items.filter((item) => item.itemId === "simple-bag"))
+      .toHaveLength(initialState.inventory.items.filter((item) => item.itemId === "simple-bag").length + 1);
+    expect(claimedDialogue.simpleBagRewardClaimed).toBe(true);
+    socket.disconnect();
+
+    const reconnectLogin = await app.login("quartermaster-owner");
+    const restoredSocket = await app.connectSocket(reconnectLogin.token);
+    const restoredStatePromise = onceWithTimeout<PlayerStateSnapshot>(restoredSocket, "playerState");
+    restoredSocket.emit("requestPlayerState");
+    const restoredState = await restoredStatePromise;
+    expect(restoredState.inventory.items.filter((item) => item.itemId === "simple-bag"))
+      .toHaveLength(initialState.inventory.items.filter((item) => item.itemId === "simple-bag").length + 1);
+
+    const interactionPromise = onceWithTimeout<NpcInteractionPayload>(restoredSocket, "npcInteraction");
+    restoredSocket.emit("interactNpc", { npcId: "quartermaster-runa" });
+    expect(await interactionPromise).toMatchObject({
+      canClaimSimpleBag: false,
+      simpleBagRewardClaimed: true
     });
   });
 

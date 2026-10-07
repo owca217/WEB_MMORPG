@@ -12,7 +12,9 @@ import { BattleService } from "../battle/BattleService";
 import { CharacterService } from "../character/CharacterService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { InventoryService } from "../inventory/InventoryService";
-import { createStarterContainer } from "../inventory/containers";
+import { placeBagReward } from "../inventory/bagReward";
+import { moveItemToContainer } from "../inventory/bagStorage";
+import { createBagItem, createStarterContainer } from "../inventory/containers";
 import { setContainerSlot } from "../inventory/containerEquipment";
 import { BAG_EQUIPMENT_SLOTS } from "@web-mmorpg/shared";
 import { CharacterRepository } from "../persistence/CharacterRepository";
@@ -50,7 +52,25 @@ export function createGameServer(
   const characters = new CharacterService();
   const parties = new PartyService();
   const equipmentByPlayer = new Map<PlayerId, { items: Array<{ slot: string; itemInstanceId: string }> }>();
-  const containerSlotQueues = new Map<PlayerId, Promise<void>>();
+  const inventoryMutationQueues = new Map<PlayerId, Promise<void>>();
+  const npcRewardClaims = new Map<PlayerId, Set<string>>();
+  const inventoryRecoveryRequired = new Set<PlayerId>();
+  const SIMPLE_BAG_REWARD_KEY = "quartermaster-simple-bag";
+  const enqueueInventoryMutation = async (
+    targetPlayerId: PlayerId,
+    change: () => Promise<void>
+  ): Promise<void> => {
+    const previous = inventoryMutationQueues.get(targetPlayerId) ?? Promise.resolve();
+    const queued = previous.then(change, change);
+    inventoryMutationQueues.set(targetPlayerId, queued);
+    try {
+      await queued;
+    } finally {
+      if (inventoryMutationQueues.get(targetPlayerId) === queued) {
+        inventoryMutationQueues.delete(targetPlayerId);
+      }
+    }
+  };
   const positions = persistentDeps
     ? new PositionPersistenceCoordinator({
         intervalMs: persistentDeps.positionCheckpointMs ?? 2000,
@@ -145,7 +165,38 @@ export function createGameServer(
       });
     };
 
-    const npcPayload = (npcId: string): NpcInteractionPayload => {
+    const rejectIfInventoryUnavailable = (targetPlayerId: PlayerId): boolean => {
+      if (!inventoryRecoveryRequired.has(targetPlayerId)) return false;
+      reject(
+        new Error("PERSISTENCE_RECOVERY_REQUIRED"),
+        "PERSISTENCE_RECOVERY_REQUIRED",
+        "Stan ekwipunku wymaga ponownego wczytania. Spróbuj ponownie za chwilę."
+      );
+      return true;
+    };
+
+    const hasClaimedSimpleBag = async (targetPlayerId: PlayerId): Promise<boolean> => {
+      if (persistentDeps) {
+        try {
+          return await persistentDeps.playerPersistence.hasNpcRewardClaim(
+            targetPlayerId,
+            SIMPLE_BAG_REWARD_KEY
+          );
+        } catch {
+          throw new Error("PERSISTENCE_FAILED");
+        }
+      }
+      return npcRewardClaims.get(targetPlayerId)?.has(SIMPLE_BAG_REWARD_KEY) ?? false;
+    };
+
+    const npcPayload = async (
+      npcId: string,
+      targetPlayerId: PlayerId,
+      claimedOverride?: boolean
+    ): Promise<NpcInteractionPayload> => {
+      const simpleBagRewardClaimed = npcId === "quartermaster-runa"
+        ? claimedOverride ?? await hasClaimedSimpleBag(targetPlayerId)
+        : false;
       if (npcId === "guide-boran") {
         return {
           npcId: "guide-boran",
@@ -156,20 +207,42 @@ export function createGameServer(
             "Wilki kręcą się przy wschodniej ścieżce.",
             "Trzymaj się drogi i nie lekceważ ran."
           ],
-          canHeal: false
+          canHeal: false,
+          canClaimSimpleBag: false,
+          simpleBagRewardClaimed: false
+        };
+      }
+
+      if (npcId === "healer-ada") {
+        return {
+          npcId: "healer-ada",
+          npcName: "Ada",
+          kind: "healer",
+          title: "Lecznica Ady",
+          lines: [
+            "Mogę opatrzyć cię i przywrócić siły.",
+            "Ciężkie urazy pozostaną do czasu pełnego systemu leczenia."
+          ],
+          canHeal: true,
+          canClaimSimpleBag: false,
+          simpleBagRewardClaimed: false
         };
       }
 
       return {
-        npcId: "healer-ada",
-        npcName: "Ada",
-        kind: "healer",
-        title: "Lecznica Ady",
-        lines: [
-          "Mogę opatrzyć cię i przywrócić siły.",
-          "Ciężkie urazy pozostaną do czasu pełnego systemu leczenia."
-        ],
-        canHeal: true
+        npcId: "quartermaster-runa",
+        npcName: "Runa",
+        kind: "quartermaster",
+        title: "Zaopatrzenie przed drogą",
+        lines: simpleBagRewardClaimed
+          ? ["Odebrałeś już swój Zwykły worek. Niech dobrze ci służy."]
+          : [
+              "Każdy wyruszający z osady powinien mieć gdzie schować zapasy.",
+              "Możesz odebrać ode mnie jeden Zwykły worek."
+            ],
+        canHeal: false,
+        canClaimSimpleBag: !simpleBagRewardClaimed,
+        simpleBagRewardClaimed
       };
     };
 
@@ -190,6 +263,8 @@ export function createGameServer(
         await positions?.flushPlayer(targetPlayerId);
       }
 
+      await inventoryMutationQueues.get(targetPlayerId)?.catch(() => undefined);
+
       const battleDeparture = battles.removeBattleForPlayer(targetPlayerId);
       if (battleDeparture?.snapshot) {
         for (const remainingPlayerId of battleDeparture.playerIds) {
@@ -203,8 +278,8 @@ export function createGameServer(
       world.removePlayer(targetPlayerId);
       inventory.removePlayer(targetPlayerId);
       equipmentByPlayer.delete(targetPlayerId);
-      containerSlotQueues.delete(targetPlayerId);
       characters.removePlayer(targetPlayerId);
+      inventoryRecoveryRequired.delete(targetPlayerId);
 
       if (!persistentDeps) {
         sessions.remove(targetPlayerId);
@@ -252,6 +327,8 @@ export function createGameServer(
         "sessionReplaced"
       );
 
+      await inventoryMutationQueues.get(persisted.id)?.catch(() => undefined);
+
       const durableState =
         await persistentDeps.playerPersistence.loadPlayer(persisted.id);
 
@@ -260,6 +337,7 @@ export function createGameServer(
       characters.hydratePlayer(durableState.character);
       inventory.hydratePlayer(persisted.id, durableState.inventory);
       equipmentByPlayer.set(persisted.id, durableState.equipment);
+      inventoryRecoveryRequired.delete(persisted.id);
       world.addPlayer({
         id: persisted.id,
         nickname: persisted.nickname,
@@ -333,9 +411,11 @@ export function createGameServer(
       const applyChange = async (): Promise<void> => {
         if (
           closedByRegistry
+          || !socket.connected
           || playerId !== targetPlayerId
           || !characters.getSnapshot(targetPlayerId)
         ) return;
+        if (rejectIfInventoryUnavailable(targetPlayerId)) return;
 
         const previous = equipmentByPlayer.get(targetPlayerId) ?? { items: [] };
         try {
@@ -353,10 +433,16 @@ export function createGameServer(
                 next
               );
             } catch {
-              const restored =
-                await persistentDeps.playerPersistence.loadPlayer(targetPlayerId);
+              let restored: Awaited<ReturnType<PlayerPersistenceService["loadPlayer"]>>;
+              try {
+                restored = await persistentDeps.playerPersistence.loadPlayer(targetPlayerId);
+              } catch {
+                inventoryRecoveryRequired.add(targetPlayerId);
+                throw new Error("PERSISTENCE_FAILED");
+              }
               if (
                 closedByRegistry
+                || !socket.connected
                 || playerId !== targetPlayerId
                 || !characters.getSnapshot(targetPlayerId)
               ) return;
@@ -375,6 +461,7 @@ export function createGameServer(
 
           if (
             closedByRegistry
+            || !socket.connected
             || playerId !== targetPlayerId
             || !characters.getSnapshot(targetPlayerId)
           ) return;
@@ -390,13 +477,93 @@ export function createGameServer(
         }
       };
 
-      const previousChange = containerSlotQueues.get(targetPlayerId) ?? Promise.resolve();
-      const queuedChange = previousChange.then(applyChange, applyChange);
-      containerSlotQueues.set(targetPlayerId, queuedChange);
-      await queuedChange;
-      if (containerSlotQueues.get(targetPlayerId) === queuedChange) {
-        containerSlotQueues.delete(targetPlayerId);
-      }
+      await enqueueInventoryMutation(targetPlayerId, applyChange);
+    });
+
+    socket.on("moveInventoryItem", async ({ itemInstanceId, containerInstanceId }) => {
+      if (!playerId) return;
+      const targetPlayerId = playerId;
+      await enqueueInventoryMutation(targetPlayerId, async () => {
+        if (
+          closedByRegistry
+          || !socket.connected
+          || playerId !== targetPlayerId
+          || !characters.getSnapshot(targetPlayerId)
+        ) return;
+        if (rejectIfInventoryUnavailable(targetPlayerId)) return;
+
+        const currentInventory = inventory.getSnapshot(targetPlayerId);
+        let nextInventory;
+        try {
+          nextInventory = moveItemToContainer(
+            currentInventory,
+            itemInstanceId,
+            containerInstanceId
+          );
+        } catch (error) {
+          reject(
+            error,
+            "INVENTORY_MOVE_REJECTED",
+            "Nie można przenieść tego przedmiotu do wybranej torby."
+          );
+          return;
+        }
+
+        if (nextInventory === currentInventory) return;
+
+        if (persistentDeps) {
+          try {
+            await persistentDeps.playerPersistence.saveInventoryAndEquipment(
+              targetPlayerId,
+              nextInventory,
+              equipmentByPlayer.get(targetPlayerId) ?? { items: [] }
+            );
+          } catch {
+            let restored: Awaited<ReturnType<PlayerPersistenceService["loadPlayer"]>> | undefined;
+            try {
+              restored = await persistentDeps.playerPersistence.loadPlayer(targetPlayerId);
+            } catch {
+              restored = undefined;
+              inventoryRecoveryRequired.add(targetPlayerId);
+            }
+            if (
+              restored
+              && !closedByRegistry
+              && socket.connected
+              && playerId === targetPlayerId
+              && characters.getSnapshot(targetPlayerId)
+            ) {
+              characters.hydratePlayer(restored.character);
+              inventory.hydratePlayer(targetPlayerId, restored.inventory);
+              equipmentByPlayer.set(targetPlayerId, restored.equipment);
+            }
+            if (
+              !closedByRegistry
+              && socket.connected
+              && playerId === targetPlayerId
+              && characters.getSnapshot(targetPlayerId)
+            ) {
+              reject(
+                new Error("PERSISTENCE_FAILED"),
+                "PERSISTENCE_FAILED",
+                "Nie udało się zapisać zawartości torby."
+              );
+              if (restored) emitPlayerState(targetPlayerId);
+            }
+            return;
+          }
+        }
+
+        if (
+          closedByRegistry
+          || !socket.connected
+          || playerId !== targetPlayerId
+          || !characters.getSnapshot(targetPlayerId)
+        ) return;
+
+        inventory.hydratePlayer(targetPlayerId, nextInventory);
+        emitPlayerState(targetPlayerId);
+      });
     });
 
     socket.on("requestWorldState", () => {
@@ -510,12 +677,21 @@ export function createGameServer(
       }
     });
 
-    socket.on("interactNpc", ({ npcId }) => {
+    socket.on("interactNpc", async ({ npcId }) => {
       if (!playerId) return;
+      const targetPlayerId = playerId;
 
       try {
-        const npc = world.interactNpc(playerId, npcId);
-        socket.emit("npcInteraction", npcPayload(npc.id));
+        const npc = world.interactNpc(targetPlayerId, npcId);
+        const payload = await npcPayload(npc.id, targetPlayerId);
+        if (
+          !closedByRegistry
+          && socket.connected
+          && playerId === targetPlayerId
+          && characters.getSnapshot(targetPlayerId)
+        ) {
+          socket.emit("npcInteraction", payload);
+        }
       } catch (error) {
         reject(
           error,
@@ -523,6 +699,154 @@ export function createGameServer(
           "Nie możesz teraz porozmawiać z tą postacią."
         );
       }
+    });
+
+    socket.on("claimSimpleBag", async ({ npcId }) => {
+      if (!playerId) return;
+      const targetPlayerId = playerId;
+
+      await enqueueInventoryMutation(targetPlayerId, async () => {
+        if (
+          closedByRegistry
+          || !socket.connected
+          || playerId !== targetPlayerId
+          || !characters.getSnapshot(targetPlayerId)
+        ) return;
+        if (rejectIfInventoryUnavailable(targetPlayerId)) return;
+
+        try {
+          const npc = world.interactNpc(targetPlayerId, npcId);
+          if (npc.kind !== "quartermaster") {
+            throw new Error("NPC_NOT_QUARTERMASTER");
+          }
+
+          if (await hasClaimedSimpleBag(targetPlayerId)) {
+            socket.emit(
+              "npcInteraction",
+              await npcPayload(npc.id, targetPlayerId, true)
+            );
+            return;
+          }
+
+          const bag = createBagItem("simple-bag");
+          const currentEquipment = equipmentByPlayer.get(targetPlayerId) ?? { items: [] };
+          const { inventory: nextInventory, equipment: nextEquipment } = placeBagReward(
+            inventory.getSnapshot(targetPlayerId),
+            currentEquipment,
+            bag
+          );
+
+          if (persistentDeps) {
+            let claimed: boolean;
+            try {
+              claimed = await persistentDeps.playerPersistence.claimNpcRewardOnce(
+                targetPlayerId,
+                SIMPLE_BAG_REWARD_KEY,
+                nextInventory,
+                nextEquipment
+              );
+            } catch {
+              let restored: Awaited<ReturnType<PlayerPersistenceService["loadPlayer"]>>;
+              try {
+                restored = await persistentDeps.playerPersistence.loadPlayer(targetPlayerId);
+              } catch {
+                inventoryRecoveryRequired.add(targetPlayerId);
+                reject(
+                  new Error("PERSISTENCE_FAILED"),
+                  "PERSISTENCE_FAILED",
+                  "Nie udało się potwierdzić zapisu worka. Ponowne wczytanie ekwipunku jest wymagane."
+                );
+                return;
+              }
+
+              if (
+                closedByRegistry
+                || !socket.connected
+                || playerId !== targetPlayerId
+                || !characters.getSnapshot(targetPlayerId)
+              ) return;
+
+              characters.hydratePlayer(restored.character);
+              inventory.hydratePlayer(targetPlayerId, restored.inventory);
+              equipmentByPlayer.set(targetPlayerId, restored.equipment);
+              inventoryRecoveryRequired.delete(targetPlayerId);
+              emitPlayerState(targetPlayerId);
+
+              let rewardWasCommitted: boolean;
+              try {
+                rewardWasCommitted = await hasClaimedSimpleBag(targetPlayerId);
+              } catch {
+                reject(
+                  new Error("PERSISTENCE_FAILED"),
+                  "PERSISTENCE_FAILED",
+                  "Worek został ponownie wczytany, ale nie udało się potwierdzić odbioru."
+                );
+                return;
+              }
+
+              if (
+                closedByRegistry
+                || !socket.connected
+                || playerId !== targetPlayerId
+                || !characters.getSnapshot(targetPlayerId)
+              ) return;
+
+              const npc = world.interactNpc(targetPlayerId, npcId);
+              const response = await npcPayload(
+                npc.id,
+                targetPlayerId,
+                rewardWasCommitted
+              );
+              if (
+                closedByRegistry
+                || !socket.connected
+                || playerId !== targetPlayerId
+              ) return;
+              socket.emit("npcInteraction", response);
+              if (!rewardWasCommitted) {
+                reject(
+                  new Error("PERSISTENCE_FAILED"),
+                  "PERSISTENCE_FAILED",
+                  "Nie udało się zapisać odebranego worka."
+                );
+              }
+              return;
+            }
+            if (!claimed) {
+              socket.emit(
+                "npcInteraction",
+                await npcPayload(npc.id, targetPlayerId, true)
+              );
+              return;
+            }
+          } else {
+            const claims = npcRewardClaims.get(targetPlayerId) ?? new Set<string>();
+            claims.add(SIMPLE_BAG_REWARD_KEY);
+            npcRewardClaims.set(targetPlayerId, claims);
+          }
+
+          if (
+            closedByRegistry
+            || !socket.connected
+            || playerId !== targetPlayerId
+            || !characters.getSnapshot(targetPlayerId)
+          ) return;
+
+          inventory.hydratePlayer(targetPlayerId, nextInventory);
+          equipmentByPlayer.set(targetPlayerId, nextEquipment);
+          emitPlayerState(targetPlayerId);
+          socket.emit(
+            "npcInteraction",
+            await npcPayload(npc.id, targetPlayerId, true)
+          );
+        } catch (error) {
+          reject(
+            error,
+            "NPC_REWARD_REJECTED",
+            "Nie udało się odebrać worka."
+          );
+        }
+      });
     });
 
     socket.on("healAtNpc", async ({ npcId }) => {
@@ -664,73 +988,87 @@ export function createGameServer(
 
       if (!applied.finished) return;
 
-      for (const outcome of applied.playerOutcomes ?? []) {
-        if (!characters.getSnapshot(outcome.playerId)) continue;
-        characters.applyBattleResult(outcome.playerId, outcome);
-      }
-
       const affectedLocations = new Set<LocationId>();
 
       for (const participantId of applied.playerIds) {
-        let participantCharacter = characters.getSnapshot(participantId);
-        if (!participantCharacter) continue;
+        let settlementAvailable = true;
+        await enqueueInventoryMutation(participantId, async () => {
+          if (inventoryRecoveryRequired.has(participantId)) {
+            settlementAvailable = false;
+            io.to(`player:${participantId}`).emit("commandRejected", {
+              code: "PERSISTENCE_RECOVERY_REQUIRED",
+              message: "Nie można zapisać wyniku walki przed ponownym wczytaniem ekwipunku."
+            });
+            return;
+          }
 
-        if (
-          applied.victory &&
-          applied.encounterId &&
-          applied.seed !== undefined
-        ) {
-          if (participantCharacter.hp <= 0) {
+          let participantCharacter = characters.getSnapshot(participantId);
+          if (!participantCharacter) {
+            settlementAvailable = false;
+            return;
+          }
+
+          const outcome = applied.playerOutcomes?.find(
+            (entry) => entry.playerId === participantId
+          );
+          if (outcome) {
+            participantCharacter = characters.applyBattleResult(participantId, outcome);
+          }
+
+          if (
+            applied.victory &&
+            applied.encounterId &&
+            applied.seed !== undefined
+          ) {
+            if (participantCharacter.hp <= 0) {
+              participantCharacter =
+                characters.recoverAfterDefeat(participantId);
+            }
+
+            const reward = loot.rollEncounterLoot(
+              applied.encounterId,
+              applied.seed
+            );
+            inventory.addItems(participantId, reward);
+          } else {
             participantCharacter =
               characters.recoverAfterDefeat(participantId);
+            world.resetPlayerToSpawn(participantId);
+            positions?.markDirty(participantId);
           }
 
-          const reward = loot.rollEncounterLoot(
-            applied.encounterId,
-            applied.seed
-          );
-          inventory.addItems(participantId, reward);
-        } else {
-          participantCharacter =
-            characters.recoverAfterDefeat(participantId);
-          world.resetPlayerToSpawn(participantId);
-          positions?.markDirty(participantId);
-        }
-
-        let inventorySnapshot = inventory.getSnapshot(participantId);
-
-        if (persistentDeps) {
-          try {
-            await persistentDeps.playerPersistence.saveBattleOutcome(
-              participantCharacter,
-              inventorySnapshot
-            );
-          } catch {
-            const restored =
-              await persistentDeps.playerPersistence.loadPlayer(
-                participantId
+          if (persistentDeps) {
+            try {
+              await persistentDeps.playerPersistence.saveBattleOutcome(
+                participantCharacter,
+                inventory.getSnapshot(participantId)
               );
-            characters.hydratePlayer(restored.character);
-            inventory.hydratePlayer(
-              participantId,
-              restored.inventory
-            );
-            equipmentByPlayer.set(
-              participantId,
-              restored.equipment
-            );
-            participantCharacter = restored.character;
-            inventorySnapshot = restored.inventory;
-            io.to(`player:${participantId}`).emit(
-              "commandRejected",
-              {
-                code: "PERSISTENCE_FAILED",
-                message:
-                  "Nie udało się trwale zapisać wyniku walki."
+            } catch {
+              try {
+                const restored =
+                  await persistentDeps.playerPersistence.loadPlayer(
+                    participantId
+                  );
+                characters.hydratePlayer(restored.character);
+                inventory.hydratePlayer(participantId, restored.inventory);
+                equipmentByPlayer.set(participantId, restored.equipment);
+              } catch {
+                inventoryRecoveryRequired.add(participantId);
+                settlementAvailable = false;
               }
-            );
+              io.to(`player:${participantId}`).emit(
+                "commandRejected",
+                {
+                  code: "PERSISTENCE_FAILED",
+                  message:
+                    "Nie udało się trwale zapisać wyniku walki."
+                }
+              );
+            }
           }
-        }
+        });
+
+        if (!settlementAvailable) continue;
 
         await positions?.flushPlayer(participantId);
 

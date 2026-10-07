@@ -1,12 +1,14 @@
 export const CONTAINER_ITEM_DRAG_TYPE = "application/x-mmorpg-item-instance";
 export const CONTAINER_SLOT_DRAG_TYPE = "application/x-mmorpg-container-slot";
+export const INVENTORY_ITEM_DRAG_TYPE = "application/x-mmorpg-inventory-item-instance";
 
 const POINTER_DRAG_THRESHOLD = 6;
-const DROP_TARGET_SELECTOR = "[data-container-slot], .inventory-list";
+const DROP_TARGET_SELECTOR = "[data-container-slot], [data-inventory-drop-target]";
 
 export interface ContainerPointerDragPayload {
   itemInstanceId: string;
   sourceSlot?: string;
+  canEquip?: boolean;
 }
 
 interface ActivePointerDrag {

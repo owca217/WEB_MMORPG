@@ -16,7 +16,7 @@ export interface EncounterSnapshot {
   label: string;
 }
 
-export type NpcKind = "guide" | "healer";
+export type NpcKind = "guide" | "healer" | "quartermaster";
 
 export interface NpcSnapshot {
   id: string;
@@ -34,6 +34,8 @@ export interface NpcInteractionPayload {
   title: string;
   lines: string[];
   canHeal: boolean;
+  canClaimSimpleBag: boolean;
+  simpleBagRewardClaimed: boolean;
 }
 
 export interface WorldStateSnapshot {

@@ -21,9 +21,14 @@ export interface ClientToServerEvents {
     slot: BagEquipmentSlot;
     itemInstanceId: string | null;
   }) => void;
+  moveInventoryItem: (payload: {
+    itemInstanceId: string;
+    containerInstanceId: string | null;
+  }) => void;
   requestWorldState: () => void;
   interactNpc: (payload: { npcId: string }) => void;
   healAtNpc: (payload: { npcId: string }) => void;
+  claimSimpleBag: (payload: { npcId: string }) => void;
   inviteToParty: (payload: { targetPlayerId: PlayerId }) => void;
   respondPartyInvite: (payload: { inviteId: string; accept: boolean }) => void;
   setPartyBattleMode: (payload: { enabled: boolean }) => void;

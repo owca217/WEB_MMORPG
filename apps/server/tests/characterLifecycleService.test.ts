@@ -72,7 +72,7 @@ describe("CharacterLifecycleService", () => {
     expect(starterState.rows[0]).toMatchObject({
       item_id: "simple-bag",
       name: "Zwykły worek",
-      category: "container",
+      category: "bag",
       quantity: 1,
       slot: "bag-1"
     });

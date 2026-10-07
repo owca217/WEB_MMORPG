@@ -81,7 +81,7 @@ describe("PlayerPersistenceService", () => {
           itemId: "simple-bag",
           name: "Zwykły worek",
           quantity: 1,
-          category: "container",
+          category: "bag",
           description: "Prosty worek.",
           containerCapacity: 8
         }
@@ -134,5 +134,72 @@ describe("PlayerPersistenceService", () => {
     const { experience: _experience, ...legacyCharacter } = restored.character;
     await persistence.saveCharacterState(legacyCharacter);
     expect((await persistence.loadPlayer(characterId)).character.experience).toBe(275);
+  });
+
+  it("round-trips bag contents and claims a reward once with atomic snapshots", async () => {
+    const characterId = await createPersistentCharacter();
+    const persistence = new PlayerPersistenceService(pool);
+    const bagInstanceId = randomUUID();
+    const storedItemId = randomUUID();
+    const equipment = { items: [{ slot: "bag-1", itemInstanceId: bagInstanceId }] };
+    const startingInventory: InventorySnapshot = {
+      items: [
+        {
+          instanceId: bagInstanceId,
+          itemId: "simple-bag",
+          name: "Zwykły worek",
+          quantity: 1,
+          category: "bag",
+          description: "Prosty worek.",
+          containerCapacity: 8
+        },
+        {
+          instanceId: storedItemId,
+          itemId: "wolf-pelt",
+          name: "Wilcza skóra",
+          quantity: 1,
+          category: "material",
+          description: "Skóra.",
+          containerInstanceId: bagInstanceId
+        }
+      ]
+    };
+
+    await persistence.saveInventoryAndEquipment(characterId, startingInventory, equipment);
+    const restored = await persistence.loadPlayer(characterId);
+    expect(restored.inventory.items.find((item) => item.instanceId === storedItemId))
+      .toMatchObject({ containerInstanceId: bagInstanceId });
+    expect(restored.equipment).toEqual(equipment);
+
+    const rewardKey = "quartermaster-simple-bag";
+    expect(await persistence.hasNpcRewardClaim(characterId, rewardKey)).toBe(false);
+    const rewardItem = {
+      instanceId: randomUUID(),
+      itemId: "simple-bag",
+      name: "Zwykły worek",
+      quantity: 1,
+      category: "bag" as const,
+      description: "Prosty worek.",
+      containerCapacity: 8
+    };
+    const claimedInventory = { items: [...startingInventory.items, rewardItem] };
+    expect(await persistence.claimNpcRewardOnce(characterId, rewardKey, claimedInventory, equipment))
+      .toBe(true);
+    expect(await persistence.hasNpcRewardClaim(characterId, rewardKey)).toBe(true);
+
+    const beforeDuplicate = await persistence.loadPlayer(characterId);
+    expect(await persistence.claimNpcRewardOnce(characterId, rewardKey, { items: [] }, { items: [] }))
+      .toBe(false);
+    expect(await persistence.loadPlayer(characterId)).toEqual(beforeDuplicate);
+
+    await expect(persistence.claimNpcRewardOnce(
+      characterId,
+      "quartermaster-rollback-probe",
+      { items: [] },
+      { items: [{ slot: "mainHand", itemInstanceId: "missing-item" }] }
+    )).rejects.toBeDefined();
+    expect(await persistence.hasNpcRewardClaim(characterId, "quartermaster-rollback-probe"))
+      .toBe(false);
+    expect(await persistence.loadPlayer(characterId)).toEqual(beforeDuplicate);
   });
 });

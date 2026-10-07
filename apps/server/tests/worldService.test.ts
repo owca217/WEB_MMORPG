@@ -67,8 +67,22 @@ describe("WorldService", () => {
   it("exposes guide, healer and wolf encounter in the forest settlement", () => {
     const snapshot = new WorldService().snapshot("forest-settlement-01");
 
-    expect(snapshot.npcs.map((npc) => npc.kind).sort()).toEqual(["guide", "healer"]);
+    expect(snapshot.npcs.map((npc) => npc.kind).sort()).toEqual([
+      "guide",
+      "healer",
+      "quartermaster"
+    ]);
     expect(snapshot.encounters.some((encounter) => encounter.id === "wolf-pack-01")).toBe(true);
+  });
+
+  it("places the quartermaster close enough to the settlement spawn to interact", () => {
+    const world = createTestWorld();
+    world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);
+
+    expect(world.interactNpc("p1", "quartermaster-runa")).toMatchObject({
+      kind: "quartermaster",
+      name: "Runa"
+    });
   });
 
   it("allows NPC interaction only inside the configured radius", () => {

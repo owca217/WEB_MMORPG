@@ -121,7 +121,9 @@ export class WorldScene extends Phaser.Scene {
     this.inventoryPanel = new InventoryPanel({
       onEquipContainer: (slot, itemInstanceId) =>
         gameSocket.setContainerSlot(slot, itemInstanceId),
-      onUnequipContainer: (slot) => gameSocket.setContainerSlot(slot, null)
+      onUnequipContainer: (slot) => gameSocket.setContainerSlot(slot, null),
+      onMoveItem: (itemInstanceId, containerInstanceId) =>
+        gameSocket.moveInventoryItem(itemInstanceId, containerInstanceId)
     });
     this.characterPanel = new CharacterPanel();
     this.statisticsPanel = new StatisticsPanel(
@@ -131,7 +133,8 @@ export class WorldScene extends Phaser.Scene {
     );
     this.professionsPanel = new ProfessionsPanel();
     this.dialoguePanel = new DialoguePanel({
-      onHeal: (npcId) => gameSocket.healAtNpc(npcId)
+      onHeal: (npcId) => gameSocket.healAtNpc(npcId),
+      onClaimBag: (npcId) => gameSocket.claimSimpleBag(npcId)
     });
     this.partyPanel = new PartyPanel(this.playerId, {
       onInvite: (targetPlayerId) => gameSocket.inviteToParty(targetPlayerId),
@@ -142,7 +145,9 @@ export class WorldScene extends Phaser.Scene {
       onLeave: () => gameSocket.leaveParty()
     });
     this.hud = new WorldHud({
-      onInventory: () => this.inventoryPanel?.show(),
+      onInventory: () => this.inventoryPanel?.openGeneralInventory(),
+      onOpenBagStorage: (containerInstanceId) =>
+        this.inventoryPanel?.openBagStorage(containerInstanceId),
       onContainerSlotChange: (slot, itemInstanceId) =>
         gameSocket.setContainerSlot(slot, itemInstanceId),
       onCharacter: () => this.characterPanel?.toggle(),

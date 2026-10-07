@@ -88,4 +88,45 @@ export class PlayerPersistenceService {
       );
     });
   }
+
+  async saveInventoryAndEquipment(
+    characterId: string,
+    inventory: InventorySnapshot,
+    equipment: EquipmentSnapshot
+  ): Promise<void> {
+    await withTransaction(this.pool, async (client) => {
+      await new InventoryRepository(client).replaceAll(characterId, inventory);
+      await new EquipmentRepository(client).replaceAll(characterId, equipment);
+    });
+  }
+
+  async hasNpcRewardClaim(characterId: string, rewardKey: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM character_reward_claims
+       WHERE character_id = $1 AND reward_key = $2`,
+      [characterId, rewardKey]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async claimNpcRewardOnce(
+    characterId: string,
+    rewardKey: string,
+    inventory: InventorySnapshot,
+    equipment: EquipmentSnapshot
+  ): Promise<boolean> {
+    return withTransaction(this.pool, async (client) => {
+      const claim = await client.query(
+        `INSERT INTO character_reward_claims (character_id, reward_key)
+         VALUES ($1, $2)
+         ON CONFLICT (character_id, reward_key) DO NOTHING`,
+        [characterId, rewardKey]
+      );
+      if (claim.rowCount === 0) return false;
+
+      await new InventoryRepository(client).replaceAll(characterId, inventory);
+      await new EquipmentRepository(client).replaceAll(characterId, equipment);
+      return true;
+    });
+  }
 }

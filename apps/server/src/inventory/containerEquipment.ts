@@ -36,7 +36,7 @@ export function setContainerSlot(
     candidate.instanceId === itemInstanceId
   );
   if (!item) throw new Error("CONTAINER_ITEM_NOT_FOUND");
-  if (item.category !== "container") throw new Error("ITEM_IS_NOT_CONTAINER");
+  if (item.category !== "bag") throw new Error("ITEM_IS_NOT_CONTAINER");
 
   return {
     items: [

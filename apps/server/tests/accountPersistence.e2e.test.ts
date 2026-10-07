@@ -150,7 +150,7 @@ describe("persistent account lifecycle end to end", () => {
     );
     expect(starterBag).toMatchObject({
       name: "Zwykły worek",
-      category: "container",
+      category: "bag",
       containerCapacity: 8
     });
     expect(state.equipment.items).toContainEqual({

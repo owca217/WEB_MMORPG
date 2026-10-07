@@ -159,7 +159,7 @@ describe("Socket.IO game flow", () => {
     );
     expect(starterBag).toMatchObject({
       name: "Zwykły worek",
-      category: "container",
+      category: "bag",
       containerCapacity: 8,
       quantity: 1
     });
@@ -184,6 +184,94 @@ describe("Socket.IO game flow", () => {
       npcName: "Boran",
       canHeal: false
     });
+  });
+
+  it("auto-equips the quartermaster bag when every bag slot is empty", async () => {
+    const { connectClient } = await startTestServer();
+    const client = await connectClient();
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const login = await client.emitWithAck("login", { nickname: "QuartermasterEmpty" });
+    if (!login.ok) throw new Error("Login unexpectedly failed");
+    const initialState = await initialStatePromise;
+    const starterBag = initialState.inventory.items.find((item) => item.itemId === "simple-bag");
+    if (!starterBag) throw new Error("Starter bag is missing");
+
+    const unequippedStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    client.emit("setContainerSlot", { slot: "bag-1", itemInstanceId: null });
+    await unequippedStatePromise;
+
+    const statePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const dialoguePromise = onceWithTimeout<NpcInteractionPayload>(client, "npcInteraction");
+    client.emit("claimSimpleBag", { npcId: "quartermaster-runa" });
+    const [state, dialogue] = await Promise.all([statePromise, dialoguePromise]);
+    const bags = state.inventory.items.filter((item) => item.itemId === "simple-bag");
+    const awardedBag = bags.find((item) => item.instanceId !== starterBag.instanceId);
+
+    expect(bags).toHaveLength(2);
+    expect(awardedBag?.category).toBe("bag");
+    expect(state.equipment.items).toContainEqual({
+      slot: "bag-1",
+      itemInstanceId: awardedBag?.instanceId
+    });
+    expect(dialogue).toMatchObject({ canClaimSimpleBag: false, simpleBagRewardClaimed: true });
+  });
+
+  it("keeps the quartermaster bag in general inventory when a bag slot is occupied and prevents duplicate claims", async () => {
+    const { connectClient } = await startTestServer();
+    const client = await connectClient();
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const login = await client.emitWithAck("login", { nickname: "QuartermasterOccupied" });
+    if (!login.ok) throw new Error("Login unexpectedly failed");
+    const initialState = await initialStatePromise;
+
+    const statePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const dialoguePromise = onceWithTimeout<NpcInteractionPayload>(client, "npcInteraction");
+    client.emit("claimSimpleBag", { npcId: "quartermaster-runa" });
+    const [state, dialogue] = await Promise.all([statePromise, dialoguePromise]);
+    const bags = state.inventory.items.filter((item) => item.itemId === "simple-bag");
+    const awardedBag = bags.find((item) => !initialState.inventory.items.some(
+      (initialItem) => initialItem.instanceId === item.instanceId
+    ));
+
+    expect(bags).toHaveLength(2);
+    expect(awardedBag?.containerInstanceId).toBeUndefined();
+    expect(state.equipment.items).not.toContainEqual(expect.objectContaining({
+      itemInstanceId: awardedBag?.instanceId
+    }));
+    expect(dialogue.simpleBagRewardClaimed).toBe(true);
+
+    const duplicateDialoguePromise = onceWithTimeout<NpcInteractionPayload>(client, "npcInteraction");
+    client.emit("claimSimpleBag", { npcId: "quartermaster-runa" });
+    expect(await duplicateDialoguePromise).toMatchObject({
+      canClaimSimpleBag: false,
+      simpleBagRewardClaimed: true
+    });
+    const duplicateStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    client.emit("requestPlayerState");
+    const duplicateState = await duplicateStatePromise;
+    expect(duplicateState.inventory.items.filter((item) => item.itemId === "simple-bag")).toHaveLength(2);
+  });
+
+  it("rejects quartermaster claims from another NPC or outside interaction range", async () => {
+    const { game, connectClient } = await startTestServer();
+    const client = await connectClient();
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const login = await client.emitWithAck("login", { nickname: "QuartermasterRange" });
+    if (!login.ok) throw new Error("Login unexpectedly failed");
+    const initialState = await initialStatePromise;
+
+    game.services.world.movePlayer(login.playerId, { x: 610, y: 420 }, Date.now() + 10_000);
+    const wrongNpcRejected = onceWithTimeout<{ code: string }>(client, "commandRejected");
+    client.emit("claimSimpleBag", { npcId: "guide-boran" });
+    expect(await wrongNpcRejected).toMatchObject({ code: "NPC_NOT_QUARTERMASTER" });
+
+    game.services.world.movePlayer(login.playerId, { x: 1200, y: 700 }, Date.now() + 20_000);
+    const outOfRangeRejected = onceWithTimeout<{ code: string }>(client, "commandRejected");
+    client.emit("claimSimpleBag", { npcId: "quartermaster-runa" });
+    expect(await outOfRangeRejected).toMatchObject({ code: "NPC_OUT_OF_RANGE" });
+    const unchangedStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    client.emit("requestPlayerState");
+    expect((await unchangedStatePromise).inventory.items).toEqual(initialState.inventory.items);
   });
 
   it("moves a container between the four bag slots and supports unequipping it", async () => {
@@ -212,6 +300,45 @@ describe("Socket.IO game flow", () => {
     client.emit("setContainerSlot", { slot: "bag-2", itemInstanceId: null });
     const removedState = await removedStatePromise;
     expect(removedState.equipment.items.some((entry) => entry.slot.startsWith("bag-"))).toBe(false);
+  });
+
+  it("moves items into a bag and rejects unknown items without changing inventory", async () => {
+    const { game, connectClient } = await startTestServer();
+    const client = await connectClient();
+    const initialStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const loginResult = await client.emitWithAck("login", { nickname: "StorageMover" });
+    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+    const initialState = await initialStatePromise;
+    const starterBag = initialState.inventory.items.find((item) => item.itemId === "simple-bag");
+    if (!starterBag) throw new Error("Starter bag is missing");
+
+    const created = game.services.inventory.addItems(loginResult.playerId, [{
+      itemId: "wolf-pelt",
+      name: "Wilcza skóra",
+      quantity: 1,
+      category: "material",
+      description: "Skóra."
+    }]);
+    const pelt = created.items.find((item) => item.itemId === "wolf-pelt");
+    if (!pelt) throw new Error("Test pelt was not created");
+
+    const storedStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    client.emit("moveInventoryItem", {
+      itemInstanceId: pelt.instanceId,
+      containerInstanceId: starterBag.instanceId
+    });
+    const storedState = await storedStatePromise;
+    expect(storedState.inventory.items.find((item) => item.instanceId === pelt.instanceId))
+      .toMatchObject({ containerInstanceId: starterBag.instanceId });
+
+    const beforeRejectedMove = game.services.inventory.getSnapshot(loginResult.playerId);
+    const rejectedPromise = onceWithTimeout<{ code: string; message: string }>(client, "commandRejected");
+    client.emit("moveInventoryItem", {
+      itemInstanceId: "missing-item",
+      containerInstanceId: starterBag.instanceId
+    });
+    expect((await rejectedPromise).code).toBe("SOURCE_ITEM_NOT_FOUND");
+    expect(game.services.inventory.getSnapshot(loginResult.playerId)).toEqual(beforeRejectedMove);
   });
 
   it("rejects attempts to control the server-owned wolf", async () => {

@@ -12,6 +12,7 @@ interface InventoryRow {
   category: InventoryItem["category"];
   description: string;
   container_capacity: number | null;
+  container_instance_id: string | null;
 }
 
 export class InventoryRepository {
@@ -19,7 +20,7 @@ export class InventoryRepository {
 
   async load(characterId: string): Promise<InventorySnapshot> {
     const result = await this.db.query<InventoryRow>(
-      `SELECT instance_id, item_id, name, quantity, category, description, container_capacity
+      `SELECT instance_id, item_id, name, quantity, category, description, container_capacity, container_instance_id
        FROM character_items
        WHERE character_id = $1
        ORDER BY instance_id`,
@@ -36,7 +37,10 @@ export class InventoryRepository {
         description: row.description,
         ...(row.container_capacity === null
           ? {}
-          : { containerCapacity: row.container_capacity })
+          : { containerCapacity: row.container_capacity }),
+        ...(row.container_instance_id === null
+          ? {}
+          : { containerInstanceId: row.container_instance_id })
       }))
     };
   }
@@ -57,8 +61,8 @@ export class InventoryRepository {
     for (const item of snapshot.items) {
       await this.db.query(
         `INSERT INTO character_items
-         (instance_id, character_id, item_id, name, quantity, category, description, container_capacity)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+         (instance_id, character_id, item_id, name, quantity, category, description, container_capacity, container_instance_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           item.instanceId,
           characterId,
@@ -67,7 +71,8 @@ export class InventoryRepository {
           item.quantity,
           item.category,
           item.description,
-          item.containerCapacity ?? null
+          item.containerCapacity ?? null,
+          item.containerInstanceId ?? null
         ]
       );
     }

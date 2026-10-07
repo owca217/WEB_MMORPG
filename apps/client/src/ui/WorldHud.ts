@@ -16,6 +16,7 @@ import "./world-hud.css";
 
 interface WorldHudHandlers {
   onInventory: () => void;
+  onOpenBagStorage: (containerInstanceId: string) => void;
   onContainerSlotChange: (
     slot: BagEquipmentSlot,
     itemInstanceId: string | null
@@ -95,21 +96,23 @@ export class WorldHud {
       const slotId = slot.dataset.containerSlot as BagEquipmentSlot;
       slot.addEventListener("click", () => {
         if (consumeSuppressedContainerClick()) return;
-        handlers.onInventory();
+        const itemInstanceId = slot.dataset.itemInstanceId;
+        if (itemInstanceId) handlers.onOpenBagStorage(itemInstanceId);
+        else handlers.onInventory();
       });
       bindContainerPointerDrag(
         slot,
         () => {
           const itemInstanceId = slot.dataset.itemInstanceId;
           return itemInstanceId
-            ? { itemInstanceId, sourceSlot: slotId }
+            ? { itemInstanceId, sourceSlot: slotId, canEquip: true }
             : null;
         },
         (target, payload) => {
           const destinationSlot = target?.closest<HTMLButtonElement>(
             "[data-container-slot]"
           );
-          if (destinationSlot?.dataset.containerSlot) {
+          if (destinationSlot?.dataset.containerSlot && payload.canEquip) {
             handlers.onContainerSlotChange(
               destinationSlot.dataset.containerSlot as BagEquipmentSlot,
               payload.itemInstanceId
@@ -117,7 +120,10 @@ export class WorldHud {
             return;
           }
 
-          if (payload.sourceSlot && target?.closest(".inventory-list")) {
+          if (
+            payload.sourceSlot
+            && target?.closest('[data-inventory-drop-target="general"]')
+          ) {
             handlers.onContainerSlotChange(
               payload.sourceSlot as BagEquipmentSlot,
               null
@@ -210,15 +216,15 @@ export class WorldHud {
       slot.dataset.occupied = String(occupied);
       if (itemInstanceId) slot.dataset.itemInstanceId = itemInstanceId;
       else delete slot.dataset.itemInstanceId;
-      slot.draggable = Boolean(itemInstanceId && item?.category === "container");
+      slot.draggable = Boolean(itemInstanceId && item?.category === "bag");
       slot.setAttribute(
         "aria-label",
-        `${slot.dataset.containerSlot}: ${item?.name ?? (occupied ? "Założony pojemnik" : "Puste miejsce")}`
+        `${slot.dataset.containerSlot}: ${item?.name ?? (occupied ? "Założona torba" : "Puste miejsce")}`
       );
       slot.querySelector<HTMLElement>("[data-container-icon]")!.textContent =
-        item?.category === "container" ? "🎒" : occupied ? "◆" : "＋";
+        item?.category === "bag" ? "🎒" : occupied ? "◆" : "＋";
       slot.querySelector<HTMLElement>("[data-container-name]")!.textContent =
-        item?.name ?? (occupied ? "Założony pojemnik" : "Puste miejsce");
+        item?.name ?? (occupied ? "Założona torba" : "Puste miejsce");
       slot.querySelector<HTMLElement>("[data-container-capacity]")!.textContent =
         capacity ? `${capacity} miejsc` : occupied ? "?" : "—";
     }

@@ -30,6 +30,14 @@ export const FOREST_SETTLEMENT_01: WorldFixture = {
       x: 720,
       y: 535,
       interactionRadius: 95
+    },
+    {
+      id: "quartermaster-runa",
+      kind: "quartermaster",
+      name: "Runa",
+      x: 420,
+      y: 470,
+      interactionRadius: 95
     }
   ],
   encounters: [

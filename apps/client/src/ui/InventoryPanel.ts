@@ -7,9 +7,13 @@ import { InterfaceWindowControls } from "./InterfaceWindowControls";
 import {
   bindContainerPointerDrag,
   cancelContainerPointerDrag,
+  consumeSuppressedContainerClick,
   CONTAINER_ITEM_DRAG_TYPE,
-  CONTAINER_SLOT_DRAG_TYPE
+  CONTAINER_SLOT_DRAG_TYPE,
+  INVENTORY_ITEM_DRAG_TYPE,
+  type ContainerPointerDragPayload
 } from "./containerDrag";
+import { getInventoryView } from "./inventoryViewModel";
 
 const CATEGORY_LABELS = {
   material: "Materiał",
@@ -17,7 +21,7 @@ const CATEGORY_LABELS = {
   armor: "Pancerz",
   weapon: "Broń",
   accessory: "Dodatek",
-  container: "Pojemnik"
+  bag: "Torby"
 } as const;
 
 const ITEM_ICONS: Record<string, string> = {
@@ -29,6 +33,7 @@ const ITEM_ICONS: Record<string, string> = {
 interface InventoryPanelOptions {
   onEquipContainer?: (slot: BagEquipmentSlot, itemInstanceId: string) => void;
   onUnequipContainer?: (slot: BagEquipmentSlot) => void;
+  onMoveItem?: (itemInstanceId: string, containerInstanceId: string | null) => void;
 }
 
 type InventoryItemWithStats = InventoryItem & {
@@ -38,44 +43,62 @@ type InventoryItemWithStats = InventoryItem & {
 export class InventoryPanel {
   private readonly root: HTMLDivElement;
   private readonly list: HTMLDivElement;
+  private readonly bagList: HTMLDivElement;
+  private readonly bagTitle: HTMLElement;
+  private readonly bagCapacity: HTMLElement;
+  private readonly bagEmpty: HTMLParagraphElement;
   private readonly tooltip: HTMLDivElement;
   private readonly windowControls: InterfaceWindowControls;
   private readonly onEquipContainer:
     | ((slot: BagEquipmentSlot, itemInstanceId: string) => void)
     | undefined;
+  private readonly onUnequipContainer:
+    | ((slot: BagEquipmentSlot) => void)
+    | undefined;
+  private readonly onMoveItem:
+    | ((itemInstanceId: string, containerInstanceId: string | null) => void)
+    | undefined;
+  private selectedBagId: string | null = null;
+  private snapshot: InventorySnapshot = { items: [] };
   private pinnedItemId: string | null = null;
   private readonly onDocumentPointerDown: (event: PointerEvent) => void;
 
   constructor(options: InventoryPanelOptions = {}) {
     this.onEquipContainer = options.onEquipContainer;
+    this.onUnequipContainer = options.onUnequipContainer;
+    this.onMoveItem = options.onMoveItem;
     this.root = document.createElement("div");
     this.root.className = "game-panel game-panel--inventory is-hidden";
     this.root.innerHTML = `
       <div class="game-panel__header">
         <h2>Ekwipunek</h2>
       </div>
-      <div class="inventory-list" data-list></div>
+      <div class="inventory-workspace">
+        <section class="inventory-pane" aria-label="Przedmioty">
+          <div class="inventory-pane__header"><h3>Przedmioty</h3></div>
+          <div class="inventory-list" data-list data-inventory-drop-target="general"></div>
+        </section>
+        <section class="inventory-pane inventory-pane--bag" aria-label="Zawartość torby">
+          <div class="inventory-pane__header">
+            <h3 data-bag-title>Wybierz torbę</h3>
+            <span data-bag-capacity></span>
+          </div>
+          <div class="inventory-list inventory-list--bag" data-bag-list hidden></div>
+          <p class="inventory-bag-empty" data-bag-empty>
+            Kliknij worek w ekwipunku albo w jednym ze slotów pod menu.
+          </p>
+        </section>
+      </div>
     `;
     document.body.appendChild(this.root);
 
     this.list = this.require<HTMLDivElement>("[data-list]");
-    this.list.addEventListener("dragover", (event) => {
-      if (!event.dataTransfer?.types.includes(CONTAINER_SLOT_DRAG_TYPE)) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      this.list.dataset.dropTarget = "true";
-    });
-    this.list.addEventListener("dragleave", () => {
-      delete this.list.dataset.dropTarget;
-    });
-    this.list.addEventListener("drop", (event) => {
-      event.preventDefault();
-      delete this.list.dataset.dropTarget;
-      const sourceSlot = event.dataTransfer?.getData(CONTAINER_SLOT_DRAG_TYPE);
-      if (sourceSlot && options.onUnequipContainer) {
-        options.onUnequipContainer(sourceSlot as BagEquipmentSlot);
-      }
-    });
+    this.bagList = this.require<HTMLDivElement>("[data-bag-list]");
+    this.bagTitle = this.require<HTMLElement>("[data-bag-title]");
+    this.bagCapacity = this.require<HTMLElement>("[data-bag-capacity]");
+    this.bagEmpty = this.require<HTMLParagraphElement>("[data-bag-empty]");
+    this.bindDropHandlers(this.list);
+    this.bindDropHandlers(this.bagList);
     this.tooltip = document.createElement("div");
     this.tooltip.className = "inventory-tooltip";
     this.tooltip.hidden = true;
@@ -98,118 +121,209 @@ export class InventoryPanel {
   }
 
   update(snapshot: InventorySnapshot): void {
+    this.snapshot = snapshot;
+    this.render();
+  }
+
+  openBagStorage(containerInstanceId: string): void {
+    this.selectedBagId = containerInstanceId;
+    this.show();
+    this.render();
+  }
+
+  openGeneralInventory(): void {
+    this.selectedBagId = null;
+    this.show();
+    this.render();
+  }
+
+  private render(): void {
+    const view = getInventoryView(this.snapshot, this.selectedBagId);
+    if (!view.selectedBag) this.selectedBagId = null;
+
     this.list.replaceChildren();
     this.pinnedItemId = null;
     this.hideTooltip();
 
-    if (snapshot.items.length === 0) {
+    if (view.generalItems.length === 0) {
       const empty = document.createElement("p");
       empty.className = "game-panel__empty";
       empty.textContent = "Ekwipunek jest pusty.";
       this.list.appendChild(empty);
+    } else {
+      for (const item of view.generalItems) {
+        this.list.appendChild(this.createItemSlot(item));
+      }
+    }
+
+    this.bagTitle.textContent = view.selectedBag?.name ?? "Wybierz torbę";
+    this.bagCapacity.textContent = view.selectedBag
+      ? `${view.occupiedSlots} / ${view.capacity} miejsc`
+      : "";
+    this.bagList.replaceChildren();
+    this.bagList.hidden = !view.selectedBag;
+    this.bagEmpty.hidden = Boolean(view.selectedBag);
+    if (view.selectedBag) {
+      this.bagList.dataset.inventoryDropTarget = view.selectedBag.instanceId;
+      for (let index = 0; index < view.capacity; index += 1) {
+        const item = view.bagContents[index];
+        if (item) {
+          this.bagList.appendChild(this.createItemSlot(item));
+        } else {
+          const emptySlot = document.createElement("div");
+          emptySlot.className = "inventory-slot inventory-slot--empty";
+          emptySlot.setAttribute("aria-label", `Wolne miejsce ${index + 1}`);
+          emptySlot.setAttribute("aria-hidden", "true");
+          this.bagList.appendChild(emptySlot);
+        }
+      }
+    } else {
+      delete this.bagList.dataset.inventoryDropTarget;
+    }
+  }
+
+  private createItemSlot(item: InventoryItem): HTMLButtonElement {
+    const slot = document.createElement("button");
+    slot.type = "button";
+    slot.className = `inventory-slot inventory-slot--${item.category}`;
+    slot.dataset.itemId = item.instanceId;
+    slot.draggable = true;
+    slot.setAttribute("aria-label", `${item.name}, ilość: ${item.quantity}`);
+
+    const icon = document.createElement("span");
+    icon.className = "inventory-slot__icon";
+    icon.textContent = ITEM_ICONS[item.itemId] ??
+      (item.category === "bag" ? "🎒" : item.category === "medical" ? "✚" : "◆");
+    slot.appendChild(icon);
+
+    if (item.quantity > 1) {
+      const quantity = document.createElement("span");
+      quantity.className = "inventory-slot__quantity";
+      quantity.textContent = String(item.quantity);
+      slot.appendChild(quantity);
+    }
+
+    bindContainerPointerDrag(
+      slot,
+      () => ({ itemInstanceId: item.instanceId, canEquip: item.category === "bag" }),
+      (target, payload) => this.handlePointerDrop(item, target, payload)
+    );
+    slot.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) return;
+      event.dataTransfer.effectAllowed = "move";
+      const dragType = item.category === "bag"
+        ? CONTAINER_ITEM_DRAG_TYPE
+        : INVENTORY_ITEM_DRAG_TYPE;
+      event.dataTransfer.setData(dragType, item.instanceId);
+    });
+    slot.addEventListener("click", () => {
+      if (consumeSuppressedContainerClick()) return;
+      if (item.category === "bag") this.openBagStorage(item.instanceId);
+    });
+
+    slot.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      this.showTooltip(item, event.clientX, event.clientY);
+    });
+    slot.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch" || this.pinnedItemId) return;
+      this.positionTooltip(event.clientX, event.clientY);
+    });
+    slot.addEventListener("pointerleave", () => {
+      if (this.pinnedItemId !== item.instanceId) this.hideTooltip();
+    });
+    slot.addEventListener("focus", () => {
+      const rect = slot.getBoundingClientRect();
+      this.showTooltip(item, rect.right + 8, rect.top + rect.height / 2);
+    });
+    slot.addEventListener("blur", () => {
+      if (this.pinnedItemId !== item.instanceId) this.hideTooltip();
+    });
+    slot.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse") return;
+      if (this.pinnedItemId === item.instanceId) {
+        this.pinnedItemId = null;
+        this.hideTooltip();
+        return;
+      }
+
+      this.pinnedItemId = item.instanceId;
+      const rect = slot.getBoundingClientRect();
+      this.showTooltip(item, rect.left + rect.width / 2, rect.bottom + 8);
+    });
+
+    return slot;
+  }
+
+  private bindDropHandlers(list: HTMLDivElement): void {
+    list.addEventListener("dragover", (event) => {
+      const types = event.dataTransfer?.types;
+      if (!types) return;
+      const hasItem = types.includes(CONTAINER_ITEM_DRAG_TYPE)
+        || types.includes(INVENTORY_ITEM_DRAG_TYPE);
+      const hasEquippedBag = types.includes(CONTAINER_SLOT_DRAG_TYPE);
+      if (!hasItem && !hasEquippedBag) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      list.dataset.dropTarget = "true";
+    });
+    list.addEventListener("dragleave", () => {
+      delete list.dataset.dropTarget;
+    });
+    list.addEventListener("drop", (event) => {
+      event.preventDefault();
+      delete list.dataset.dropTarget;
+      const transfer = event.dataTransfer;
+      if (!transfer) return;
+      const destination = list.dataset.inventoryDropTarget;
+      if (destination === "general") {
+        const sourceSlot = transfer.getData(CONTAINER_SLOT_DRAG_TYPE);
+        if (sourceSlot) {
+          this.onUnequipContainer?.(sourceSlot as BagEquipmentSlot);
+          return;
+        }
+      }
+
+      const itemInstanceId = transfer.getData(CONTAINER_ITEM_DRAG_TYPE)
+        || transfer.getData(INVENTORY_ITEM_DRAG_TYPE);
+      if (!itemInstanceId || !destination) return;
+      const item = this.snapshot.items.find((entry) => entry.instanceId === itemInstanceId);
+      if (!item) return;
+      if (destination !== "general" && item.category === "bag") return;
+      this.onMoveItem?.(itemInstanceId, destination === "general" ? null : destination);
+    });
+  }
+
+  private handlePointerDrop(
+    item: InventoryItem,
+    target: Element | null,
+    payload: ContainerPointerDragPayload
+  ): void {
+    this.pinnedItemId = null;
+    this.hideTooltip();
+    const equipmentSlot = target?.closest<HTMLButtonElement>("[data-container-slot]");
+    if (equipmentSlot?.dataset.containerSlot && payload.canEquip) {
+      this.onEquipContainer?.(
+        equipmentSlot.dataset.containerSlot as BagEquipmentSlot,
+        payload.itemInstanceId
+      );
       return;
     }
 
-    for (const item of snapshot.items) {
-      const slot = document.createElement("button");
-      slot.type = "button";
-      slot.className = `inventory-slot inventory-slot--${item.category}`;
-      slot.dataset.itemId = item.instanceId;
-      slot.draggable = item.category === "container";
-      slot.setAttribute(
-        "aria-label",
-        `${item.name}, ilość: ${item.quantity}`
-      );
-
-      const icon = document.createElement("span");
-      icon.className = "inventory-slot__icon";
-      icon.textContent =
-        ITEM_ICONS[item.itemId] ??
-        (item.category === "container"
-          ? "🎒"
-          : item.category === "medical" ? "✚" : "◆");
-
-      slot.appendChild(icon);
-
-      if (item.category === "container") {
-        bindContainerPointerDrag(
-          slot,
-          () => ({ itemInstanceId: item.instanceId }),
-          (target, payload) => {
-            this.pinnedItemId = null;
-            this.hideTooltip();
-            const destinationSlot = target?.closest<HTMLButtonElement>(
-              "[data-container-slot]"
-            );
-            if (destinationSlot?.dataset.containerSlot) {
-              this.onEquipContainer?.(
-                destinationSlot.dataset.containerSlot as BagEquipmentSlot,
-                payload.itemInstanceId
-              );
-            }
-          }
-        );
-        slot.addEventListener("dragstart", (event) => {
-          if (!event.dataTransfer) return;
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData(CONTAINER_ITEM_DRAG_TYPE, item.instanceId);
-        });
+    const dropTarget = target?.closest<HTMLElement>("[data-inventory-drop-target]");
+    const destination = dropTarget?.dataset.inventoryDropTarget;
+    if (!destination) return;
+    if (payload.sourceSlot) {
+      if (destination === "general") {
+        this.onUnequipContainer?.(payload.sourceSlot as BagEquipmentSlot);
       }
-
-      if (item.quantity > 1) {
-        const quantity = document.createElement("span");
-        quantity.className = "inventory-slot__quantity";
-        quantity.textContent = String(item.quantity);
-        slot.appendChild(quantity);
-      }
-
-      slot.addEventListener("pointerenter", (event) => {
-        if (event.pointerType === "touch") return;
-        this.showTooltip(item, event.clientX, event.clientY);
-      });
-      slot.addEventListener("pointermove", (event) => {
-        if (event.pointerType === "touch" || this.pinnedItemId) return;
-        this.positionTooltip(event.clientX, event.clientY);
-      });
-      slot.addEventListener("pointerleave", () => {
-        if (this.pinnedItemId !== item.instanceId) {
-          this.hideTooltip();
-        }
-      });
-      slot.addEventListener("focus", () => {
-        const rect = slot.getBoundingClientRect();
-        this.showTooltip(
-          item,
-          rect.right + 8,
-          rect.top + rect.height / 2
-        );
-      });
-      slot.addEventListener("blur", () => {
-        if (this.pinnedItemId !== item.instanceId) {
-          this.hideTooltip();
-        }
-      });
-      slot.addEventListener("pointerdown", (event) => {
-        if (event.pointerType === "mouse") return;
-        event.preventDefault();
-
-        if (this.pinnedItemId === item.instanceId) {
-          this.pinnedItemId = null;
-          this.hideTooltip();
-          return;
-        }
-
-        this.pinnedItemId = item.instanceId;
-        const rect = slot.getBoundingClientRect();
-        this.showTooltip(
-          item,
-          rect.left + rect.width / 2,
-          rect.bottom + 8
-        );
-      });
-
-      this.list.appendChild(slot);
+      return;
     }
+    if (destination !== "general" && item.category === "bag") return;
+    this.onMoveItem?.(
+      payload.itemInstanceId,
+      destination === "general" ? null : destination
+    );
   }
 
   show(): void {

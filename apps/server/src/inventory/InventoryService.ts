@@ -22,7 +22,7 @@ export class InventoryService {
     const inventory = this.inventories.get(playerId) ?? [];
 
     for (const item of items) {
-      if (item.category === "container") {
+      if (item.category === "bag") {
         for (let index = 0; index < item.quantity; index += 1) {
           inventory.push({
             instanceId: randomUUID(),

@@ -851,35 +851,71 @@ export function createGameServer(
 
     socket.on("healAtNpc", async ({ npcId }) => {
       if (!playerId) return;
+      const targetPlayerId = playerId;
 
-      try {
-        const npc = world.interactNpc(playerId, npcId);
-        if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
+      await enqueueInventoryMutation(targetPlayerId, async () => {
+        if (
+          closedByRegistry
+          || !socket.connected
+          || playerId !== targetPlayerId
+          || !characters.getSnapshot(targetPlayerId)
+        ) return;
+        if (rejectIfInventoryUnavailable(targetPlayerId)) return;
 
-        const healed = characters.healHp(playerId);
-        if (persistentDeps) {
-          try {
-            await persistentDeps.playerPersistence.saveCharacterState(healed);
-          } catch {
-            const restored =
-              await persistentDeps.playerPersistence.loadPlayer(playerId);
-            characters.hydratePlayer(restored.character);
-            inventory.hydratePlayer(playerId, restored.inventory);
-            equipmentByPlayer.set(playerId, restored.equipment);
-            reject(
-              new Error("PERSISTENCE_FAILED"),
-              "PERSISTENCE_FAILED",
-              "Nie udało się trwale zapisać leczenia."
-            );
-            emitPlayerState(playerId);
-            return;
+        try {
+          const npc = world.interactNpc(targetPlayerId, npcId);
+          if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
+
+          const healed = characters.healHp(targetPlayerId);
+          if (persistentDeps) {
+            try {
+              await persistentDeps.playerPersistence.saveCharacterState(healed);
+            } catch {
+              let restored: Awaited<ReturnType<PlayerPersistenceService["loadPlayer"]>>;
+              try {
+                restored = await persistentDeps.playerPersistence.loadPlayer(targetPlayerId);
+              } catch {
+                inventoryRecoveryRequired.add(targetPlayerId);
+                reject(
+                  new Error("PERSISTENCE_FAILED"),
+                  "PERSISTENCE_FAILED",
+                  "Nie udało się ponownie wczytać stanu po błędzie leczenia."
+                );
+                return;
+              }
+
+              if (
+                closedByRegistry
+                || !socket.connected
+                || playerId !== targetPlayerId
+                || !characters.getSnapshot(targetPlayerId)
+              ) return;
+
+              characters.hydratePlayer(restored.character);
+              inventory.hydratePlayer(targetPlayerId, restored.inventory);
+              equipmentByPlayer.set(targetPlayerId, restored.equipment);
+              inventoryRecoveryRequired.delete(targetPlayerId);
+              reject(
+                new Error("PERSISTENCE_FAILED"),
+                "PERSISTENCE_FAILED",
+                "Nie udało się trwale zapisać leczenia."
+              );
+              emitPlayerState(targetPlayerId);
+              return;
+            }
           }
-        }
 
-        emitPlayerState(playerId);
-      } catch (error) {
-        reject(error, "HEAL_REJECTED", "Leczenie nie jest teraz dostępne.");
-      }
+          if (
+            closedByRegistry
+            || !socket.connected
+            || playerId !== targetPlayerId
+            || !characters.getSnapshot(targetPlayerId)
+          ) return;
+          emitPlayerState(targetPlayerId);
+        } catch (error) {
+          reject(error, "HEAL_REJECTED", "Leczenie nie jest teraz dostępne.");
+        }
+      });
     });
 
     socket.on("startEncounter", async ({ encounterId }) => {

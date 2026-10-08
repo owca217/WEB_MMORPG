@@ -66,17 +66,25 @@ describe("inventory view model", () => {
   });
 
   it.each([
-    [8, 2, false],
-    [20, 4, false],
-    [25, 5, false],
-    [40, 5, true],
-    [60, 5, true]
-  ])("sizes a %i-slot bag viewport to %i visible rows (scrollable: %s)", (capacity, visibleRows, isScrollable) => {
+    [8, [4, 4], 4, 2, false, 230],
+    [13, [5, 4, 4], 5, 3, false, 256],
+    [20, [5, 5, 5, 5], 5, 4, false, 256],
+    [25, [5, 5, 5, 5, 5], 5, 5, false, 256],
+    [26, [5, 5, 4, 4, 4, 4], 5, 5, true, 256],
+    [40, [5, 5, 5, 5, 5, 5, 5, 5], 5, 5, true, 256],
+    [60, [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5], 5, 5, true, 256]
+  ])("balances a %i-slot bag into rows %j, showing %i columns and %i rows (scrollable: %s)", (capacity, rowSizes, columns, visibleRows, isScrollable, windowWidth) => {
     const snapshot: InventorySnapshot = {
       items: [{ ...item("bag-1", "bag"), containerCapacity: capacity }]
     };
 
-    expect(getInventoryView(snapshot, "bag-1")).toMatchObject({ visibleRows, isScrollable });
+    expect(getInventoryView(snapshot, "bag-1")).toMatchObject({
+      rowSizes,
+      columns,
+      visibleRows,
+      isScrollable,
+      windowWidth
+    });
   });
 
   it("returns an empty bag view when no valid bag is selected", () => {

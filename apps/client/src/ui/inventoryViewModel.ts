@@ -7,12 +7,38 @@ export interface InventoryViewModel {
   occupiedSlots: number;
   capacity: number;
   emptySlots: number;
+  rowSizes: number[];
+  columns: number;
   visibleRows: number;
   isScrollable: boolean;
+  windowWidth: number;
 }
 
 const BAG_GRID_COLUMNS = 5;
 const BAG_GRID_MAX_VISIBLE_ROWS = 5;
+const BAG_SLOT_SIZE = 32;
+const BAG_SLOT_GAP = 4;
+const BAG_WINDOW_HORIZONTAL_CHROME = 80;
+const BAG_WINDOW_MIN_WIDTH = 230;
+
+function getBalancedRowSizes(capacity: number): number[] {
+  if (capacity <= 0) return [];
+
+  const rows = Math.ceil(capacity / BAG_GRID_COLUMNS);
+  const slotsPerRow = Math.floor(capacity / rows);
+  const extraSlots = capacity % rows;
+  return Array.from(
+    { length: rows },
+    (_unused, index) => slotsPerRow + Number(index < extraSlots)
+  );
+}
+
+function getBagWindowWidth(columns: number): number {
+  const slotGridWidth = columns > 0
+    ? columns * BAG_SLOT_SIZE + (columns - 1) * BAG_SLOT_GAP
+    : 0;
+  return Math.max(BAG_WINDOW_MIN_WIDTH, slotGridWidth + BAG_WINDOW_HORIZONTAL_CHROME);
+}
 
 export function getInventoryView(
   snapshot: InventorySnapshot,
@@ -36,9 +62,9 @@ export function getInventoryView(
     ? rawCapacity
     : 0;
   const occupiedSlots = bagContents.length;
-  const visibleRows = capacity > 0
-    ? Math.min(BAG_GRID_MAX_VISIBLE_ROWS, Math.ceil(capacity / BAG_GRID_COLUMNS))
-    : 0;
+  const rowSizes = getBalancedRowSizes(capacity);
+  const columns = rowSizes[0] ?? 0;
+  const visibleRows = Math.min(BAG_GRID_MAX_VISIBLE_ROWS, rowSizes.length);
 
   return {
     generalItems,
@@ -47,7 +73,10 @@ export function getInventoryView(
     occupiedSlots,
     capacity,
     emptySlots: Math.max(0, capacity - occupiedSlots),
+    rowSizes,
+    columns,
     visibleRows,
-    isScrollable: capacity > BAG_GRID_COLUMNS * BAG_GRID_MAX_VISIBLE_ROWS
+    isScrollable: rowSizes.length > BAG_GRID_MAX_VISIBLE_ROWS,
+    windowWidth: getBagWindowWidth(columns)
   };
 }

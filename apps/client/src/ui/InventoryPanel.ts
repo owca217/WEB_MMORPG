@@ -152,6 +152,12 @@ export class InventoryPanel {
     const view = getInventoryView(this.snapshot, this.selectedBagId);
     if (!view.selectedBag) this.selectedBagId = null;
     const showingBag = Boolean(view.selectedBag);
+    this.root.dataset.mode = showingBag ? "bag" : "general";
+    if (showingBag) {
+      this.root.style.setProperty("--bag-window-width", `${view.windowWidth}px`);
+    } else {
+      this.root.style.removeProperty("--bag-window-width");
+    }
     this.workspace.dataset.mode = showingBag ? "bag" : "general";
     this.generalPane.hidden = showingBag;
     this.bagPane.hidden = !showingBag;
@@ -185,17 +191,27 @@ export class InventoryPanel {
         "--bag-visible-height",
         `${view.visibleRows * 36 + 10}px`
       );
-      for (let index = 0; index < view.capacity; index += 1) {
-        const item = view.bagContents[index];
-        if (item) {
-          this.bagList.appendChild(this.createItemSlot(item));
-        } else {
-          const emptySlot = document.createElement("div");
-          emptySlot.className = "inventory-slot inventory-slot--empty";
-          emptySlot.setAttribute("aria-label", `Wolne miejsce ${index + 1}`);
-          emptySlot.setAttribute("aria-hidden", "true");
-          this.bagList.appendChild(emptySlot);
+      let slotIndex = 0;
+      for (const rowSize of view.rowSizes) {
+        const row = document.createElement("div");
+        row.className = "inventory-list__row";
+        row.style.setProperty("--bag-row-columns", String(rowSize));
+
+        for (let columnIndex = 0; columnIndex < rowSize; columnIndex += 1) {
+          const item = view.bagContents[slotIndex];
+          if (item) {
+            row.appendChild(this.createItemSlot(item));
+          } else {
+            const emptySlot = document.createElement("div");
+            emptySlot.className = "inventory-slot inventory-slot--empty";
+            emptySlot.setAttribute("aria-label", `Wolne miejsce ${slotIndex + 1}`);
+            emptySlot.setAttribute("aria-hidden", "true");
+            row.appendChild(emptySlot);
+          }
+          slotIndex += 1;
         }
+
+        this.bagList.appendChild(row);
       }
     } else {
       delete this.bagList.dataset.inventoryDropTarget;
@@ -493,7 +509,31 @@ export class InventoryPanel {
 
   private fitPanelTitle(): void {
     this.panelTitle.style.removeProperty("font-size");
-    if (!this.selectedBagId || !this.panelTitle.textContent) return;
+    if (!this.selectedBagId || !this.panelTitle.textContent) {
+      this.panelTitle.style.removeProperty("left");
+      this.panelTitle.style.removeProperty("width");
+      this.panelTitle.style.removeProperty("min-width");
+      this.panelTitle.style.removeProperty("max-width");
+      this.panelTitle.style.removeProperty("padding-left");
+      this.panelTitle.style.removeProperty("padding-right");
+      return;
+    }
+
+    const header = this.panelTitle.parentElement;
+    const chrome = header?.querySelector<HTMLElement>(".ui-window__chrome");
+    const headerWidth = header?.clientWidth ?? 0;
+    const chromeWidth = chrome?.offsetWidth ?? 0;
+    const controlGap = 8;
+    const panelEdgeGap = 8;
+    const titleWidth = headerWidth - chromeWidth - controlGap - panelEdgeGap * 2;
+    if (titleWidth <= 0) return;
+
+    this.panelTitle.style.left = `calc(50% - ${(chromeWidth + controlGap) / 2}px)`;
+    this.panelTitle.style.width = `${titleWidth}px`;
+    this.panelTitle.style.minWidth = "0";
+    this.panelTitle.style.maxWidth = "none";
+    this.panelTitle.style.paddingLeft = "12px";
+    this.panelTitle.style.paddingRight = "12px";
 
     const style = window.getComputedStyle(this.panelTitle);
     const baseFontSize = Number.parseFloat(style.fontSize);

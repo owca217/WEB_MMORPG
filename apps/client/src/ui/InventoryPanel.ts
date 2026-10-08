@@ -13,6 +13,7 @@ import {
   type ContainerPointerDragPayload
 } from "./containerDrag";
 import { resolveInventoryDropAction } from "./inventoryDropRouting";
+import { fitInventoryTitleFontSize, inventoryPanelTitle } from "./inventoryTitle";
 import { getInventoryView } from "./inventoryViewModel";
 
 const CATEGORY_LABELS = {
@@ -45,9 +46,9 @@ export class InventoryPanel {
   private readonly list: HTMLDivElement;
   private readonly bagList: HTMLDivElement;
   private readonly workspace: HTMLDivElement;
+  private readonly panelTitle: HTMLHeadingElement;
   private readonly generalPane: HTMLElement;
   private readonly bagPane: HTMLElement;
-  private readonly bagTitle: HTMLElement;
   private readonly bagCapacity: HTMLElement;
   private readonly generalDropTarget: HTMLButtonElement;
   private readonly tooltip: HTMLDivElement;
@@ -65,6 +66,7 @@ export class InventoryPanel {
   private snapshot: InventorySnapshot = { items: [] };
   private pinnedItemId: string | null = null;
   private readonly onDocumentPointerDown: (event: PointerEvent) => void;
+  private readonly onViewportResize = (): void => this.fitPanelTitle();
 
   constructor(options: InventoryPanelOptions = {}) {
     this.onEquipContainer = options.onEquipContainer;
@@ -74,7 +76,7 @@ export class InventoryPanel {
     this.root.className = "game-panel game-panel--inventory is-hidden";
     this.root.innerHTML = `
       <div class="game-panel__header">
-        <h2>Ekwipunek</h2>
+        <h2 data-inventory-title>Ekwipunek</h2>
       </div>
       <div class="inventory-workspace" data-mode="general">
         <section class="inventory-pane inventory-pane--general" data-general-pane aria-label="Przedmioty">
@@ -83,7 +85,6 @@ export class InventoryPanel {
         </section>
         <section class="inventory-pane inventory-pane--bag" data-bag-pane aria-label="Zawartość torby" hidden>
           <div class="inventory-pane__header">
-            <h3 data-bag-title></h3>
             <span data-bag-capacity></span>
             <button class="inventory-pane__transfer" type="button"
               data-inventory-drop-target="general" title="Otwórz ekwipunek lub upuść tu przedmiot">
@@ -99,9 +100,9 @@ export class InventoryPanel {
     this.list = this.require<HTMLDivElement>("[data-list]");
     this.bagList = this.require<HTMLDivElement>("[data-bag-list]");
     this.workspace = this.require<HTMLDivElement>(".inventory-workspace");
+    this.panelTitle = this.require<HTMLHeadingElement>("[data-inventory-title]");
     this.generalPane = this.require<HTMLElement>("[data-general-pane]");
     this.bagPane = this.require<HTMLElement>("[data-bag-pane]");
-    this.bagTitle = this.require<HTMLElement>("[data-bag-title]");
     this.bagCapacity = this.require<HTMLElement>("[data-bag-capacity]");
     this.generalDropTarget = this.require<HTMLButtonElement>(".inventory-pane__transfer");
     this.generalDropTarget.addEventListener("click", () => this.openGeneralInventory());
@@ -127,6 +128,7 @@ export class InventoryPanel {
       this.hideTooltip();
     };
     document.addEventListener("pointerdown", this.onDocumentPointerDown);
+    window.addEventListener("resize", this.onViewportResize);
   }
 
   update(snapshot: InventorySnapshot): void {
@@ -153,6 +155,8 @@ export class InventoryPanel {
     this.workspace.dataset.mode = showingBag ? "bag" : "general";
     this.generalPane.hidden = showingBag;
     this.bagPane.hidden = !showingBag;
+    this.panelTitle.textContent = inventoryPanelTitle(view.selectedBag?.name ?? null);
+    this.fitPanelTitle();
 
     this.list.replaceChildren();
     this.pinnedItemId = null;
@@ -169,7 +173,6 @@ export class InventoryPanel {
       }
     }
 
-    this.bagTitle.textContent = view.selectedBag?.name ?? "Wybierz torbę";
     this.bagCapacity.textContent = view.selectedBag
       ? `${view.occupiedSlots} / ${view.capacity} miejsc`
       : "";
@@ -391,6 +394,7 @@ export class InventoryPanel {
   destroy(): void {
     cancelContainerPointerDrag();
     document.removeEventListener("pointerdown", this.onDocumentPointerDown);
+    window.removeEventListener("resize", this.onViewportResize);
     this.windowControls.destroy();
     this.tooltip.remove();
     this.root.remove();
@@ -485,6 +489,32 @@ export class InventoryPanel {
 
   private hideTooltip(): void {
     this.tooltip.hidden = true;
+  }
+
+  private fitPanelTitle(): void {
+    this.panelTitle.style.removeProperty("font-size");
+    if (!this.selectedBagId || !this.panelTitle.textContent) return;
+
+    const style = window.getComputedStyle(this.panelTitle);
+    const baseFontSize = Number.parseFloat(style.fontSize);
+    const availableTextWidth = this.panelTitle.clientWidth
+      - Number.parseFloat(style.paddingLeft)
+      - Number.parseFloat(style.paddingRight);
+    if (availableTextWidth <= 0 || !Number.isFinite(baseFontSize)) return;
+
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.font = `${style.fontStyle} ${style.fontWeight} ${baseFontSize}px ${style.fontFamily}`;
+    const measuredTextWidth = context.measureText(this.panelTitle.textContent).width;
+    const fittedFontSize = fitInventoryTitleFontSize(
+      measuredTextWidth,
+      availableTextWidth,
+      baseFontSize
+    );
+    if (fittedFontSize < baseFontSize) {
+      this.panelTitle.style.fontSize = `${fittedFontSize}px`;
+    }
   }
 
   private require<T extends HTMLElement = HTMLElement>(selector: string): T {

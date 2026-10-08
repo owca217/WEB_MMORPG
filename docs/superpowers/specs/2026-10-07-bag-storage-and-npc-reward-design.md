@@ -3,7 +3,7 @@
 **Date:** 2026-10-07
 **Repository:** `owca217/WEB_MMORPG`
 **Target branch:** `feature/mvp-vertical-slice`
-**Status:** Approved by the user; implementation has not started.
+**Status:** Approved and implemented on `feature/mvp-vertical-slice`; GitHub Pages passed for the feature commit. A final recovery-race fix is ready to publish, and its push-triggered CI result still needs verification.
 
 ## 1. Purpose
 

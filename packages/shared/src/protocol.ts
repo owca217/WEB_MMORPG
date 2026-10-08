@@ -2,11 +2,13 @@ import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type {
   BagEquipmentSlot,
+  EquipmentSnapshot,
   InventorySnapshot
 } from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
 import type { PartyInvitePayload, PartySnapshot } from "./party";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
+import type { AdminItemCatalog } from "./itemCatalog";
 
 export interface ClientToServerEvents {
   login: (
@@ -34,6 +36,8 @@ export interface ClientToServerEvents {
   setPartyBattleMode: (payload: { enabled: boolean }) => void;
   leaveParty: () => void;
   requestPartyState: () => void;
+  requestAdminCatalog: () => void;
+  grantAdminItem: (payload: AdminGrantRequest) => void;
 }
 
 export interface ServerToClientEvents {
@@ -56,7 +60,29 @@ export interface ServerToClientEvents {
     character: CharacterSnapshot;
   }) => void;
   commandRejected: (payload: { code: string; message: string }) => void;
+  adminCatalog: (payload: AdminItemCatalog) => void;
+  adminGrantResult: (payload: AdminGrantResult) => void;
 }
+
+export interface AdminGrantRequest {
+  operationId: string;
+  itemId: string;
+  quantity: number;
+}
+
+export type AdminGrantResult =
+  | {
+      ok: true;
+      operationId: string;
+      inventory: InventorySnapshot;
+      equipment: EquipmentSnapshot;
+    }
+  | {
+      ok: false;
+      operationId: string;
+      code: string;
+      message: string;
+    };
 
 export type LoginResult =
   | { ok: true; playerId: PlayerId; locationId: LocationId }

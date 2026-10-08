@@ -35,6 +35,8 @@ interface WorldHudHandlers {
   onProfessions: () => void;
   onParty?: () => void;
   onLogout: () => void;
+  isAdmin?: boolean;
+  onAdminPanel?: () => void;
 }
 
 let nextMenuId = 0;
@@ -240,6 +242,13 @@ export class WorldHud {
       this.addAction("party", worldWindowMenuItem("party").label, handlers.onParty);
     }
     this.addAction("logout", worldWindowMenuItem("logout").label, handlers.onLogout);
+    if (handlers.isAdmin && handlers.onAdminPanel) {
+      this.addAction(
+        "admin",
+        worldWindowMenuItem("admin").label,
+        handlers.onAdminPanel
+      );
+    }
 
     this.menuToggle.addEventListener("click", () => this.setMenuOpen(this.menu.hidden));
     this.root.addEventListener("keydown", (event) => this.navigateMenu(event));
@@ -322,6 +331,25 @@ export class WorldHud {
     this.connection.textContent = state === "connected"
       ? "Połączono"
       : state === "connecting" ? "Ponowne łączenie…" : "Brak połączenia z serwerem";
+  }
+
+  revokeAdminAccess(): void {
+    const adminButton = this.menu.querySelector<HTMLButtonElement>("[data-admin]");
+    if (adminButton) {
+      adminButton.remove();
+      const index = this.menuButtons.indexOf(adminButton);
+      if (index >= 0) this.menuButtons.splice(index, 1);
+    }
+    this.setMenuOpen(false);
+  }
+
+  grantAdminAccess(handler: () => void): void {
+    if (this.menu.querySelector("[data-admin]")) return;
+    this.addAction(
+      "admin",
+      worldWindowMenuItem("admin").label,
+      handler
+    );
   }
 
   destroy(): void {

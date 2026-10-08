@@ -1,11 +1,13 @@
 import type { Server as HttpServer } from "node:http";
 import type {
   ClientToServerEvents,
+  AdminGrantRequest,
   LocationId,
   NpcInteractionPayload,
   PlayerId,
   ServerToClientEvents
 } from "@web-mmorpg/shared";
+import { ITEM_DEFINITIONS } from "@web-mmorpg/shared";
 import { Server } from "socket.io";
 import type { AuthService } from "../auth/AuthService";
 import { BattleService } from "../battle/BattleService";
@@ -20,6 +22,7 @@ import { BAG_EQUIPMENT_SLOTS } from "@web-mmorpg/shared";
 import { CharacterRepository } from "../persistence/CharacterRepository";
 import { PositionPersistenceCoordinator } from "../persistence/PositionPersistenceCoordinator";
 import { PlayerPersistenceService } from "../persistence/PlayerPersistenceService";
+import { AdminGrantError, AdminGrantService } from "../admin/AdminGrantService";
 import { LootService } from "../loot/LootService";
 import { PartyService } from "../party/PartyService";
 import { SessionStore } from "../session/SessionStore";
@@ -55,6 +58,9 @@ export function createGameServer(
   const inventoryMutationQueues = new Map<PlayerId, Promise<void>>();
   const npcRewardClaims = new Map<PlayerId, Set<string>>();
   const inventoryRecoveryRequired = new Set<PlayerId>();
+  const adminGrantService = persistentDeps
+    ? new AdminGrantService(persistentDeps.playerPersistence)
+    : null;
   const SIMPLE_BAG_REWARD_KEY = "quartermaster-simple-bag";
   const enqueueInventoryMutation = async (
     targetPlayerId: PlayerId,
@@ -173,6 +179,57 @@ export function createGameServer(
         "Stan ekwipunku wymaga ponownego wczytania. Spróbuj ponownie za chwilę."
       );
       return true;
+    };
+
+    const currentAdminSession = async () => {
+      if (!persistentDeps || !accountId) return null;
+      const token =
+        typeof socket.data.authToken === "string"
+          ? socket.data.authToken
+          : "";
+      if (!token) return null;
+
+      try {
+        const validated = await persistentDeps.authService.validateToken(token);
+        if (!validated || validated.account.id !== accountId) return null;
+        return validated.account.role === "ADMIN" ? validated : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const emitAdminFailure = (
+      operationId: string,
+      code: string,
+      message: string
+    ): void => {
+      socket.emit("adminGrantResult", {
+        ok: false,
+        operationId,
+        code,
+        message
+      });
+    };
+
+    const adminMessage = (code: string): string => {
+      switch (code) {
+        case "ADMIN_REQUIRED":
+          return "Panel administratora wymaga rangi ADMIN.";
+        case "ADMIN_INVALID_ITEM":
+          return "Wybrany przedmiot nie jest dostępny w katalogu administratora.";
+        case "ADMIN_INVALID_QUANTITY":
+          return "Ilość musi być liczbą całkowitą od 1 do 1000.";
+        case "ADMIN_INVALID_OPERATION":
+          return "Identyfikator operacji jest nieprawidłowy.";
+        case "ADMIN_IN_BATTLE":
+          return "Nie można dodawać przedmiotów podczas walki.";
+        case "ADMIN_OPERATION_CONFLICT":
+          return "Ten identyfikator operacji został już użyty z innymi danymi.";
+        case "PERSISTENCE_FAILED":
+          return "Nie udało się trwale zapisać przedmiotu. Spróbuj ponownie.";
+        default:
+          return "Operacja administratora została odrzucona.";
+      }
     };
 
     const hasClaimedSimpleBag = async (targetPlayerId: PlayerId): Promise<boolean> => {
@@ -403,6 +460,113 @@ export function createGameServer(
     socket.on("requestPlayerState", () => {
       if (!playerId) return;
       emitPlayerState(playerId);
+    });
+
+    socket.on("requestAdminCatalog", async () => {
+      const validated = await currentAdminSession();
+      if (!validated) {
+        reject(
+          new Error("ADMIN_REQUIRED"),
+          "ADMIN_REQUIRED",
+          adminMessage("ADMIN_REQUIRED")
+        );
+        return;
+      }
+
+      socket.emit("adminCatalog", { items: ITEM_DEFINITIONS });
+    });
+
+    socket.on("grantAdminItem", async (payload: AdminGrantRequest) => {
+      if (!playerId) return;
+      const targetPlayerId = playerId;
+      const operationId =
+        typeof (payload as { operationId?: unknown })?.operationId === "string"
+          ? (payload as { operationId: string }).operationId
+          : "";
+
+      await enqueueInventoryMutation(targetPlayerId, async () => {
+        if (
+          closedByRegistry
+          || !socket.connected
+          || playerId !== targetPlayerId
+          || !characters.getSnapshot(targetPlayerId)
+        ) return;
+
+        const validated = await currentAdminSession();
+        if (!validated) {
+          emitAdminFailure(operationId, "ADMIN_REQUIRED", adminMessage("ADMIN_REQUIRED"));
+          return;
+        }
+        if (battles.hasBattle(targetPlayerId)) {
+          emitAdminFailure(operationId, "ADMIN_IN_BATTLE", adminMessage("ADMIN_IN_BATTLE"));
+          return;
+        }
+        if (inventoryRecoveryRequired.has(targetPlayerId)) {
+          emitAdminFailure(operationId, "PERSISTENCE_FAILED", adminMessage("PERSISTENCE_FAILED"));
+          return;
+        }
+        if (!adminGrantService) {
+          emitAdminFailure(operationId, "ADMIN_REQUIRED", adminMessage("ADMIN_REQUIRED"));
+          return;
+        }
+
+        try {
+          const result = await adminGrantService.grant({
+            operationId,
+            accountId: validated.account.id,
+            characterId: targetPlayerId,
+            itemId: (payload as { itemId?: string }).itemId as string,
+            quantity: (payload as { quantity?: number }).quantity as number,
+            inventory: inventory.getSnapshot(targetPlayerId),
+            equipment: equipmentByPlayer.get(targetPlayerId) ?? { items: [] }
+          });
+
+          if (
+            closedByRegistry
+            || !socket.connected
+            || playerId !== targetPlayerId
+            || !characters.getSnapshot(targetPlayerId)
+          ) return;
+
+          inventory.hydratePlayer(targetPlayerId, result.inventory);
+          equipmentByPlayer.set(targetPlayerId, result.equipment);
+          socket.emit("adminGrantResult", {
+            ok: true,
+            operationId,
+            inventory: result.inventory,
+            equipment: result.equipment
+          });
+          emitPlayerState(targetPlayerId);
+        } catch (error) {
+          const code =
+            error instanceof AdminGrantError
+              ? error.code
+              : error instanceof Error &&
+                  "code" in error &&
+                  (error as { code?: unknown }).code === "ADMIN_OPERATION_CONFLICT"
+                ? "ADMIN_OPERATION_CONFLICT"
+                : "PERSISTENCE_FAILED";
+
+          if (code !== "PERSISTENCE_FAILED") {
+            emitAdminFailure(operationId, code, adminMessage(code));
+            return;
+          }
+
+          try {
+            const restored = await persistentDeps?.playerPersistence.loadPlayer(targetPlayerId);
+            if (restored) {
+              characters.hydratePlayer(restored.character);
+              inventory.hydratePlayer(targetPlayerId, restored.inventory);
+              equipmentByPlayer.set(targetPlayerId, restored.equipment);
+              inventoryRecoveryRequired.delete(targetPlayerId);
+              emitPlayerState(targetPlayerId);
+            }
+          } catch {
+            inventoryRecoveryRequired.add(targetPlayerId);
+          }
+          emitAdminFailure(operationId, "PERSISTENCE_FAILED", adminMessage("PERSISTENCE_FAILED"));
+        }
+      });
     });
 
     socket.on("setContainerSlot", async ({ slot, itemInstanceId }) => {

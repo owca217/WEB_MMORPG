@@ -14,12 +14,14 @@ import {
   type BattleActionMode
 } from "../battle/BattlePreview";
 import { gameSocket } from "../net/GameSocket";
+import { worldSceneData } from "../state/sessionRouting";
 import { BattleHud } from "../ui/BattleHud";
 import { LootSummary } from "../ui/LootSummary";
 
 interface BattleSceneData {
   playerId: PlayerId;
   snapshot: BattleSnapshot;
+  accountRole?: "PLAYER" | "ADMIN";
 }
 
 const PREVIEW_LABELS: Record<AttackPreviewReason, string> = {
@@ -66,6 +68,7 @@ export class BattleScene extends Phaser.Scene {
   private hud: BattleHud | undefined;
   private lootSummary: LootSummary | undefined;
   private actionMode: BattleActionMode = "move";
+  private accountRole: "PLAYER" | "ADMIN" = "PLAYER";
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
   private unsubscribeState: (() => void) | undefined;
   private unsubscribeEnded: (() => void) | undefined;
@@ -79,6 +82,7 @@ export class BattleScene extends Phaser.Scene {
     this.playerId = data.playerId;
     this.snapshot = data.snapshot;
     this.actionMode = "move";
+    this.accountRole = data.accountRole ?? "PLAYER";
   }
 
   create(): void {
@@ -105,7 +109,10 @@ export class BattleScene extends Phaser.Scene {
       this.lootSummary = new LootSummary(() => {
         this.lootSummary?.destroy();
         this.lootSummary = undefined;
-        this.scene.start("WorldScene", { playerId: this.playerId });
+        this.scene.start(
+          "WorldScene",
+          worldSceneData(this.playerId, this.accountRole)
+        );
       });
       this.lootSummary.show(payload);
     });

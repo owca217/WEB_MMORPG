@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { gameSocket } from "../net/GameSocket";
+import { worldSceneData } from "../state/sessionRouting";
 
 export class LoginScene extends Phaser.Scene {
   private form: HTMLFormElement | undefined;
@@ -38,7 +39,7 @@ export class LoginScene extends Phaser.Scene {
 
         form.remove();
         this.form = undefined;
-        this.scene.start("WorldScene", { playerId: result.playerId });
+        this.scene.start("WorldScene", worldSceneData(result.playerId));
       } catch {
         if (errorElement) {
           errorElement.textContent = "Could not connect to the game server.";

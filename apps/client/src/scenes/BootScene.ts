@@ -4,7 +4,10 @@ import { WALK_SHEETS } from "../appearance/walkSprites";
 import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { authSessionStore } from "../state/AuthSessionStore";
-import { sceneForCharacterLifecycle } from "../state/sessionRouting";
+import {
+  sceneForCharacterLifecycle,
+  worldSceneData
+} from "../state/sessionRouting";
 
 const persistentAccountsEnabled =
   import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
@@ -48,21 +51,28 @@ export class BootScene extends Phaser.Scene {
 
       if (destination === "WorldScene") {
         if (session.character.state !== "active") return;
-        this.scene.start(destination, {
-          playerId: session.character.characterId
-        });
+        this.scene.start(
+          destination,
+          worldSceneData(
+            session.character.characterId,
+            session.accountRole ?? "PLAYER"
+          )
+        );
         return;
       }
 
       if (destination === "CharacterDeletionScene") {
         if (session.character.state !== "pendingDeletion") return;
         this.scene.start(destination, {
-          character: session.character
+          character: session.character,
+          accountRole: session.accountRole ?? "PLAYER"
         });
         return;
       }
 
-      this.scene.start(destination);
+      this.scene.start(destination, {
+        accountRole: session.accountRole ?? "PLAYER"
+      });
     } catch {
       authSessionStore.clear();
       this.scene.start("AuthScene");

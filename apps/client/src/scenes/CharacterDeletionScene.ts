@@ -1,9 +1,11 @@
 import type {
+  AccountRole,
   CharacterLifecycleSummary
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { apiClient } from "../net/ApiClient";
 import { getDeletionCountdown } from "../state/characterDeletionCountdown";
+import { worldSceneData } from "../state/sessionRouting";
 
 type PendingDeletion = Extract<
   CharacterLifecycleSummary,
@@ -12,6 +14,7 @@ type PendingDeletion = Extract<
 
 interface CharacterDeletionSceneData {
   character: PendingDeletion;
+  accountRole?: AccountRole;
 }
 
 export class CharacterDeletionScene extends Phaser.Scene {
@@ -20,6 +23,7 @@ export class CharacterDeletionScene extends Phaser.Scene {
   private countdown: HTMLElement | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private refreshing = false;
+  private accountRole: AccountRole = "PLAYER";
 
   constructor() {
     super("CharacterDeletionScene");
@@ -27,6 +31,7 @@ export class CharacterDeletionScene extends Phaser.Scene {
 
   init(data: CharacterDeletionSceneData): void {
     this.character = data.character;
+    this.accountRole = data.accountRole ?? "PLAYER";
   }
 
   create(): void {
@@ -73,16 +78,21 @@ export class CharacterDeletionScene extends Phaser.Scene {
       error.textContent = "Anulowanie...";
       void apiClient
         .cancelCharacterDeletion()
-        .then((lifecycle) => {
+        .then(async (lifecycle) => {
+          const session = await apiClient.getSession().catch(() => null);
+          if (session) this.accountRole = session.accountRole ?? this.accountRole;
+
           if (lifecycle.state === "active") {
             this.scene.start("WorldScene", {
-              playerId: lifecycle.characterId
+              ...worldSceneData(lifecycle.characterId, this.accountRole)
             });
             return;
           }
 
           if (lifecycle.state === "none") {
-            this.scene.start("CharacterCreatorScene");
+            this.scene.start("CharacterCreatorScene", {
+              accountRole: this.accountRole
+            });
             return;
           }
 
@@ -144,14 +154,18 @@ export class CharacterDeletionScene extends Phaser.Scene {
       void apiClient
         .getSession()
         .then((session) => {
+          this.accountRole = session.accountRole ?? this.accountRole;
           if (session.character.state === "none") {
-            this.scene.start("CharacterCreatorScene");
+            this.scene.start("CharacterCreatorScene", {
+              accountRole: this.accountRole
+            });
             return;
           }
           if (session.character.state === "active") {
-            this.scene.start("WorldScene", {
-              playerId: session.character.characterId
-            });
+            this.scene.start(
+              "WorldScene",
+              worldSceneData(session.character.characterId, this.accountRole)
+            );
             return;
           }
 

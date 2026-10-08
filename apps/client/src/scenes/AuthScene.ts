@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import type { SessionView } from "@web-mmorpg/shared";
 import { apiClient } from "../net/ApiClient";
 import { authSessionStore } from "../state/AuthSessionStore";
+import { worldSceneData } from "../state/sessionRouting";
 
 type AuthMode = "login" | "register" | "recover" | "recoveryCode";
 
@@ -179,23 +180,26 @@ export class AuthScene extends Phaser.Scene {
   }
 
   private routeSession(session: SessionView): void {
+    const accountRole = session.accountRole ?? "PLAYER";
     if (session.character.state === "none") {
       this.destroyPanel();
-      this.scene.start("CharacterCreatorScene");
+      this.scene.start("CharacterCreatorScene", { accountRole });
       return;
     }
 
     if (session.character.state === "active") {
       this.destroyPanel();
-      this.scene.start("WorldScene", {
-        playerId: session.character.characterId
-      });
+      this.scene.start(
+        "WorldScene",
+        worldSceneData(session.character.characterId, accountRole)
+      );
       return;
     }
 
     this.destroyPanel();
     this.scene.start("CharacterDeletionScene", {
-      character: session.character
+      character: session.character,
+      accountRole
     });
   }
 

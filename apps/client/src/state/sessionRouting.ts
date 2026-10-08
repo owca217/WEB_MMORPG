@@ -1,11 +1,25 @@
 import type {
-  CharacterLifecycleSummary
+  AccountRole,
+  CharacterLifecycleSummary,
+  PlayerId
 } from "@web-mmorpg/shared";
 
 export type PersistentSessionScene =
   | "CharacterCreatorScene"
   | "WorldScene"
   | "CharacterDeletionScene";
+
+export interface WorldSceneRouteData {
+  playerId: PlayerId;
+  accountRole: AccountRole;
+}
+
+export function worldSceneData(
+  playerId: PlayerId,
+  accountRole: AccountRole = "PLAYER"
+): WorldSceneRouteData {
+  return { playerId, accountRole };
+}
 
 export function sceneForCharacterLifecycle(
   lifecycle: CharacterLifecycleSummary

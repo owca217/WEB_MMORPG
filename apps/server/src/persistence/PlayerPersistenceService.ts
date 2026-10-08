@@ -11,6 +11,46 @@ import { EquipmentRepository } from "./EquipmentRepository";
 import { InjuryRepository } from "./InjuryRepository";
 import { InventoryRepository } from "./InventoryRepository";
 
+export interface ApplyAdminGrantInput {
+  operationId: string;
+  accountId: string;
+  characterId: string;
+  itemId: string;
+  quantity: number;
+  inventory: InventorySnapshot;
+  equipment: EquipmentSnapshot;
+}
+
+export interface ApplyAdminGrantResult {
+  status: "applied" | "alreadyApplied";
+  inventory: InventorySnapshot;
+  equipment: EquipmentSnapshot;
+}
+
+export class AdminOperationConflictError extends Error {
+  readonly code = "ADMIN_OPERATION_CONFLICT" as const;
+
+  constructor() {
+    super("The operation identifier was already used with different grant data.");
+  }
+}
+
+interface AdminGrantRow {
+  operation_id: string;
+  account_id: string;
+  character_id: string;
+  item_id: string;
+  quantity: number;
+}
+
+function copyInventory(snapshot: InventorySnapshot): InventorySnapshot {
+  return { items: snapshot.items.map((item) => ({ ...item })) };
+}
+
+function copyEquipment(snapshot: EquipmentSnapshot): EquipmentSnapshot {
+  return { items: snapshot.items.map((entry) => ({ ...entry })) };
+}
+
 export class PlayerPersistenceService {
   constructor(private readonly pool: Pool) {}
 
@@ -97,6 +137,73 @@ export class PlayerPersistenceService {
     await withTransaction(this.pool, async (client) => {
       await new InventoryRepository(client).replaceAll(characterId, inventory);
       await new EquipmentRepository(client).replaceAll(characterId, equipment);
+    });
+  }
+
+  async applyAdminGrant(input: ApplyAdminGrantInput): Promise<ApplyAdminGrantResult> {
+    return withTransaction(this.pool, async (client) => {
+      const owner = await client.query<{ account_id: string }>(
+        "SELECT account_id FROM characters WHERE id = $1 FOR UPDATE",
+        [input.characterId]
+      );
+      if (!owner.rows[0]) throw new Error("CHARACTER_NOT_FOUND");
+      if (owner.rows[0].account_id !== input.accountId) {
+        throw new Error("CHARACTER_ACCESS_DENIED");
+      }
+
+      const inserted = await client.query<AdminGrantRow>(
+        `INSERT INTO admin_item_grants
+         (operation_id, account_id, character_id, item_id, quantity)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (operation_id) DO NOTHING
+         RETURNING operation_id, account_id, character_id, item_id, quantity`,
+        [
+          input.operationId,
+          input.accountId,
+          input.characterId,
+          input.itemId,
+          input.quantity
+        ]
+      );
+
+      if (inserted.rows.length === 0) {
+        const existing = await client.query<AdminGrantRow>(
+          `SELECT operation_id, account_id, character_id, item_id, quantity
+           FROM admin_item_grants
+           WHERE operation_id = $1
+           FOR UPDATE`,
+          [input.operationId]
+        );
+        const row = existing.rows[0];
+        if (
+          !row ||
+          row.account_id !== input.accountId ||
+          row.character_id !== input.characterId ||
+          row.item_id !== input.itemId ||
+          row.quantity !== input.quantity
+        ) {
+          throw new AdminOperationConflictError();
+        }
+
+        const inventory = await new InventoryRepository(client).load(input.characterId);
+        const equipment = await new EquipmentRepository(client).load(input.characterId);
+        return { status: "alreadyApplied", inventory, equipment };
+      }
+
+      await new InventoryRepository(client).replaceAll(
+        input.characterId,
+        input.inventory
+      );
+      await new EquipmentRepository(client).replaceAll(
+        input.characterId,
+        input.equipment
+      );
+
+      return {
+        status: "applied",
+        inventory: copyInventory(input.inventory),
+        equipment: copyEquipment(input.equipment)
+      };
     });
   }
 

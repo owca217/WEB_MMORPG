@@ -1,4 +1,5 @@
 import type { DbExecutor } from "./dbTypes";
+import type { AccountRole } from "@web-mmorpg/shared";
 
 export interface AccountRecord {
   id: string;
@@ -7,6 +8,7 @@ export interface AccountRecord {
   passwordHash: string;
   recoveryCodeHash: string;
   status: "active" | "banned";
+  role: AccountRole;
 }
 
 interface AccountRow {
@@ -16,6 +18,7 @@ interface AccountRow {
   password_hash: string;
   recovery_code_hash: string;
   status: "active" | "banned";
+  role: AccountRole;
 }
 
 function mapAccount(row: AccountRow): AccountRecord {
@@ -25,12 +28,13 @@ function mapAccount(row: AccountRow): AccountRecord {
     usernameNormalized: row.username_normalized,
     passwordHash: row.password_hash,
     recoveryCodeHash: row.recovery_code_hash,
-    status: row.status
+    status: row.status,
+    role: row.role
   };
 }
 
 const RETURNING =
-  "id, username, username_normalized, password_hash, recovery_code_hash, status";
+  "id, username, username_normalized, password_hash, recovery_code_hash, status, role";
 
 export class AccountRepository {
   constructor(private readonly db: DbExecutor) {}
@@ -70,6 +74,10 @@ export class AccountRepository {
     return result.rows[0] ? mapAccount(result.rows[0]) : null;
   }
 
+  async findByUsernameForRoleChange(username: string): Promise<AccountRecord | null> {
+    return this.findByNormalizedUsername(username);
+  }
+
   async findById(accountId: string): Promise<AccountRecord | null> {
     const result = await this.db.query<AccountRow>(
       `SELECT ${RETURNING}
@@ -94,5 +102,18 @@ export class AccountRepository {
        WHERE id = $1`,
       [accountId, passwordHash, recoveryCodeHash]
     );
+  }
+
+  async updateRole(accountId: string, role: AccountRole): Promise<AccountRecord | null> {
+    const result = await this.db.query<AccountRow>(
+      `UPDATE accounts
+       SET role = $2,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING ${RETURNING}`,
+      [accountId, role]
+    );
+
+    return result.rows[0] ? mapAccount(result.rows[0]) : null;
   }
 }

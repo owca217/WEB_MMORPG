@@ -1,4 +1,7 @@
 import type {
+  AdminGrantRequest,
+  AdminGrantResult,
+  AdminItemCatalog,
   BattleCommand,
   BattleSnapshot,
   BagEquipmentSlot,
@@ -88,6 +91,14 @@ export class GameSocket {
 
   requestPlayerState(): void {
     this.connect().emit("requestPlayerState");
+  }
+
+  requestAdminCatalog(): void {
+    this.connect().emit("requestAdminCatalog");
+  }
+
+  grantAdminItem(payload: AdminGrantRequest): void {
+    this.connect().emit("grantAdminItem", payload);
   }
 
   setContainerSlot(slot: BagEquipmentSlot, itemInstanceId: string | null): void {
@@ -208,6 +219,18 @@ export class GameSocket {
     const socket = this.connect();
     socket.on("commandRejected", handler);
     return () => socket.off("commandRejected", handler);
+  }
+
+  onAdminCatalog(handler: (catalog: AdminItemCatalog) => void): () => void {
+    const socket = this.connect();
+    socket.on("adminCatalog", handler);
+    return () => socket.off("adminCatalog", handler);
+  }
+
+  onAdminGrantResult(handler: (result: AdminGrantResult) => void): () => void {
+    const socket = this.connect();
+    socket.on("adminGrantResult", handler);
+    return () => socket.off("adminGrantResult", handler);
   }
 
   onConnectionState(handler: (state: ConnectionState) => void): () => void {

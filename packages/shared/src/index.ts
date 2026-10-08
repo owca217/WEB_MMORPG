@@ -3,6 +3,7 @@ export * from "./ids";
 export * from "./world";
 export * from "./battle";
 export * from "./inventory";
+export * from "./itemCatalog";
 export * from "./character";
 export * from "./protocol";
 export * from "./auth";

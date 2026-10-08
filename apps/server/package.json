@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npm run db:migrate && tsx watch src/index.ts",
     "db:migrate": "tsx src/db/migrate.ts",
+    "admin:set-role": "tsx src/admin/setAccountRole.ts",
     "start": "npm run db:migrate && tsx src/index.ts",
     "test": "vitest run --fileParallelism=false",
     "build": "tsc --noEmit"

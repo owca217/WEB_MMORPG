@@ -7,6 +7,11 @@ import Phaser from "phaser";
 import { CharacterPreview } from "../appearance/CharacterPreview";
 import { CHARACTER_PRESETS, EYE_LABELS } from "../appearance/characterSprites";
 import { apiClient } from "../net/ApiClient";
+import { worldSceneData } from "../state/sessionRouting";
+
+interface CharacterCreatorSceneData {
+  accountRole?: "PLAYER" | "ADMIN";
+}
 
 type AppearanceKey = keyof typeof APPEARANCE_CATALOG;
 
@@ -27,9 +32,14 @@ export class CharacterCreatorScene extends Phaser.Scene {
   private preview: CharacterPreview | null = null;
   private readonly valueNodes = new Map<AppearanceKey, HTMLElement>();
   private selection: AppearanceSelection = { ...DEFAULT_APPEARANCE };
+  private accountRole: "PLAYER" | "ADMIN" = "PLAYER";
 
   constructor() {
     super("CharacterCreatorScene");
+  }
+
+  init(data: CharacterCreatorSceneData = {}): void {
+    this.accountRole = data.accountRole ?? "PLAYER";
   }
 
   create(): void {
@@ -116,7 +126,10 @@ export class CharacterCreatorScene extends Phaser.Scene {
         })
         .then((character) => {
           this.destroyForm();
-          this.scene.start("WorldScene", { playerId: character.id });
+          this.scene.start(
+            "WorldScene",
+            worldSceneData(character.id, this.accountRole)
+          );
         })
         .catch((caught: unknown) => {
           error.textContent =

@@ -214,6 +214,7 @@
 .world-hud__menu[hidden] { display: none; }
 .world-hud__menu button { flex-shrink: 0; width: 100%; min-height: 44px; padding: 8px 14px; text-align: left; }
 .world-hud__menu [data-logout] { margin-top: 4px; border-color: #a36b54; }
+.world-hud__menu [data-admin] { border-color: #c49a54; color: #f1d694; }
 
 .world-hud__connection {
   position: absolute;

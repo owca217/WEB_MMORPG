@@ -1,24 +1,17 @@
 import type { LootItemDefinition } from "../inventory/InventoryService";
+import { adminItemDefinition } from "@web-mmorpg/shared";
 
 export class LootService {
   rollEncounterLoot(encounterId: string, _seed: number): LootItemDefinition[] {
     if (encounterId !== "wolf-pack-01") return [];
 
+    const wolfPelt = adminItemDefinition("wolf-pelt");
+    const fieldBandage = adminItemDefinition("field-bandage");
+    if (!wolfPelt || !fieldBandage) return [];
+
     return [
-      {
-        itemId: "wolf-pelt",
-        name: "Wolf Pelt",
-        quantity: 1,
-        category: "material",
-        description: "A rough pelt taken from a forest wolf."
-      },
-      {
-        itemId: "field-bandage",
-        name: "Field Bandage",
-        quantity: 2,
-        category: "medical",
-        description: "A simple bandage for field treatment."
-      }
+      { ...wolfPelt, quantity: 1 },
+      { ...fieldBandage, quantity: 2 }
     ];
   }
 }

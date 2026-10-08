@@ -8,8 +8,11 @@ export type CharacterLifecycleSummary =
       deletionEffectiveAt: string;
     };
 
+export type AccountRole = "PLAYER" | "ADMIN";
+
 export interface SessionView {
   accountUsername: string;
+  accountRole: AccountRole;
   character: CharacterLifecycleSummary;
 }
 
@@ -25,3 +28,4 @@ export interface LoginResponse {
 export interface RecoverResponse {
   recoveryCode: string;
 }
+

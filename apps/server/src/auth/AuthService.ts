@@ -247,6 +247,7 @@ export class AuthService {
   ): Promise<SessionView> {
     return {
       accountUsername: account.username,
+      accountRole: account.role,
       character: this.characters
         ? await this.characters.getLifecycle(account.id, now)
         : { state: "none" }

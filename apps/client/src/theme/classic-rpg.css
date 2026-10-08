@@ -1246,3 +1246,183 @@
 @media (prefers-reduced-motion: reduce) {
   :is(.ui-window, .world-hud, .battle-hud) button { transition: none; }
 }
+
+/* ---------- administrator panel ---------- */
+.admin-panel {
+  width: min(720px, calc(100vw - 24px));
+  max-height: calc(100dvh - 28px);
+  overflow: visible;
+}
+
+.admin-panel__body {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
+.admin-panel__tools,
+.admin-panel__grant {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-panel__tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-panel__tool {
+  min-height: 32px;
+  padding: 5px 12px;
+  color: #e0b879;
+}
+
+.admin-panel__tool[data-active="true"] {
+  border-color: var(--rpg-gold);
+  box-shadow: inset 0 0 0 2px #2a160b, 0 0 0 1px rgba(239,201,142,.34);
+}
+
+.admin-panel__filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 190px);
+  gap: 10px;
+}
+
+.admin-panel__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--rpg-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-panel__field input,
+.admin-panel__field select {
+  min-width: 0;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border: 1px solid #805638;
+  border-radius: 0;
+  color: var(--rpg-text);
+  background: #0e0a08;
+  font: inherit;
+}
+
+.admin-panel__catalog {
+  min-height: 120px;
+  max-height: min(380px, calc(100dvh - 360px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid #68472f;
+  background:
+    radial-gradient(ellipse at 50% 8%, rgba(94,57,36,.24), transparent 72%),
+    linear-gradient(180deg, #1a110d, #090706);
+  box-shadow: inset 0 0 0 2px #080605;
+  scrollbar-width: thin;
+  scrollbar-color: #875331 #120d0b;
+}
+
+.admin-panel__item {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.admin-panel__item[data-selected="true"] {
+  border-color: var(--rpg-gold);
+  box-shadow: inset 0 0 0 2px #2a160b, 0 0 0 1px rgba(239,201,142,.34);
+}
+
+.admin-panel__item-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  font-size: 23px;
+  line-height: 1;
+}
+
+.admin-panel__item-details {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-panel__item-details strong,
+.admin-panel__item-details small,
+.admin-panel__item-details > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-panel__item-details strong { color: #f0d4a6; font-family: Georgia, serif; }
+.admin-panel__item-details small { color: #b98659; font-size: 10px; }
+.admin-panel__item-details > span { color: #cbb79b; font-size: 11px; }
+.admin-panel__item-capacity { color: #e0b879 !important; }
+.admin-panel__item-category { color: #d0a06d; font-size: 11px; white-space: nowrap; }
+
+.admin-panel__empty,
+.admin-panel__status {
+  margin: 0;
+  color: var(--rpg-muted);
+  font-size: 13px;
+}
+
+.admin-panel__selection {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #68472f;
+  background: rgba(10,7,6,.72);
+}
+
+.admin-panel__selection-label { color: #ad8b65; font-size: 11px; }
+.admin-panel__selection strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #f0d4a6; }
+
+.admin-panel__grant {
+  grid-template-columns: minmax(0, 1fr) 92px auto;
+  align-items: end;
+}
+
+.admin-panel__grant > button {
+  min-height: 38px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+
+.admin-panel__status { grid-column: 1 / -1; min-height: 18px; }
+
+@media (max-width: 600px) {
+  .admin-panel {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 46px 10px 10px;
+  }
+
+  .admin-panel__filters,
+  .admin-panel__grant {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-panel__catalog {
+    max-height: min(330px, calc(100dvh - 390px));
+  }
+
+  .admin-panel__grant > button { width: 100%; }
+}

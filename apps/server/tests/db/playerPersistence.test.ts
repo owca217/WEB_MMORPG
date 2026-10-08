@@ -49,6 +49,15 @@ async function createPersistentCharacter(): Promise<string> {
   return characterId;
 }
 
+async function accountIdForCharacter(characterId: string): Promise<string> {
+  const result = await pool.query<{ account_id: string }>(
+    "SELECT account_id FROM characters WHERE id = $1",
+    [characterId]
+  );
+  if (!result.rows[0]) throw new Error("character account was not found");
+  return result.rows[0].account_id;
+}
+
 describe("PlayerPersistenceService", () => {
   it("persists and reloads vitals, injuries, inventory and equipment", async () => {
     const characterId = await createPersistentCharacter();
@@ -202,5 +211,119 @@ describe("PlayerPersistenceService", () => {
     expect(await persistence.hasNpcRewardClaim(characterId, "quartermaster-rollback-probe"))
       .toBe(false);
     expect(await persistence.loadPlayer(characterId)).toEqual(beforeDuplicate);
+  });
+
+  it("applies admin grants atomically and returns the durable snapshot on an identical replay", async () => {
+    const characterId = await createPersistentCharacter();
+    const accountId = await accountIdForCharacter(characterId);
+    const persistence = new PlayerPersistenceService(pool);
+    const bagInstanceId = randomUUID();
+    const nestedItemId = randomUUID();
+    const startingInventory: InventorySnapshot = {
+      items: [
+        {
+          instanceId: bagInstanceId,
+          itemId: "simple-bag",
+          name: "Zwykły worek",
+          quantity: 1,
+          category: "bag",
+          description: "Prosty worek.",
+          containerCapacity: 8
+        },
+        {
+          instanceId: nestedItemId,
+          itemId: "wolf-pelt",
+          name: "Wolf Pelt",
+          quantity: 1,
+          category: "material",
+          description: "A rough pelt taken from a forest wolf.",
+          containerInstanceId: bagInstanceId
+        }
+      ]
+    };
+    const equipment = {
+      items: [{ slot: "bag-1", itemInstanceId: bagInstanceId }]
+    };
+    await persistence.saveInventoryAndEquipment(characterId, startingInventory, equipment);
+
+    const newItem = {
+      instanceId: randomUUID(),
+      itemId: "field-bandage",
+      name: "Field Bandage",
+      quantity: 3,
+      category: "medical" as const,
+      description: "A simple bandage for field treatment."
+    };
+    const grantedInventory = { items: [...startingInventory.items, newItem] };
+    const operationId = randomUUID();
+    const applied = await persistence.applyAdminGrant({
+      operationId,
+      accountId,
+      characterId,
+      itemId: "field-bandage",
+      quantity: 3,
+      inventory: grantedInventory,
+      equipment
+    });
+
+    expect(applied.status).toBe("applied");
+    expect(applied.inventory.items).toEqual(grantedInventory.items);
+    expect(applied.equipment).toEqual(equipment);
+    expect((await persistence.loadPlayer(characterId)).inventory.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ instanceId: newItem.instanceId, quantity: 3 }),
+        expect.objectContaining({ instanceId: nestedItemId, containerInstanceId: bagInstanceId })
+      ])
+    );
+
+    const replay = await persistence.applyAdminGrant({
+      operationId,
+      accountId,
+      characterId,
+      itemId: "field-bandage",
+      quantity: 3,
+      inventory: { items: [] },
+      equipment: { items: [] }
+    });
+    expect(replay.status).toBe("alreadyApplied");
+    expect(replay.inventory.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ instanceId: newItem.instanceId, quantity: 3 }),
+        expect.objectContaining({ instanceId: nestedItemId, containerInstanceId: bagInstanceId })
+      ])
+    );
+    expect(
+      (await pool.query("SELECT count(*)::int AS count FROM admin_item_grants WHERE operation_id = $1", [operationId]))
+        .rows[0]?.count
+    ).toBe(1);
+
+    await expect(
+      persistence.applyAdminGrant({
+        operationId,
+        accountId,
+        characterId,
+        itemId: "field-bandage",
+        quantity: 4,
+        inventory: { items: [] },
+        equipment: { items: [] }
+      })
+    ).rejects.toMatchObject({ code: "ADMIN_OPERATION_CONFLICT" });
+
+    const failedOperationId = randomUUID();
+    await expect(
+      persistence.applyAdminGrant({
+        operationId: failedOperationId,
+        accountId,
+        characterId,
+        itemId: "wolf-pelt",
+        quantity: 1,
+        inventory: grantedInventory,
+        equipment: { items: [{ slot: "bag-1", itemInstanceId: "missing-item" }] }
+      })
+    ).rejects.toBeDefined();
+    expect(
+      (await pool.query("SELECT count(*)::int AS count FROM admin_item_grants WHERE operation_id = $1", [failedOperationId]))
+        .rows[0]?.count
+    ).toBe(0);
   });
 });

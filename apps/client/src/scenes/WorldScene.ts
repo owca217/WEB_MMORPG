@@ -1,13 +1,15 @@
-import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { AccountRole, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { VirtualJoystick } from "../input/VirtualJoystick";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { apiClient } from "../net/ApiClient";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
+import { worldSceneData } from "../state/sessionRouting";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { StatisticsPanel } from "../ui/StatisticsPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
+import { AdminPanel } from "../ui/AdminPanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
 import { InterfaceWindowControls } from "../ui/InterfaceWindowControls";
 import { PartyPanel } from "../ui/PartyPanel";
@@ -19,6 +21,7 @@ import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
 
 interface WorldSceneData {
   playerId: PlayerId;
+  accountRole?: AccountRole;
 }
 
 const persistentAccountsEnabled =
@@ -46,11 +49,18 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
   INVALID_CONTAINER_SLOT: "Nieprawidłowy slot pojemnika.",
   CONTAINER_ITEM_NOT_FOUND: "Nie znaleziono tego pojemnika.",
   ITEM_IS_NOT_CONTAINER: "Ten przedmiot nie jest pojemnikiem.",
-  CONTAINER_SLOT_REJECTED: "Nie można założyć tego przedmiotu w slocie pojemnika."
+  CONTAINER_SLOT_REJECTED: "Nie można założyć tego przedmiotu w slocie pojemnika.",
+  ADMIN_REQUIRED: "Panel administratora wymaga rangi ADMIN.",
+  ADMIN_INVALID_ITEM: "Wybrany przedmiot nie jest dostępny w katalogu administratora.",
+  ADMIN_INVALID_QUANTITY: "Ilość musi być liczbą całkowitą od 1 do 1000.",
+  ADMIN_IN_BATTLE: "Nie można dodawać przedmiotów podczas walki.",
+  ADMIN_OPERATION_CONFLICT: "Ten identyfikator operacji został już użyty z innymi danymi.",
+  PERSISTENCE_FAILED: "Nie udało się trwale zapisać przedmiotu. Spróbuj ponownie."
 };
 
 export class WorldScene extends Phaser.Scene {
   private playerId: PlayerId = "";
+  private accountRole: AccountRole = "PLAYER";
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private pointerTarget: { x: number; y: number } | null = null;
@@ -67,6 +77,7 @@ export class WorldScene extends Phaser.Scene {
   private professionsPanel: ProfessionsPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private partyPanel: PartyPanel | undefined;
+  private adminPanel: AdminPanel | undefined;
   private joystick: VirtualJoystick | undefined;
   private deletionDialog: HTMLDivElement | undefined;
   private deletionWindowControls: InterfaceWindowControls | undefined;
@@ -78,6 +89,7 @@ export class WorldScene extends Phaser.Scene {
 
   init(data: WorldSceneData): void {
     this.playerId = data.playerId;
+    this.accountRole = data.accountRole ?? "PLAYER";
     this.pointerTarget = null;
     this.authoritativePosition = null;
     this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
@@ -144,6 +156,7 @@ export class WorldScene extends Phaser.Scene {
         gameSocket.setPartyBattleMode(enabled),
       onLeave: () => gameSocket.leaveParty()
     });
+    if (this.accountRole === "ADMIN") this.installAdminPanel();
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.openGeneralInventory(),
       onOpenBagStorage: (containerInstanceId) =>
@@ -156,6 +169,8 @@ export class WorldScene extends Phaser.Scene {
       onStatistics: () => this.statisticsPanel?.toggle(),
       onProfessions: () => this.professionsPanel?.toggle(),
       onParty: () => this.partyPanel?.toggle(),
+      isAdmin: this.accountRole === "ADMIN",
+      onAdminPanel: () => this.adminPanel?.show(),
       onLogout: () => {
         gameSocket.disconnect();
         if (!persistentAccountsEnabled) {
@@ -205,12 +220,24 @@ export class WorldScene extends Phaser.Scene {
         );
       }),
       gameSocket.onPartyState((snapshot) => this.partyPanel?.update(snapshot)),
-      gameSocket.onConnectionState((state) => this.hud?.setConnectionState(state)),
+      gameSocket.onAdminCatalog((catalog) => this.adminPanel?.setCatalog(catalog)),
+      gameSocket.onAdminGrantResult((result) => this.adminPanel?.handleGrantResult(result)),
+      gameSocket.onConnectionState((state) => {
+        this.hud?.setConnectionState(state);
+        if (state === "connected") void this.refreshAccountRole();
+      }),
       gameSocket.onCommandRejected(({ code, message }) => {
+        if (code === "ADMIN_REQUIRED") {
+          this.removeAdminAccess();
+        }
         this.showToast(WORLD_ERROR_LABELS[code] ?? message);
       }),
       gameSocket.onBattleStarted((snapshot) => {
-        this.scene.start("BattleScene", { playerId: this.playerId, snapshot });
+        this.scene.start("BattleScene", {
+          playerId: this.playerId,
+          snapshot,
+          accountRole: this.accountRole
+        });
       })
     );
 
@@ -318,6 +345,47 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private installAdminPanel(): void {
+    if (this.adminPanel || this.accountRole !== "ADMIN") return;
+
+    this.adminPanel = new AdminPanel({
+      onRequestCatalog: () => gameSocket.requestAdminCatalog(),
+      onGrantItem: (payload) => gameSocket.grantAdminItem(payload),
+      onAccessRevoked: () => this.removeAdminAccess()
+    });
+    this.hud?.grantAdminAccess(() => this.adminPanel?.show());
+  }
+
+  private removeAdminAccess(): void {
+    this.accountRole = "PLAYER";
+    const panel = this.adminPanel;
+    this.adminPanel = undefined;
+    panel?.destroy();
+    this.hud?.revokeAdminAccess();
+  }
+
+  private syncAccountRole(role: AccountRole): void {
+    if (role === "ADMIN") {
+      this.accountRole = "ADMIN";
+      this.installAdminPanel();
+      this.hud?.grantAdminAccess(() => this.adminPanel?.show());
+      return;
+    }
+
+    this.removeAdminAccess();
+  }
+
+  private async refreshAccountRole(): Promise<void> {
+    if (!persistentAccountsEnabled) return;
+
+    try {
+      const session = await apiClient.getSession();
+      this.syncAccountRole(session.accountRole ?? "PLAYER");
+    } catch {
+      this.removeAdminAccess();
+    }
+  }
+
   private showDeleteCharacterDialog(): void {
     this.deletionWindowControls?.destroy();
     this.deletionWindowControls = undefined;
@@ -385,13 +453,16 @@ export class WorldScene extends Phaser.Scene {
 
           if (lifecycle.state === "pendingDeletion") {
             this.scene.start("CharacterDeletionScene", {
-              character: lifecycle
+              character: lifecycle,
+              accountRole: this.accountRole
             });
             return;
           }
 
           if (lifecycle.state === "none") {
-            this.scene.start("CharacterCreatorScene");
+            this.scene.start("CharacterCreatorScene", {
+              accountRole: this.accountRole
+            });
           }
         })
         .catch((caught: unknown) => {
@@ -443,6 +514,7 @@ export class WorldScene extends Phaser.Scene {
     this.professionsPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.partyPanel?.destroy();
+    this.adminPanel?.destroy();
     this.deletionWindowControls?.destroy();
     this.deletionDialog?.remove();
     this.entitiesRenderer?.destroy();
@@ -455,6 +527,7 @@ export class WorldScene extends Phaser.Scene {
     this.professionsPanel = undefined;
     this.dialoguePanel = undefined;
     this.partyPanel = undefined;
+    this.adminPanel = undefined;
     this.deletionWindowControls = undefined;
     this.deletionDialog = undefined;
     this.entitiesRenderer = undefined;

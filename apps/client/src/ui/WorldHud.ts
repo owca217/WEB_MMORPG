@@ -14,6 +14,7 @@ import {
 } from "./containerDrag";
 import {
   bagSlotClickAction,
+  bagSlotOccupancyText,
   containerSlotIcon
 } from "./bagSlotInteraction";
 import { TimedNotice } from "./TimedNotice";
@@ -86,8 +87,7 @@ export class WorldHud {
           <button class="world-hud__container-slot" type="button" data-container-slot="${slot}"
             data-occupied="false" draggable="false" aria-label="Pojemnik ${index + 1}: Puste miejsce">
             <span class="world-hud__container-icon" data-container-icon aria-hidden="true">${containerSlotIcon(null)}</span>
-            <span class="world-hud__container-name" data-container-name>Puste miejsce</span>
-            <span class="world-hud__container-capacity" data-container-capacity>—</span>
+            <span class="world-hud__container-capacity" data-container-capacity hidden></span>
           </button>
         `).join("")}
       </div>
@@ -302,14 +302,18 @@ export class WorldHud {
       slot.draggable = Boolean(bagInstanceId);
       slot.setAttribute(
         "aria-label",
-        `${slot.dataset.containerSlot}: ${occupied ? item?.name ?? "Założona torba" : "Puste miejsce"}`
+        `${slot.dataset.containerSlot}: ${occupied ? "Torba" : "Puste miejsce"}`
       );
       slot.querySelector<HTMLElement>("[data-container-icon]")!.innerHTML =
         containerSlotIcon(occupied ? "bag" : null);
-      slot.querySelector<HTMLElement>("[data-container-name]")!.textContent =
-        occupied ? item?.name ?? "Założona torba" : "Puste miejsce";
-      slot.querySelector<HTMLElement>("[data-container-capacity]")!.textContent =
-        occupied ? capacity ? `${capacity} miejsc` : "?" : "—";
+      const occupancy = bagSlotOccupancyText(
+        bagInstanceId,
+        typeof capacity === "number" ? capacity : null,
+        state.inventory.items
+      );
+      const capacityLabel = slot.querySelector<HTMLElement>("[data-container-capacity]")!;
+      capacityLabel.textContent = occupancy;
+      capacityLabel.hidden = !occupied;
     }
   }
 

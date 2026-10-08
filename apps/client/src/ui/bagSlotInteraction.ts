@@ -4,6 +4,11 @@ export type BagSlotClickAction =
 
 export const EMPTY_BAG_SLOT_MESSAGE = "ten slot jest pusty.";
 
+interface StoredInventoryItem {
+  containerInstanceId?: string | null;
+  quantity?: number;
+}
+
 export function bagSlotClickAction(
   itemInstanceId: string | null,
   itemCategory: string | null
@@ -11,6 +16,18 @@ export function bagSlotClickAction(
   return itemInstanceId && itemCategory === "bag"
     ? { type: "open-bag", containerInstanceId: itemInstanceId }
     : { type: "empty", message: EMPTY_BAG_SLOT_MESSAGE };
+}
+
+export function bagSlotOccupancyText(
+  containerInstanceId: string | null,
+  capacity: number | null | undefined,
+  items: readonly StoredInventoryItem[]
+): string {
+  if (!containerInstanceId) return "";
+  const occupiedSlots = items.filter(
+    (item) => item.containerInstanceId === containerInstanceId
+  ).length;
+  return `${occupiedSlots}/${capacity ?? "?"}`;
 }
 
 export function containerSlotIcon(itemCategory: string | null): string {

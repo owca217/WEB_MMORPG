@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bagSlotClickAction,
+  bagSlotOccupancyText,
   containerSlotIcon
 } from "../src/ui/bagSlotInteraction";
 import { TimedNotice } from "../src/ui/TimedNotice";
@@ -34,6 +35,22 @@ describe("bag slot interaction", () => {
 
   it("keeps the equipped bag icon when a bag is present", () => {
     expect(containerSlotIcon("bag")).toBe("🎒");
+  });
+
+  it("shows occupied slots over total capacity", () => {
+    expect(bagSlotOccupancyText(
+      "bag-1",
+      8,
+      [
+        { containerInstanceId: "bag-1", quantity: 3 },
+        { containerInstanceId: "bag-1", quantity: 1 },
+        { containerInstanceId: "bag-2", quantity: 1 }
+      ]
+    )).toBe("2/8");
+  });
+
+  it("does not show a capacity count for an empty slot", () => {
+    expect(bagSlotOccupancyText(null, null, [])).toBe("");
   });
 });
 

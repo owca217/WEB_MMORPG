@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { ACCOUNT_ROLES } from "./auth";
 import type {
   AccountRole,
   CharacterLifecycleSummary,
@@ -6,6 +7,7 @@ import type {
   RegisterResponse,
   RecoverResponse
 } from "./auth";
+import { ACCOUNT_STATUSES } from "./accountAdmin";
 import type {
   AccountStatus,
   AdminAccountQuery,
@@ -38,8 +40,8 @@ describe("persistent account auth contracts", () => {
     const roles: AccountRole[] = ["PLAYER", "ADMIN"];
     const statuses: AccountStatus[] = ["active", "banned"];
 
-    expect(roles).toEqual(["PLAYER", "ADMIN"]);
-    expect(statuses).toEqual(["active", "banned"]);
+    expect(ACCOUNT_ROLES).toEqual(roles);
+    expect(ACCOUNT_STATUSES).toEqual(statuses);
   });
 
   it("returns opaque token plus session view from login", () => {

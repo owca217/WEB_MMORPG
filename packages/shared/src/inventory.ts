@@ -6,16 +6,16 @@ export type ItemCategory = string;
 export interface InventoryItem {
   instanceId: ItemInstanceId;
   itemId: string;
-  itemDefinitionId?: string;
+  itemDefinitionId: string;
   name: string;
   quantity: number;
   category: ItemCategory;
   description: string;
   iconUrl?: string;
-  rarity?: ItemRarity;
+  rarity: ItemRarity;
   durability?: number;
   maxDurability?: number;
-  upgradeLevel?: number;
+  upgradeLevel: number;
   boundToPlayerId?: string;
 }
 

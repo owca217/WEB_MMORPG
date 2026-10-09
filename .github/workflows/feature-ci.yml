@@ -10,6 +10,7 @@ on:
       - fix/render-legacy-migration-compatibility
       - fix/render-server-start-script
       - fix/render-postgres-icon-fallback
+      - fix/pin-aws-sdk-version
       - main
 
 concurrency:

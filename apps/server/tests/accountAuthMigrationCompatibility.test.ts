@@ -48,6 +48,9 @@ describeDatabase("account auth migration compatibility acceptance", () => {
     const auditUuid = "55555555-5555-4555-8555-555555555555";
 
     await pool.query(
+      "INSERT INTO item_categories (id, name, system) VALUES ('weapon', 'Weapon', true)"
+    );
+    await pool.query(
       "INSERT INTO items (id, item_id, status) VALUES ($1, 'compat-item', 'PUBLISHED')",
       [itemUuid]
     );
@@ -66,8 +69,8 @@ describeDatabase("account auth migration compatibility acceptance", () => {
       [versionUuid, itemUuid, legacyPlayer]
     );
     await pool.query(
-      "UPDATE items SET active_version_id = $1 WHERE id = $2",
-      [versionUuid, itemUuid]
+      "UPDATE items SET active_version_no = 1 WHERE id = $1",
+      [itemUuid]
     );
     await pool.query(
       `INSERT INTO item_instances (id, player_id, item_id, quantity)

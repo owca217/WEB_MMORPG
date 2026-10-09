@@ -163,7 +163,10 @@ export class AuthService {
     if (!session) return null;
 
     const account = await this.accounts.findById(session.accountId);
-    if (!account || account.status !== "active") return null;
+    if (!account) return null;
+    if (account.status !== "active") {
+      throw new AuthError("ACCOUNT_DISABLED", 403, "This account is not active.");
+    }
 
     await sessions.touch(session.id, now);
     return {

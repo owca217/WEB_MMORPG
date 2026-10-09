@@ -1,4 +1,5 @@
 import { AdminApi, AdminApiRequestError } from "../net/AdminApi";
+import { AccountManagerView } from "./admin/AccountManagerView";
 import { CategoryManagerView } from "./admin/CategoryManagerView";
 import { ItemCatalogView } from "./admin/ItemCatalogView";
 import { ItemCreatorView } from "./admin/ItemCreatorView";
@@ -11,6 +12,7 @@ export class AdminPanel {
   private creatorView: ItemCreatorView | null = null;
   private historyView: ItemHistoryView | null = null;
   private categoryManagerView: CategoryManagerView | null = null;
+  private accountManagerView: AccountManagerView | null = null;
 
   constructor(private readonly api: AdminApi) {
     this.root = document.createElement("div");
@@ -23,6 +25,7 @@ export class AdminPanel {
             <button type="button" data-catalog>Katalog</button>
             <button type="button" data-create>Nowy przedmiot</button>
             <button type="button" data-categories>Kategorie</button>
+            <button type="button" data-accounts>Konta</button>
           </nav>
         </div>
         <button type="button" data-close aria-label="Zamknij">×</button>
@@ -41,6 +44,9 @@ export class AdminPanel {
     });
     this.require<HTMLButtonElement>("[data-categories]").addEventListener("click", () => {
       void this.showCategories();
+    });
+    this.require<HTMLButtonElement>("[data-accounts]").addEventListener("click", () => {
+      void this.showAccounts();
     });
   }
 
@@ -93,6 +99,14 @@ export class AdminPanel {
     await this.categoryManagerView.show();
   }
 
+  async showAccounts(): Promise<void> {
+    this.root.classList.remove("is-hidden");
+    this.destroyActiveView();
+    this.content.replaceChildren();
+    this.accountManagerView = new AccountManagerView(this.content, this.api);
+    await this.accountManagerView.show();
+  }
+
   hide(): void {
     if (this.creatorView && !this.creatorView.cancel()) return;
     this.destroyActiveView();
@@ -138,10 +152,12 @@ export class AdminPanel {
     this.creatorView?.destroy();
     this.historyView?.destroy();
     this.categoryManagerView?.destroy();
+    this.accountManagerView?.destroy();
     this.catalogView = null;
     this.creatorView = null;
     this.historyView = null;
     this.categoryManagerView = null;
+    this.accountManagerView = null;
   }
 
   private require<T extends HTMLElement>(selector: string): T {

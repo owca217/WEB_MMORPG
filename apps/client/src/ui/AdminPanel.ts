@@ -1,10 +1,12 @@
 import { AdminApi, AdminApiRequestError } from "../net/AdminApi";
 import { ItemCatalogView } from "./admin/ItemCatalogView";
+import { ItemCreatorView } from "./admin/ItemCreatorView";
 
 export class AdminPanel {
   private readonly root: HTMLDivElement;
   private readonly content: HTMLDivElement;
   private catalogView: ItemCatalogView | null = null;
+  private creatorView: ItemCreatorView | null = null;
 
   constructor(private readonly api: AdminApi) {
     this.root = document.createElement("div");
@@ -36,7 +38,7 @@ export class AdminPanel {
 
   async showCatalog(): Promise<void> {
     this.root.classList.remove("is-hidden");
-    this.catalogView?.destroy();
+    this.destroyActiveView();
     this.content.replaceChildren();
     this.catalogView = new ItemCatalogView(this.content, this.api, {
       onPreview: (itemId) => void this.showPreview(itemId),
@@ -48,30 +50,33 @@ export class AdminPanel {
 
   showCreator(itemId?: string): void {
     this.root.classList.remove("is-hidden");
-    this.catalogView?.destroy();
-    this.catalogView = null;
-    this.content.innerHTML = `
-      <section class="admin-placeholder" data-creator-placeholder>
-        <h3>Kreator przedmiotu</h3>
-        <p>${itemId ? `Edycja: ${escapeHtml(itemId)}` : "Nowy przedmiot"}</p>
-        <p>Widok kreatora zostanie osadzony w tym miejscu.</p>
-      </section>
-    `;
+    this.destroyActiveView();
+    this.content.replaceChildren();
+    this.creatorView = new ItemCreatorView(this.content, this.api, {
+      onCancel: () => void this.showCatalog(),
+      onPublished: () => void this.showCatalog()
+    });
+    void this.creatorView.loadMetadata(itemId).catch((error: unknown) => {
+      const message = error instanceof AdminApiRequestError || error instanceof Error
+        ? error.message
+        : "Nie udało się otworzyć kreatora.";
+      this.content.textContent = message;
+    });
   }
 
   hide(): void {
+    if (this.creatorView && !this.creatorView.cancel()) return;
+    this.destroyActiveView();
     this.root.classList.add("is-hidden");
   }
 
   destroy(): void {
-    this.catalogView?.destroy();
-    this.catalogView = null;
+    this.destroyActiveView();
     this.root.remove();
   }
 
   private async showPreview(itemId: string): Promise<void> {
-    this.catalogView?.destroy();
-    this.catalogView = null;
+    this.destroyActiveView();
     this.content.innerHTML = `<p class="admin-panel__loading">Ładowanie podglądu...</p>`;
     try {
       const details = await this.api.getItem(itemId);
@@ -100,8 +105,7 @@ export class AdminPanel {
   }
 
   private showHistoryPlaceholder(itemId: string): void {
-    this.catalogView?.destroy();
-    this.catalogView = null;
+    this.destroyActiveView();
     this.content.innerHTML = `
       <section class="admin-placeholder" data-history-placeholder>
         <h3>Historia wersji</h3>
@@ -109,6 +113,13 @@ export class AdminPanel {
         <p>Widok historii zostanie osadzony w tym miejscu.</p>
       </section>
     `;
+  }
+
+  private destroyActiveView(): void {
+    this.catalogView?.destroy();
+    this.creatorView?.destroy();
+    this.catalogView = null;
+    this.creatorView = null;
   }
 
   private require<T extends HTMLElement>(selector: string): T {

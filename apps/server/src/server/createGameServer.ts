@@ -72,8 +72,8 @@ export function createGameServer(httpServer: HttpServer) {
       };
     };
 
-    socket.on("login", ({ nickname }, ack) => {
-      const result = sessions.login(nickname);
+    socket.on("login", ({ nickname, adminToken }, ack) => {
+      const result = sessions.login(nickname, adminToken);
       if (!result.ok) {
         ack(result);
         return;

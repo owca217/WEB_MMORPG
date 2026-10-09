@@ -5,7 +5,7 @@ interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
   onAdmin: () => void;
-  onLogout: () => void;
+  onLogout?: () => void;
 }
 
 export class WorldHud {
@@ -45,7 +45,10 @@ export class WorldHud {
     this.require<HTMLButtonElement>("[data-inventory]").addEventListener("click", handlers.onInventory);
     this.require<HTMLButtonElement>("[data-character]").addEventListener("click", handlers.onCharacter);
     this.adminButton.addEventListener("click", handlers.onAdmin);
-    this.require<HTMLButtonElement>("[data-logout]").addEventListener("click", handlers.onLogout);
+    this.require<HTMLButtonElement>("[data-logout]").addEventListener(
+      "click",
+      handlers.onLogout ?? (() => undefined)
+    );
   }
 
   updateSession(role: UserRole): void {

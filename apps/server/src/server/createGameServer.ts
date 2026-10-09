@@ -1,48 +1,56 @@
 import type { Server as HttpServer } from "node:http";
 import type {
   ClientToServerEvents,
+  LocationId,
   NpcInteractionPayload,
   PlayerId,
   ServerToClientEvents
 } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
 import { Server } from "socket.io";
+import type { AuthService } from "../auth/AuthService";
 import { BattleService } from "../battle/BattleService";
+import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
 import { InventoryService } from "../inventory/InventoryService";
 import { LootService } from "../loot/LootService";
-import { SessionStore } from "../session/SessionStore";
 import { WorldService } from "../world/WorldService";
+import { ActiveConnectionRegistry } from "./ActiveConnectionRegistry";
 
 export interface GameServerOptions {
   pool: Pool;
-  sessions?: SessionStore;
+  authService: AuthService;
+  characterLifecycle: CharacterLifecycleService;
+  connections?: ActiveConnectionRegistry;
 }
 
 export function createGameServer(
   httpServer: HttpServer,
   options: GameServerOptions
 ) {
-  const sessions = options.sessions ?? new SessionStore();
   const world = new WorldService();
   const inventory = new InventoryService(options.pool);
   const loot = new LootService();
   const battles = new BattleService();
   const characters = new CharacterService();
+  const connections = options.connections ?? new ActiveConnectionRegistry();
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: true, credentials: false }
   });
 
   io.on("connection", (socket) => {
-    let playerId: PlayerId | null = null;
+    let characterId: PlayerId | null = null;
+    let accountId: string | null = null;
+    let locationId: LocationId | null = null;
+    let unregisterConnection: (() => void) | null = null;
 
-    const emitPlayerState = async (targetPlayerId: PlayerId): Promise<void> => {
-      const character = characters.getSnapshot(targetPlayerId);
+    const emitPlayerState = async (targetCharacterId: PlayerId): Promise<void> => {
+      const character = characters.getSnapshot(targetCharacterId);
       if (!character) return;
       socket.emit("playerState", {
         character,
-        inventory: await inventory.getLegacySessionSnapshot(targetPlayerId)
+        inventory: await inventory.getSnapshot(targetCharacterId)
       });
     };
 
@@ -50,6 +58,26 @@ export function createGameServer(
       socket.emit("commandRejected", {
         code: error instanceof Error ? error.message : fallbackCode,
         message
+      });
+    };
+
+    const persistGameplayState = async (targetCharacterId: PlayerId): Promise<void> => {
+      const character = characters.getSnapshot(targetCharacterId);
+      const player = world.getPlayer(targetCharacterId);
+      const currentLocationId = world.getPlayerLocationId(targetCharacterId) ?? locationId;
+      if (!character || !player || !currentLocationId) return;
+
+      await options.characterLifecycle.saveGameplayState(targetCharacterId, {
+        locationId: currentLocationId,
+        x: player.x,
+        y: player.y,
+        level: character.level,
+        hp: character.hp,
+        maxHp: character.maxHp,
+        maxAp: character.maxAp,
+        initiative: character.initiative,
+        severelyInjured: character.severelyInjured,
+        injuries: character.injuries
       });
     };
 
@@ -81,53 +109,114 @@ export function createGameServer(
       };
     };
 
-    socket.on("login", ({ nickname, adminToken }, ack) => {
-      const result = sessions.login(nickname, adminToken);
-      if (!result.ok) {
-        ack(result);
-        return;
-      }
+    socket.on("authenticate", async ({ sessionToken }, ack) => {
+      try {
+        const validated = await options.authService.validateToken(sessionToken);
+        if (!validated) {
+          ack({
+            ok: false,
+            code: "INVALID_SESSION",
+            message: "The gameplay session is invalid or expired."
+          });
+          return;
+        }
 
-      playerId = result.playerId;
-      const session = sessions.get(result.playerId);
-      const resolvedNickname = session?.nickname ?? nickname.trim();
-      characters.createPlayer(result.playerId, resolvedNickname);
-      world.addPlayer({ id: result.playerId, nickname: resolvedNickname });
-      socket.join(`location:${result.locationId}`);
-      ack(result);
-      void emitPlayerState(result.playerId).catch((error) =>
-        reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
-      );
-      io.to(`location:${result.locationId}`).emit(
-        "worldState",
-        world.snapshot(result.locationId)
-      );
+        const persisted = await options.characterLifecycle.getCharacter(validated.account.id);
+        if (!persisted || persisted.deletionEffectiveAt) {
+          ack({
+            ok: false,
+            code: "CHARACTER_REQUIRED",
+            message: "An active character is required before entering the world."
+          });
+          return;
+        }
+
+        if (characterId) {
+          await persistGameplayState(characterId);
+          battles.removeBattleForPlayer(characterId);
+          world.removePlayer(characterId);
+          characters.removePlayer(characterId);
+        }
+        unregisterConnection?.();
+
+        accountId = validated.account.id;
+        characterId = persisted.id;
+        locationId = persisted.locationId;
+
+        connections.closeAccount(accountId, "SESSION_REPLACED", socket.id);
+        unregisterConnection = connections.register(accountId, socket.id, (reason) => {
+          socket.emit("commandRejected", {
+            code: reason,
+            message: "This gameplay connection is no longer active."
+          });
+          socket.disconnect(true);
+        });
+
+        characters.hydrate({
+          playerId: persisted.id,
+          nickname: persisted.nickname,
+          level: persisted.level,
+          hp: persisted.hp,
+          maxHp: persisted.maxHp,
+          maxAp: persisted.maxAp,
+          initiative: persisted.initiative,
+          severelyInjured: persisted.severelyInjured,
+          injuries: persisted.injuries
+        });
+        world.addPlayer({
+          id: persisted.id,
+          nickname: persisted.nickname,
+          locationId: persisted.locationId,
+          x: persisted.x,
+          y: persisted.y
+        });
+
+        socket.join(`location:${persisted.locationId}`);
+        ack({
+          ok: true,
+          characterId: persisted.id,
+          locationId: persisted.locationId
+        });
+        await emitPlayerState(persisted.id);
+        io.to(`location:${persisted.locationId}`).emit(
+          "worldState",
+          world.snapshot(persisted.locationId)
+        );
+      } catch (error) {
+        ack({
+          ok: false,
+          code: "AUTHENTICATION_FAILED",
+          message: "The gameplay session could not be authenticated."
+        });
+      }
     });
 
     socket.on("requestPlayerState", () => {
-      if (!playerId) return;
-      void emitPlayerState(playerId).catch((error) =>
+      if (!characterId) return;
+      void emitPlayerState(characterId).catch((error) =>
         reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
       );
     });
 
     socket.on("requestWorldState", () => {
-      if (!playerId) return;
-      const session = sessions.get(playerId);
-      if (!session) return;
-      socket.emit("worldState", world.snapshot(session.locationId));
+      if (!characterId || !locationId) return;
+      socket.emit("worldState", world.snapshot(locationId));
     });
 
     socket.on("moveIntent", (intent) => {
-      if (!playerId || battles.hasBattle(playerId)) return;
-      const session = sessions.get(playerId);
-      if (!session) return;
+      if (!characterId || battles.hasBattle(characterId)) return;
+      const currentCharacterId = characterId;
+      const currentLocationId = locationId;
+      if (!currentLocationId) return;
 
       try {
-        world.movePlayer(playerId, intent);
-        io.to(`location:${session.locationId}`).emit(
+        world.movePlayer(currentCharacterId, intent);
+        io.to(`location:${currentLocationId}`).emit(
           "worldState",
-          world.snapshot(session.locationId)
+          world.snapshot(currentLocationId)
+        );
+        void persistGameplayState(currentCharacterId).catch((error) =>
+          reject(error, "CHARACTER_SAVE_FAILED", "Character position could not be persisted.")
         );
       } catch (error) {
         reject(error, "MOVE_REJECTED", "Movement was rejected by the server.");
@@ -135,10 +224,10 @@ export function createGameServer(
     });
 
     socket.on("interactNpc", ({ npcId }) => {
-      if (!playerId) return;
+      if (!characterId) return;
 
       try {
-        const npc = world.interactNpc(playerId, npcId);
+        const npc = world.interactNpc(characterId, npcId);
         socket.emit("npcInteraction", npcPayload(npc.id));
       } catch (error) {
         reject(error, "NPC_INTERACTION_REJECTED", "Nie możesz teraz porozmawiać z tą postacią.");
@@ -146,13 +235,17 @@ export function createGameServer(
     });
 
     socket.on("healAtNpc", ({ npcId }) => {
-      if (!playerId) return;
+      if (!characterId) return;
+      const currentCharacterId = characterId;
 
       try {
-        const npc = world.interactNpc(playerId, npcId);
+        const npc = world.interactNpc(currentCharacterId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
-        characters.healHp(playerId);
-        void emitPlayerState(playerId).catch((error) =>
+        characters.healHp(currentCharacterId);
+        void persistGameplayState(currentCharacterId).catch((error) =>
+          reject(error, "CHARACTER_SAVE_FAILED", "Character state could not be persisted.")
+        );
+        void emitPlayerState(currentCharacterId).catch((error) =>
           reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
         );
       } catch (error) {
@@ -161,15 +254,16 @@ export function createGameServer(
     });
 
     socket.on("startEncounter", ({ encounterId }) => {
-      if (!playerId) return;
-      const session = sessions.get(playerId);
-      const character = characters.getSnapshot(playerId);
-      if (!session || !character) return;
+      if (!characterId) return;
+      const currentCharacterId = characterId;
+      const currentLocationId = locationId;
+      const character = characters.getSnapshot(currentCharacterId);
+      if (!currentLocationId || !character) return;
 
       try {
-        world.startEncounter(playerId, encounterId);
+        world.startEncounter(currentCharacterId, encounterId);
         const snapshot = battles.startBattle(character, encounterId);
-        socket.leave(`location:${session.locationId}`);
+        socket.leave(`location:${currentLocationId}`);
         socket.emit("battleStarted", snapshot);
       } catch (error) {
         reject(error, "ENCOUNTER_REJECTED", "Encounter could not be started.");
@@ -177,10 +271,10 @@ export function createGameServer(
     });
 
     socket.on("battleCommand", async (command) => {
-      if (!playerId) return;
+      if (!characterId) return;
 
-      const currentPlayerId = playerId;
-      const applied = battles.applyCommand(currentPlayerId, command);
+      const currentCharacterId = characterId;
+      const applied = battles.applyCommand(currentCharacterId, command);
       if (!applied.result.ok) {
         socket.emit("commandRejected", {
           code: applied.result.code,
@@ -196,34 +290,36 @@ export function createGameServer(
 
       try {
         if (applied.playerOutcome) {
-          characters.applyBattleResult(currentPlayerId, applied.playerOutcome);
+          characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
         }
 
         if (applied.victory && applied.encounterId && applied.seed !== undefined) {
           const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
-          await inventory.addLegacySessionItems(currentPlayerId, reward);
+          await inventory.addItems(currentCharacterId, reward);
         } else {
-          characters.recoverAfterDefeat(currentPlayerId);
-          world.resetPlayerToSpawn(currentPlayerId);
+          characters.recoverAfterDefeat(currentCharacterId);
+          world.resetPlayerToSpawn(currentCharacterId);
+          locationId = world.getPlayerLocationId(currentCharacterId) ?? locationId;
         }
 
-        const character = characters.getSnapshot(currentPlayerId);
-        const session = sessions.get(currentPlayerId);
-        if (!character || !session) return;
+        await persistGameplayState(currentCharacterId);
+        const character = characters.getSnapshot(currentCharacterId);
+        const currentLocationId = locationId;
+        if (!character || !currentLocationId) return;
 
-        const inventorySnapshot = await inventory.getLegacySessionSnapshot(currentPlayerId);
-        await emitPlayerState(currentPlayerId);
+        const inventorySnapshot = await inventory.getSnapshot(currentCharacterId);
+        await emitPlayerState(currentCharacterId);
         socket.emit("battleEnded", {
           outcome: applied.victory ? "victory" : "defeat",
           inventory: inventorySnapshot,
           character
         });
 
-        battles.removeBattleForPlayer(currentPlayerId);
-        socket.join(`location:${session.locationId}`);
-        io.to(`location:${session.locationId}`).emit(
+        battles.removeBattleForPlayer(currentCharacterId);
+        socket.join(`location:${currentLocationId}`);
+        io.to(`location:${currentLocationId}`).emit(
           "worldState",
-          world.snapshot(session.locationId)
+          world.snapshot(currentLocationId)
         );
       } catch (error) {
         reject(error, "BATTLE_REWARD_FAILED", "Battle rewards could not be persisted.");
@@ -231,24 +327,31 @@ export function createGameServer(
     });
 
     socket.on("disconnect", () => {
-      if (!playerId) return;
-      const session = sessions.get(playerId);
-      battles.removeBattleForPlayer(playerId);
-      world.removePlayer(playerId);
-      inventory.removePlayer(playerId);
-      characters.removePlayer(playerId);
-      sessions.remove(playerId);
-      if (session) {
-        io.to(`location:${session.locationId}`).emit(
-          "worldState",
-          world.snapshot(session.locationId)
-        );
-      }
+      const currentCharacterId = characterId;
+      const currentLocationId = locationId;
+      unregisterConnection?.();
+      unregisterConnection = null;
+      accountId = null;
+      characterId = null;
+      locationId = null;
+
+      if (!currentCharacterId) return;
+      void persistGameplayState(currentCharacterId).finally(() => {
+        battles.removeBattleForPlayer(currentCharacterId);
+        world.removePlayer(currentCharacterId);
+        characters.removePlayer(currentCharacterId);
+        if (currentLocationId) {
+          io.to(`location:${currentLocationId}`).emit(
+            "worldState",
+            world.snapshot(currentLocationId)
+          );
+        }
+      });
     });
   });
 
   return {
     io,
-    services: { sessions, world, inventory, loot, battles, characters }
+    services: { world, inventory, loot, battles, characters, connections }
   };
 }

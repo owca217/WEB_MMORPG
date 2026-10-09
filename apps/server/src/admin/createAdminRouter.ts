@@ -252,8 +252,8 @@ function parseCatalogQuery(req: Request): ItemCatalogQuery {
   if (itemId) query.itemId = itemId;
   if (categoryId) query.categoryId = categoryId;
   if (subcategoryId) query.subcategoryId = subcategoryId;
-  if (rarity) query.rarity = rarity as ItemCatalogQuery["rarity"];
-  if (status) query.status = status as ItemCatalogQuery["status"];
+  if (rarity) query.rarity = rarity as NonNullable<ItemCatalogQuery["rarity"]>;
+  if (status) query.status = status as NonNullable<ItemCatalogQuery["status"]>;
   if (minimumLevel !== undefined) query.minimumLevel = minimumLevel;
   if (maximumLevel !== undefined) query.maximumLevel = maximumLevel;
   if (page !== undefined) query.page = page;

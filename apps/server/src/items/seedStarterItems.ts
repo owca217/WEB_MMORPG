@@ -6,10 +6,17 @@ interface StarterItemSeed {
   itemId: string;
   name: string;
   categoryId: string;
-  subcategoryId: string;
+  subcategoryId: string | null;
   description: string;
+  stackable: boolean;
   maxStack: number;
   weight: number;
+  stats?: readonly {
+    id: string;
+    statCode: string;
+    modifierType: "flat" | "percent" | "multiplier";
+    value: number;
+  }[];
 }
 
 const seedActor = "00000000-0000-4000-8000-000000000001";
@@ -23,6 +30,7 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
     categoryId: "material",
     subcategoryId: "monster-part",
     description: "A rough pelt taken from a forest wolf.",
+    stackable: true,
     maxStack: 99,
     weight: 0.5
   },
@@ -34,8 +42,49 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
     categoryId: "consumable",
     subcategoryId: "bandage",
     description: "A simple bandage for field treatment.",
+    stackable: true,
     maxStack: 20,
     weight: 0.1
+  },
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000003",
+    versionUuid: "10000000-0000-4000-8000-000000000013",
+    itemId: "simple-bag",
+    name: "Zwykły worek",
+    categoryId: "backpack",
+    subcategoryId: null,
+    description: "Prosty worek mieszczący osiem przedmiotów.",
+    stackable: false,
+    maxStack: 1,
+    weight: 0,
+    stats: [
+      {
+        id: "10000000-0000-4000-8000-000000000103",
+        statCode: "EXTRA_SLOTS",
+        modifierType: "flat",
+        value: 8
+      }
+    ]
+  },
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000004",
+    versionUuid: "10000000-0000-4000-8000-000000000014",
+    itemId: "expedition-backpack",
+    name: "Plecak ekspedycyjny",
+    categoryId: "backpack",
+    subcategoryId: null,
+    description: "Duży plecak na sześćdziesiąt przedmiotów.",
+    stackable: false,
+    maxStack: 1,
+    weight: 0,
+    stats: [
+      {
+        id: "10000000-0000-4000-8000-000000000104",
+        statCode: "EXTRA_SLOTS",
+        modifierType: "flat",
+        value: 60
+      }
+    ]
   }
 ];
 
@@ -59,7 +108,7 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         weight, soulbound, unique_item, special_data, created_by
       ) VALUES (
         $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, 'COMMON', 1, 0,
-        0, TRUE, TRUE, TRUE, TRUE, $7, $8, 'NONE', FALSE, '{}'::jsonb, $9
+        0, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, '{}'::jsonb, $10
       )`,
       [
         seed.versionUuid,
@@ -68,10 +117,19 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         seed.categoryId,
         seed.subcategoryId,
         seed.description,
+        seed.stackable,
         seed.maxStack,
         seed.weight,
         seedActor
       ]
     );
+
+    for (const stat of seed.stats ?? []) {
+      await client.query(
+        `INSERT INTO item_stat_modifiers (id, version_id, stat_code, modifier_type, value)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [stat.id, seed.versionUuid, stat.statCode, stat.modifierType, stat.value]
+      );
+    }
   }
 }

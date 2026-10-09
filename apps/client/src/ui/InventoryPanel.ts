@@ -1,9 +1,9 @@
 import type { InventorySnapshot } from "@web-mmorpg/shared";
 
-const CATEGORY_LABELS = {
+const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   material: "Materiał",
   medical: "Medyczne"
-} as const;
+};
 
 export class InventoryPanel {
   private readonly root: HTMLDivElement;
@@ -47,7 +47,7 @@ export class InventoryPanel {
       const title = document.createElement("strong");
       title.textContent = `${item.name} ×${item.quantity}`;
       const category = document.createElement("span");
-      category.textContent = CATEGORY_LABELS[item.category];
+      category.textContent = CATEGORY_LABELS[item.category] ?? item.category;
       const description = document.createElement("p");
       description.textContent = item.description;
       content.append(title, category, description);

@@ -5,6 +5,7 @@ import type {
   PlayerId,
   ServerToClientEvents
 } from "@web-mmorpg/shared";
+import type { Pool } from "pg";
 import { Server } from "socket.io";
 import { BattleService } from "../battle/BattleService";
 import { CharacterService } from "../character/CharacterService";
@@ -13,10 +14,18 @@ import { LootService } from "../loot/LootService";
 import { SessionStore } from "../session/SessionStore";
 import { WorldService } from "../world/WorldService";
 
-export function createGameServer(httpServer: HttpServer) {
-  const sessions = new SessionStore();
+export interface GameServerOptions {
+  pool: Pool;
+  sessions?: SessionStore;
+}
+
+export function createGameServer(
+  httpServer: HttpServer,
+  options: GameServerOptions
+) {
+  const sessions = options.sessions ?? new SessionStore();
   const world = new WorldService();
-  const inventory = new InventoryService();
+  const inventory = new InventoryService(options.pool);
   const loot = new LootService();
   const battles = new BattleService();
   const characters = new CharacterService();
@@ -28,12 +37,12 @@ export function createGameServer(httpServer: HttpServer) {
   io.on("connection", (socket) => {
     let playerId: PlayerId | null = null;
 
-    const emitPlayerState = (targetPlayerId: PlayerId): void => {
+    const emitPlayerState = async (targetPlayerId: PlayerId): Promise<void> => {
       const character = characters.getSnapshot(targetPlayerId);
       if (!character) return;
       socket.emit("playerState", {
         character,
-        inventory: inventory.getSnapshot(targetPlayerId)
+        inventory: await inventory.getSnapshot(targetPlayerId)
       });
     };
 
@@ -72,8 +81,8 @@ export function createGameServer(httpServer: HttpServer) {
       };
     };
 
-    socket.on("login", ({ nickname }, ack) => {
-      const result = sessions.login(nickname);
+    socket.on("login", ({ nickname, adminToken }, ack) => {
+      const result = sessions.login(nickname, adminToken);
       if (!result.ok) {
         ack(result);
         return;
@@ -86,7 +95,9 @@ export function createGameServer(httpServer: HttpServer) {
       world.addPlayer({ id: result.playerId, nickname: resolvedNickname });
       socket.join(`location:${result.locationId}`);
       ack(result);
-      emitPlayerState(result.playerId);
+      void emitPlayerState(result.playerId).catch((error) =>
+        reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
+      );
       io.to(`location:${result.locationId}`).emit(
         "worldState",
         world.snapshot(result.locationId)
@@ -95,7 +106,9 @@ export function createGameServer(httpServer: HttpServer) {
 
     socket.on("requestPlayerState", () => {
       if (!playerId) return;
-      emitPlayerState(playerId);
+      void emitPlayerState(playerId).catch((error) =>
+        reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
+      );
     });
 
     socket.on("requestWorldState", () => {
@@ -139,7 +152,9 @@ export function createGameServer(httpServer: HttpServer) {
         const npc = world.interactNpc(playerId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
         characters.healHp(playerId);
-        emitPlayerState(playerId);
+        void emitPlayerState(playerId).catch((error) =>
+          reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
+        );
       } catch (error) {
         reject(error, "HEAL_REJECTED", "Leczenie nie jest teraz dostępne.");
       }
@@ -161,10 +176,11 @@ export function createGameServer(httpServer: HttpServer) {
       }
     });
 
-    socket.on("battleCommand", (command) => {
+    socket.on("battleCommand", async (command) => {
       if (!playerId) return;
 
-      const applied = battles.applyCommand(playerId, command);
+      const currentPlayerId = playerId;
+      const applied = battles.applyCommand(currentPlayerId, command);
       if (!applied.result.ok) {
         socket.emit("commandRejected", {
           code: applied.result.code,
@@ -178,36 +194,40 @@ export function createGameServer(httpServer: HttpServer) {
 
       if (!applied.finished) return;
 
-      if (applied.playerOutcome) {
-        characters.applyBattleResult(playerId, applied.playerOutcome);
+      try {
+        if (applied.playerOutcome) {
+          characters.applyBattleResult(currentPlayerId, applied.playerOutcome);
+        }
+
+        if (applied.victory && applied.encounterId && applied.seed !== undefined) {
+          const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
+          await inventory.addItems(currentPlayerId, reward);
+        } else {
+          characters.recoverAfterDefeat(currentPlayerId);
+          world.resetPlayerToSpawn(currentPlayerId);
+        }
+
+        const character = characters.getSnapshot(currentPlayerId);
+        const session = sessions.get(currentPlayerId);
+        if (!character || !session) return;
+
+        const inventorySnapshot = await inventory.getSnapshot(currentPlayerId);
+        await emitPlayerState(currentPlayerId);
+        socket.emit("battleEnded", {
+          outcome: applied.victory ? "victory" : "defeat",
+          inventory: inventorySnapshot,
+          character
+        });
+
+        battles.removeBattleForPlayer(currentPlayerId);
+        socket.join(`location:${session.locationId}`);
+        io.to(`location:${session.locationId}`).emit(
+          "worldState",
+          world.snapshot(session.locationId)
+        );
+      } catch (error) {
+        reject(error, "BATTLE_REWARD_FAILED", "Battle rewards could not be persisted.");
       }
-
-      if (applied.victory && applied.encounterId && applied.seed !== undefined) {
-        const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
-        inventory.addItems(playerId, reward);
-      } else {
-        characters.recoverAfterDefeat(playerId);
-        world.resetPlayerToSpawn(playerId);
-      }
-
-      const character = characters.getSnapshot(playerId);
-      const session = sessions.get(playerId);
-      if (!character || !session) return;
-
-      const inventorySnapshot = inventory.getSnapshot(playerId);
-      emitPlayerState(playerId);
-      socket.emit("battleEnded", {
-        outcome: applied.victory ? "victory" : "defeat",
-        inventory: inventorySnapshot,
-        character
-      });
-
-      battles.removeBattleForPlayer(playerId);
-      socket.join(`location:${session.locationId}`);
-      io.to(`location:${session.locationId}`).emit(
-        "worldState",
-        world.snapshot(session.locationId)
-      );
     });
 
     socket.on("disconnect", () => {

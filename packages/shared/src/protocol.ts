@@ -1,3 +1,4 @@
+import type { UserRole } from "./admin";
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type { InventorySnapshot } from "./inventory";
@@ -6,7 +7,7 @@ import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
 export interface ClientToServerEvents {
   login: (
-    payload: { nickname: string },
+    payload: { nickname: string; adminToken?: string },
     ack: (result: LoginResult) => void
   ) => void;
   moveIntent: (payload: { x: number; y: number }) => void;
@@ -33,5 +34,11 @@ export interface ServerToClientEvents {
 }
 
 export type LoginResult =
-  | { ok: true; playerId: PlayerId; locationId: LocationId }
+  | {
+      ok: true;
+      playerId: PlayerId;
+      locationId: LocationId;
+      sessionToken: string;
+      role: UserRole;
+    }
   | { ok: false; code: string; message: string };

@@ -20,13 +20,22 @@ interface WorldPlayerState extends WorldPlayerSnapshot {
 export class WorldService {
   private readonly players = new Map<PlayerId, WorldPlayerState>();
 
-  addPlayer(input: { id: PlayerId; nickname: string }, now = Date.now()): WorldPlayerSnapshot {
+  addPlayer(
+    input: {
+      id: PlayerId;
+      nickname: string;
+      locationId?: LocationId;
+      x?: number;
+      y?: number;
+    },
+    now = Date.now()
+  ): WorldPlayerSnapshot {
     const player: WorldPlayerState = {
       id: input.id,
       nickname: input.nickname,
-      x: FOREST_SETTLEMENT_01.spawn.x,
-      y: FOREST_SETTLEMENT_01.spawn.y,
-      locationId: FOREST_SETTLEMENT_01.id,
+      x: input.x ?? FOREST_SETTLEMENT_01.spawn.x,
+      y: input.y ?? FOREST_SETTLEMENT_01.spawn.y,
+      locationId: input.locationId ?? FOREST_SETTLEMENT_01.id,
       lastMoveAt: now
     };
 
@@ -94,6 +103,7 @@ export class WorldService {
     const player = this.requirePlayer(playerId);
     player.x = FOREST_SETTLEMENT_01.spawn.x;
     player.y = FOREST_SETTLEMENT_01.spawn.y;
+    player.locationId = FOREST_SETTLEMENT_01.id;
     player.lastMoveAt = now;
     return this.toSnapshot(player);
   }
@@ -101,6 +111,10 @@ export class WorldService {
   getPlayer(playerId: PlayerId): WorldPlayerSnapshot | undefined {
     const player = this.players.get(playerId);
     return player ? this.toSnapshot(player) : undefined;
+  }
+
+  getPlayerLocationId(playerId: PlayerId): LocationId | undefined {
+    return this.players.get(playerId)?.locationId;
   }
 
   snapshot(locationId: LocationId = FOREST_SETTLEMENT_01.id): WorldStateSnapshot {

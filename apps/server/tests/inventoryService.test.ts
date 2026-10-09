@@ -10,7 +10,8 @@ import { LootService } from "../src/loot/LootService";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
-const playerId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const accountId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const characterId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const actor = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function asDraft(item: ItemDefinition, overrides: Partial<ItemDraftInput> = {}): ItemDraftInput {
@@ -51,6 +52,18 @@ describeDatabase("persistent catalog-backed inventory", () => {
   beforeAll(async () => {
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
     await runMigrations(pool);
+    await pool.query(
+      `INSERT INTO accounts
+       (id, username, username_normalized, password_hash, recovery_code_hash)
+       VALUES ($1, 'InventoryTest', 'inventorytest', 'hash', 'recovery')`,
+      [accountId]
+    );
+    await pool.query(
+      `INSERT INTO characters
+       (id, account_id, nickname, nickname_normalized, appearance)
+       VALUES ($1, $2, 'InventoryHero', 'inventoryhero', '{}'::jsonb)`,
+      [characterId, accountId]
+    );
   });
 
   beforeEach(async () => {
@@ -89,11 +102,11 @@ describeDatabase("persistent catalog-backed inventory", () => {
     });
   });
 
-  it("persists item instances and resolves published definitions in snapshots", async () => {
+  it("persists character-owned item instances and resolves published definitions in snapshots", async () => {
     const inventory = new InventoryService(pool);
     const rewards = new LootService().rollEncounterLoot("wolf-pack-01", 1);
 
-    const snapshot = await inventory.addItems(playerId, rewards);
+    const snapshot = await inventory.addItems(characterId, rewards);
     expect(snapshot.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -112,16 +125,16 @@ describeDatabase("persistent catalog-backed inventory", () => {
     );
 
     const rows = await pool.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM item_instances WHERE player_id = $1",
-      [playerId]
+      "SELECT COUNT(*)::text AS count FROM item_instances WHERE character_id = $1 AND player_id IS NULL",
+      [characterId]
     );
     expect(rows.rows[0]?.count).toBe("2");
   });
 
   it("keeps instance identity/quantity while a newly published definition changes displayed base data", async () => {
     const inventory = new InventoryService(pool);
-    await inventory.addItems(playerId, [{ itemId: "wolf-pelt", quantity: 2 }]);
-    const before = (await inventory.getSnapshot(playerId)).items[0]!;
+    await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 2 }]);
+    const before = (await inventory.getSnapshot(characterId)).items[0]!;
 
     const details = await catalog.getItem("wolf-pelt");
     await catalog.updateDraft(
@@ -136,7 +149,7 @@ describeDatabase("persistent catalog-backed inventory", () => {
     );
     await catalog.publish("wolf-pelt", 1, actor);
 
-    const after = (await inventory.getSnapshot(playerId)).items[0]!;
+    const after = (await inventory.getSnapshot(characterId)).items[0]!;
     expect(after.instanceId).toBe(before.instanceId);
     expect(after.quantity).toBe(2);
     expect(after).toMatchObject({
@@ -149,11 +162,11 @@ describeDatabase("persistent catalog-backed inventory", () => {
 
   it("survives reconstructing the inventory service", async () => {
     const first = new InventoryService(pool);
-    await first.addItems(playerId, [{ itemId: "field-bandage", quantity: 2 }]);
-    const saved = (await first.getSnapshot(playerId)).items[0]!;
+    await first.addItems(characterId, [{ itemId: "field-bandage", quantity: 2 }]);
+    const saved = (await first.getSnapshot(characterId)).items[0]!;
 
     const restarted = new InventoryService(pool);
-    const restored = (await restarted.getSnapshot(playerId)).items[0]!;
+    const restored = (await restarted.getSnapshot(characterId)).items[0]!;
 
     expect(restored.instanceId).toBe(saved.instanceId);
     expect(restored.quantity).toBe(saved.quantity);
@@ -162,10 +175,10 @@ describeDatabase("persistent catalog-backed inventory", () => {
 
   it("stacks compatible stackable rewards but keeps non-stackable definitions separate", async () => {
     const inventory = new InventoryService(pool);
-    await inventory.addItems(playerId, [{ itemId: "wolf-pelt", quantity: 1 }]);
-    await inventory.addItems(playerId, [{ itemId: "wolf-pelt", quantity: 1 }]);
+    await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 1 }]);
+    await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 1 }]);
 
-    const snapshot = await inventory.getSnapshot(playerId);
+    const snapshot = await inventory.getSnapshot(characterId);
     const pelts = snapshot.items.filter((item) => item.itemId === "wolf-pelt");
     expect(pelts).toHaveLength(1);
     expect(pelts[0]?.quantity).toBe(2);

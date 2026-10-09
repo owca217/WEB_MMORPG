@@ -23,6 +23,12 @@ export class CharacterService {
     return this.clone(character);
   }
 
+  hydrate(snapshot: CharacterSnapshot): CharacterSnapshot {
+    const hydrated = this.clone(snapshot);
+    this.characters.set(snapshot.playerId, hydrated);
+    return this.clone(hydrated);
+  }
+
   getSnapshot(playerId: PlayerId): CharacterSnapshot | undefined {
     const character = this.characters.get(playerId);
     return character ? this.clone(character) : undefined;

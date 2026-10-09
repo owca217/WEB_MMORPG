@@ -18,17 +18,21 @@ import {
   expect,
   it
 } from "vitest";
+import { AuthService } from "../src/auth/AuthService";
 import { findPath, hexDistance, hexKey, hexNeighbors } from "../src/battle/hex";
 import { hasLineOfSight } from "../src/battle/lineOfSight";
+import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
 import { createPool } from "../src/db/createPool";
 import { runMigrations } from "../src/db/migrate";
 import { seedItemMetadata } from "../src/items/seedItemMetadata";
+import { AccountRepository } from "../src/persistence/AccountRepository";
 import { createGameServer } from "../src/server/createGameServer";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
 const pool = databaseUrl ? createPool(databaseUrl) : null;
 const clients: Socket[] = [];
+const PASSWORD = "correct-horse-battery-staple";
 let closeServer: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
@@ -40,7 +44,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!pool) return;
-  await pool.query("DELETE FROM item_instances");
+  await pool.query("TRUNCATE item_instances, account_sessions, characters, accounts CASCADE");
 });
 
 afterEach(async () => {
@@ -55,8 +59,14 @@ afterAll(async () => {
 
 async function startTestServer() {
   if (!pool) throw new Error("DATABASE_URL_REQUIRED_FOR_SOCKET_TESTS");
+  const lifecycle = new CharacterLifecycleService(pool);
+  const auth = new AuthService(pool, new AccountRepository(pool), lifecycle);
   const httpServer = createServer();
-  const game = createGameServer(httpServer, { pool });
+  const game = createGameServer(httpServer, {
+    pool,
+    authService: auth,
+    characterLifecycle: lifecycle
+  });
 
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
   const address = httpServer.address() as AddressInfo;
@@ -85,7 +95,29 @@ async function startTestServer() {
     return socket;
   };
 
-  return { game, connectClient };
+  return { game, connectClient, auth, lifecycle };
+}
+
+async function createIdentity(
+  auth: AuthService,
+  lifecycle: CharacterLifecycleService,
+  username: string,
+  nickname: string
+) {
+  if (!pool) throw new Error("DATABASE_URL_REQUIRED_FOR_SOCKET_TESTS");
+  await auth.register(username, PASSWORD);
+  const account = await new AccountRepository(pool).findByNormalizedUsername(username.toLowerCase());
+  if (!account) throw new Error("ACCOUNT_NOT_CREATED");
+  const character = await lifecycle.createCharacter(account.id, { nickname, appearance: {} });
+  const login = await auth.login(username, PASSWORD);
+  return { token: login.token, characterId: character.id };
+}
+
+async function authenticate(socket: Socket, token: string): Promise<string> {
+  const result = await socket.emitWithAck("authenticate", { sessionToken: token });
+  expect(result).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
+  if (!result.ok) throw new Error(`Socket authentication failed: ${result.code}`);
+  return result.characterId;
 }
 
 function once<T>(socket: Socket, event: string): Promise<T> {
@@ -181,23 +213,24 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
 }
 
 describeDatabase("Socket.IO game flow", () => {
-  it("emits player state after login and routes NPC interaction", async () => {
-    const { game, connectClient } = await startTestServer();
+  it("emits player state after durable authentication and routes NPC interaction", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "owczy_flow", "Owczy");
     const client = await connectClient();
     const playerStatePromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
 
-    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
-    expect(loginResult).toMatchObject({ ok: true, locationId: "forest-settlement-01" });
-    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+    const playerId = await authenticate(client, identity.token);
+    expect(playerId).toBe(identity.characterId);
 
     const playerState = await playerStatePromise;
-    expect(playerState.character).toMatchObject({ nickname: "Owczy", hp: 100, maxHp: 100 });
+    expect(playerState.character).toMatchObject({
+      playerId: identity.characterId,
+      nickname: "Owczy",
+      hp: 100,
+      maxHp: 100
+    });
 
-    game.services.world.movePlayer(
-      loginResult.playerId,
-      { x: 610, y: 420 },
-      Date.now() + 10_000
-    );
+    game.services.world.movePlayer(playerId, { x: 610, y: 420 }, Date.now() + 10_000);
 
     const interactionPromise = onceWithTimeout<NpcInteractionPayload>(client, "npcInteraction");
     client.emit("interactNpc", { npcId: "guide-boran" });
@@ -212,19 +245,15 @@ describeDatabase("Socket.IO game flow", () => {
   });
 
   it("rejects attempts to control the server-owned wolf", async () => {
-    const { game, connectClient } = await startTestServer();
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "owczy_wolf", "Owczy");
     const client = await connectClient();
     const worldPromise = once<WorldStateSnapshot>(client, "worldState");
 
-    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
-    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+    const playerId = await authenticate(client, identity.token);
     await worldPromise;
 
-    game.services.world.movePlayer(
-      loginResult.playerId,
-      { x: 1320, y: 455 },
-      Date.now() + 10_000
-    );
+    game.services.world.movePlayer(playerId, { x: 1320, y: 455 }, Date.now() + 10_000);
 
     const battlePromise = once<BattleSnapshot>(client, "battleStarted");
     client.emit("startEncounter", { encounterId: "wolf-pack-01" });
@@ -238,22 +267,18 @@ describeDatabase("Socket.IO game flow", () => {
   });
 
   it("completes forest -> battle -> loot -> shared world after victory", async () => {
-    const { game, connectClient } = await startTestServer();
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "owczy_victory", "Owczy");
     const client = await connectClient();
-    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
-    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+    const playerId = await authenticate(client, identity.token);
 
-    game.services.world.movePlayer(
-      loginResult.playerId,
-      { x: 1320, y: 455 },
-      Date.now() + 10_000
-    );
+    game.services.world.movePlayer(playerId, { x: 1320, y: 455 }, Date.now() + 10_000);
 
     const startedPromise = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
     client.emit("startEncounter", { encounterId: "wolf-pack-01" });
     const started = await startedPromise;
     const worldReturnPromise = onceWithTimeout<WorldStateSnapshot>(client, "worldState", 4000);
-    const ended = await winBattle(client, started, loginResult.playerId);
+    const ended = await winBattle(client, started, playerId);
 
     expect(ended.outcome).toBe("victory");
     const pelt = ended.inventory.items.find((item) => item.itemId === "wolf-pelt");
@@ -272,25 +297,21 @@ describeDatabase("Socket.IO game flow", () => {
     expect(bandage?.itemDefinitionId).toBeTruthy();
 
     const returnedWorld = await worldReturnPromise;
-    expect(returnedWorld.players.some((player) => player.id === loginResult.playerId)).toBe(true);
+    expect(returnedWorld.players.some((player) => player.id === playerId)).toBe(true);
   });
 
   it("recovers from defeat while preserving severe injury state", async () => {
-    const { game, connectClient } = await startTestServer();
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "owczy_defeat", "Owczy");
     const client = await connectClient();
-    const loginResult = await client.emitWithAck("login", { nickname: "Owczy" });
-    if (!loginResult.ok) throw new Error("Login unexpectedly failed");
+    const playerId = await authenticate(client, identity.token);
 
-    game.services.characters.applyBattleResult(loginResult.playerId, {
+    game.services.characters.applyBattleResult(playerId, {
       hp: 1,
       severelyInjured: true,
       injuries: ["legTrauma"]
     });
-    game.services.world.movePlayer(
-      loginResult.playerId,
-      { x: 1320, y: 455 },
-      Date.now() + 10_000
-    );
+    game.services.world.movePlayer(playerId, { x: 1320, y: 455 }, Date.now() + 10_000);
 
     const startedPromise = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
     client.emit("startEncounter", { encounterId: "wolf-pack-01" });
@@ -301,7 +322,7 @@ describeDatabase("Socket.IO game flow", () => {
     }>(client, "battleEnded", 4000);
 
     for (let turn = 0; turn < 12 && !battle.finished; turn += 1) {
-      const hero = battle.combatants.find((combatant) => combatant.ownerPlayerId === loginResult.playerId);
+      const hero = battle.combatants.find((combatant) => combatant.ownerPlayerId === playerId);
       if (!hero) throw new Error("Expected hero.");
       const statePromise = onceWithTimeout<BattleSnapshot>(client, "battleState");
       client.emit("battleCommand", { type: "endTurn", combatantId: hero.id });
@@ -316,31 +337,30 @@ describeDatabase("Socket.IO game flow", () => {
   });
 
   it("keeps another player in the shared world while one player battles", async () => {
-    const { game, connectClient } = await startTestServer();
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const firstIdentity = await createIdentity(auth, lifecycle, "owczy_shared", "Owczy");
+    const secondIdentity = await createIdentity(auth, lifecycle, "karolina_shared", "Karolina");
     const first = await connectClient();
     const second = await connectClient();
 
-    const firstLogin = await first.emitWithAck("login", { nickname: "Owczy" });
-    if (!firstLogin.ok) throw new Error("First login failed");
+    const initialFirstWorld = onceWithTimeout<WorldStateSnapshot>(first, "worldState");
+    const firstPlayerId = await authenticate(first, firstIdentity.token);
+    expect((await initialFirstWorld).players).toHaveLength(1);
 
     const firstWorld = onceWithTimeout<WorldStateSnapshot>(first, "worldState");
     const secondWorld = onceWithTimeout<WorldStateSnapshot>(second, "worldState");
-    const secondLogin = await second.emitWithAck("login", { nickname: "Karolina" });
-    if (!secondLogin.ok) throw new Error("Second login failed");
+    const secondPlayerId = await authenticate(second, secondIdentity.token);
 
     expect((await firstWorld).players).toHaveLength(2);
     expect((await secondWorld).players).toHaveLength(2);
+    expect(secondPlayerId).toBe(secondIdentity.characterId);
 
     let secondEnteredBattle = false;
     second.once("battleStarted", () => {
       secondEnteredBattle = true;
     });
 
-    game.services.world.movePlayer(
-      firstLogin.playerId,
-      { x: 1320, y: 455 },
-      Date.now() + 10_000
-    );
+    game.services.world.movePlayer(firstPlayerId, { x: 1320, y: 455 }, Date.now() + 10_000);
 
     const startedPromise = onceWithTimeout<BattleSnapshot>(first, "battleStarted");
     first.emit("startEncounter", { encounterId: "wolf-pack-01" });
@@ -349,7 +369,7 @@ describeDatabase("Socket.IO game flow", () => {
     expect(secondEnteredBattle).toBe(false);
 
     const secondReturnWorld = onceWithTimeout<WorldStateSnapshot>(second, "worldState", 4000);
-    const ended = await winBattle(first, started, firstLogin.playerId);
+    const ended = await winBattle(first, started, firstPlayerId);
     expect(ended.outcome).toBe("victory");
 
     const world = await secondReturnWorld;

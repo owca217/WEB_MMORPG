@@ -2,21 +2,23 @@ import type { ItemDraftInput } from "@web-mmorpg/shared";
 import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { AccountAdminService } from "../src/admin/AccountAdminService";
 import type { IconStorage, IconUploadInput } from "../src/admin/IconStorage";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
+import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { AuthService } from "../src/auth/AuthService";
+import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
 import { createPool } from "../src/db/createPool";
 import { runMigrations } from "../src/db/migrate";
 import { InventoryService } from "../src/inventory/InventoryService";
 import { ItemCatalogService } from "../src/items/ItemCatalogService";
 import { ItemMetadataRepository } from "../src/items/ItemMetadataRepository";
 import { seedItemMetadata } from "../src/items/seedItemMetadata";
-import { SessionStore } from "../src/session/SessionStore";
+import { AccountRepository } from "../src/persistence/AccountRepository";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
-const originalAdminToken = process.env.ADMIN_ACCESS_TOKEN;
-const inventoryPlayerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const PASSWORD = "correct-horse-battery-staple";
 
 function sword(overrides: Partial<ItemDraftInput> = {}): ItemDraftInput {
   return {
@@ -63,16 +65,16 @@ class FakeIconStorage implements IconStorage {
 
 describeDatabase("item creator end-to-end acceptance", () => {
   const pool = createPool(databaseUrl);
-  let sessions: SessionStore;
   let metadata: ItemMetadataRepository;
   let catalog: ItemCatalogService;
   let audit: AdminAuditRepository;
   let icons: FakeIconStorage;
   let app: express.Express;
   let adminToken: string;
+  let adminAccountId: string;
+  let inventoryCharacterId: string;
 
   beforeAll(async () => {
-    process.env.ADMIN_ACCESS_TOKEN = "item-creator-e2e-secret";
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
     await runMigrations(pool);
     await seedItemMetadata(pool);
@@ -81,31 +83,53 @@ describeDatabase("item creator end-to-end acceptance", () => {
   beforeEach(async () => {
     await pool.query(
       `TRUNCATE item_instances, item_tags, item_effects, item_requirements,
-       item_stat_modifiers, item_versions, items, admin_audit_log CASCADE`
+       item_stat_modifiers, item_versions, items, admin_audit_log,
+       account_sessions, characters, accounts CASCADE`
     );
     await seedItemMetadata(pool);
 
-    sessions = new SessionStore();
     metadata = new ItemMetadataRepository(pool);
     catalog = new ItemCatalogService(pool, metadata);
     audit = new AdminAuditRepository(pool);
     icons = new FakeIconStorage();
 
-    const admin = sessions.login("E2EAdmin", "item-creator-e2e-secret");
-    if (!admin.ok) throw new Error("E2E_ADMIN_LOGIN_FAILED");
-    adminToken = admin.sessionToken;
+    const lifecycle = new CharacterLifecycleService(pool);
+    const accounts = new AccountRepository(pool);
+    const authService = new AuthService(pool, accounts, lifecycle);
+    const accountAdmin = new AccountAdminService(pool, audit);
+
+    await authService.register("E2EAdmin", PASSWORD);
+    const admin = await accounts.findByNormalizedUsername("e2eadmin");
+    if (!admin) throw new Error("E2E_ADMIN_ACCOUNT_MISSING");
+    await accounts.updateRole(admin.id, "ADMIN");
+    adminAccountId = admin.id;
+    adminToken = (await authService.login("E2EAdmin", PASSWORD)).token;
+
+    await authService.register("E2EInventory", PASSWORD);
+    const inventoryAccount = await accounts.findByNormalizedUsername("e2einventory");
+    if (!inventoryAccount) throw new Error("E2E_INVENTORY_ACCOUNT_MISSING");
+    const inventoryCharacter = await lifecycle.createCharacter(inventoryAccount.id, {
+      nickname: "InventoryHero",
+      appearance: {}
+    });
+    inventoryCharacterId = inventoryCharacter.id;
 
     app = express();
     app.use(express.json());
     app.use(
       "/api/admin",
-      createAdminRouter({ sessions, metadata, catalog, audit, iconStorage: icons })
+      createAdminRouter({
+        authService,
+        accountAdmin,
+        metadata,
+        catalog,
+        audit,
+        iconStorage: icons
+      })
     );
   });
 
   afterAll(async () => {
-    if (originalAdminToken === undefined) delete process.env.ADMIN_ACCESS_TOKEN;
-    else process.env.ADMIN_ACCESS_TOKEN = originalAdminToken;
     await pool.end();
   });
 
@@ -179,8 +203,8 @@ describeDatabase("item creator end-to-end acceptance", () => {
     expect(publishedV1.body).toMatchObject({ versionNo: 1, state: "PUBLISHED", name: "Miecz Burzy" });
 
     const inventory = new InventoryService(pool);
-    await inventory.addItems(inventoryPlayerId, [{ itemId: "e2e-storm-sword", quantity: 1 }]);
-    const instanceBefore = (await inventory.getSnapshot(inventoryPlayerId)).items[0]!;
+    await inventory.addItems(inventoryCharacterId, [{ itemId: "e2e-storm-sword", quantity: 1 }]);
+    const instanceBefore = (await inventory.getSnapshot(inventoryCharacterId)).items[0]!;
     expect(instanceBefore).toMatchObject({
       itemId: "e2e-storm-sword",
       name: "Miecz Burzy",
@@ -236,12 +260,11 @@ describeDatabase("item creator end-to-end acceptance", () => {
       .expect(200);
     expect(publishedV2.body).toMatchObject({ versionNo: 2, state: "PUBLISHED", rarity: "EPIC" });
 
-    const instanceAfterV2 = (await inventory.getSnapshot(inventoryPlayerId)).items[0]!;
+    const instanceAfterV2 = (await inventory.getSnapshot(inventoryCharacterId)).items[0]!;
     expect(instanceAfterV2.instanceId).toBe(instanceBefore.instanceId);
     expect(instanceAfterV2.quantity).toBe(instanceBefore.quantity);
     expect(instanceAfterV2).toMatchObject({ name: "Miecz Burzy v2", rarity: "EPIC" });
 
-    // A new pool/service pair simulates an application reconnect/restart against the same DB.
     const reconnectedPool = createPool(databaseUrl);
     try {
       const reconnectedMetadata = new ItemMetadataRepository(reconnectedPool);
@@ -250,7 +273,7 @@ describeDatabase("item creator end-to-end acceptance", () => {
 
       const persistedItem = await reconnectedCatalog.getItem("e2e-storm-sword");
       const persistedVersions = await reconnectedCatalog.listVersions("e2e-storm-sword");
-      const persistedInstance = (await reconnectedInventory.getSnapshot(inventoryPlayerId)).items[0]!;
+      const persistedInstance = (await reconnectedInventory.getSnapshot(inventoryCharacterId)).items[0]!;
 
       expect(persistedItem.item).toMatchObject({ activeVersionNo: 2, name: "Miecz Burzy v2" });
       expect(persistedVersions.map((entry) => entry.versionNo)).toEqual([2, 1]);
@@ -298,14 +321,21 @@ describeDatabase("item creator end-to-end acceptance", () => {
         "ARCHIVE"
       ])
     );
-    expect(itemAudit.body.every((entry: { actorPlayerId: string }) => Boolean(entry.actorPlayerId))).toBe(true);
+    expect(
+      itemAudit.body.every(
+        (entry: { actorAccountId?: string; actorPlayerId?: string }) =>
+          entry.actorAccountId === adminAccountId && entry.actorPlayerId === undefined
+      )
+    ).toBe(true);
 
     const iconAudit = await request(app)
       .get("/api/admin/audit?objectType=item_icon&objectId=icons/e2e-storm-sword.png")
       .set(auth)
       .expect(200);
     expect(iconAudit.body).toEqual(
-      expect.arrayContaining([expect.objectContaining({ action: "UPLOAD_ICON" })])
+      expect.arrayContaining([
+        expect.objectContaining({ action: "UPLOAD_ICON", actorAccountId: adminAccountId })
+      ])
     );
   });
 });

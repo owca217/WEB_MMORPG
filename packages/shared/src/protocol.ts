@@ -1,14 +1,17 @@
-import type { UserRole } from "./admin";
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type { InventorySnapshot } from "./inventory";
-import type { LocationId, PlayerId } from "./ids";
+import type { LocationId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
+export type SocketAuthResult =
+  | { ok: true; characterId: string; locationId: LocationId }
+  | { ok: false; code: string; message: string };
+
 export interface ClientToServerEvents {
-  login: (
-    payload: { nickname: string; adminToken?: string },
-    ack: (result: LoginResult) => void
+  authenticate: (
+    payload: { sessionToken: string },
+    ack: (result: SocketAuthResult) => void
   ) => void;
   moveIntent: (payload: { x: number; y: number }) => void;
   startEncounter: (payload: { encounterId: string }) => void;
@@ -32,13 +35,3 @@ export interface ServerToClientEvents {
   }) => void;
   commandRejected: (payload: { code: string; message: string }) => void;
 }
-
-export type LoginResult =
-  | {
-      ok: true;
-      playerId: PlayerId;
-      locationId: LocationId;
-      sessionToken: string;
-      role: UserRole;
-    }
-  | { ok: false; code: string; message: string };

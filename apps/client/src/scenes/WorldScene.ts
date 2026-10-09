@@ -2,9 +2,11 @@ import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
+import { AuthApi } from "../net/AuthApi";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { sessionStateStore } from "../state/SessionStateStore";
+import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
@@ -89,11 +91,11 @@ export class WorldScene extends Phaser.Scene {
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
 
-    const session = sessionStateStore.getSnapshot();
-    if (session?.role === "ADMIN") {
-      const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    const session = sessionStateStore.getSession();
+    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    if (session?.accountRole === "ADMIN") {
       this.adminPanel = new AdminPanel(
-        new AdminApi(serverUrl, () => sessionStateStore.getSnapshot()?.sessionToken ?? null)
+        new AdminApi(serverUrl, () => sessionStateStore.getToken())
       );
     }
 
@@ -102,9 +104,12 @@ export class WorldScene extends Phaser.Scene {
       onCharacter: () => this.characterPanel?.toggle(),
       onAdmin: () => {
         if (this.adminPanel) void this.adminPanel.showCatalog();
+      },
+      onLogout: () => {
+        void this.logout(serverUrl);
       }
     });
-    this.hud.updateSession(session?.role ?? "PLAYER");
+    this.hud.updateSession(session?.accountRole ?? "PLAYER");
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -212,6 +217,17 @@ export class WorldScene extends Phaser.Scene {
       this.lastIntentSentAt = this.time.now;
       gameSocket.sendMoveIntent(this.localPosition);
     }
+  }
+
+  private async logout(serverUrl: string): Promise<void> {
+    const authApi = new AuthApi(serverUrl);
+    await logoutSession({
+      token: sessionStateStore.getToken(),
+      logout: (token) => authApi.logout(token),
+      disconnect: () => gameSocket.disconnect(),
+      reset: () => sessionStateStore.reset(),
+      onFinished: () => this.scene.start("AuthScene")
+    });
   }
 
   private renderWorld(snapshot: WorldStateSnapshot): void {

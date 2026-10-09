@@ -42,7 +42,6 @@ jobs:
       - name: Build client
         env:
           VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com
-          VITE_ENABLE_ADMIN_LOGIN: "true"
         run: npm run build -w @web-mmorpg/client
 
       - name: Configure Pages

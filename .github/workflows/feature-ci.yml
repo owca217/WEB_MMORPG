@@ -5,6 +5,7 @@ on:
     branches:
       - feature/mvp-vertical-slice
       - feature/item-creator-design
+      - feature/account-auth-restoration
       - fix/admin-creator-production-deploy
       - main
 

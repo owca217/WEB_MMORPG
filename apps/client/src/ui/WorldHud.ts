@@ -1,9 +1,10 @@
-import type { PlayerStateSnapshot } from "@web-mmorpg/shared";
+import type { PlayerStateSnapshot, UserRole } from "@web-mmorpg/shared";
 import type { ConnectionState } from "../net/GameSocket";
 
 interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
+  onAdmin: () => void;
 }
 
 export class WorldHud {
@@ -12,6 +13,7 @@ export class WorldHud {
   private readonly hp: HTMLElement;
   private readonly ap: HTMLElement;
   private readonly connection: HTMLElement;
+  private readonly adminButton: HTMLButtonElement;
 
   constructor(handlers: WorldHudHandlers) {
     this.root = document.createElement("div");
@@ -28,6 +30,7 @@ export class WorldHud {
       <div class="world-hud__actions">
         <button type="button" data-inventory>Ekwipunek</button>
         <button type="button" data-character>Postać</button>
+        <button type="button" data-admin hidden>Panel ADMIN</button>
       </div>
     `;
     document.body.appendChild(this.root);
@@ -36,8 +39,14 @@ export class WorldHud {
     this.hp = this.require("[data-hp]");
     this.ap = this.require("[data-ap]");
     this.connection = this.require("[data-connection]");
+    this.adminButton = this.require<HTMLButtonElement>("[data-admin]");
     this.require<HTMLButtonElement>("[data-inventory]").addEventListener("click", handlers.onInventory);
     this.require<HTMLButtonElement>("[data-character]").addEventListener("click", handlers.onCharacter);
+    this.adminButton.addEventListener("click", handlers.onAdmin);
+  }
+
+  updateSession(role: UserRole): void {
+    this.adminButton.hidden = role !== "ADMIN";
   }
 
   update(state: PlayerStateSnapshot): void {

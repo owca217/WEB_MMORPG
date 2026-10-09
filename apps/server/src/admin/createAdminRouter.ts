@@ -1,7 +1,13 @@
-import type { ItemCatalogQuery, ItemDraftInput } from "@web-mmorpg/shared";
+import type {
+  AdminAccountQuery,
+  ItemCatalogQuery,
+  ItemDraftInput,
+  UpdateAccountAccessInput
+} from "@web-mmorpg/shared";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import { AdminAuditRepository } from "../audit/AdminAuditRepository";
+import type { AuthService } from "../auth/AuthService";
 import { ItemCatalogService } from "../items/ItemCatalogService";
 import { ItemMetadataRepository } from "../items/ItemMetadataRepository";
 import {
@@ -9,8 +15,8 @@ import {
   ItemNotFoundError,
   ItemValidationError
 } from "../items/itemValidation";
-import type { SessionRecord, SessionStore } from "../session/SessionStore";
-import { AdminAuthError, requireAdminSession } from "./AdminAuth";
+import { AccountAdminError, type AccountAdminService } from "./AccountAdminService";
+import { AdminAuthError, requireAdminSession, type AdminSession } from "./AdminAuth";
 import {
   IconUploadValidationError,
   MAX_ITEM_ICON_BYTES,
@@ -19,7 +25,8 @@ import {
 } from "./IconStorage";
 
 export interface AdminRouterDependencies {
-  sessions: SessionStore;
+  authService: AuthService;
+  accountAdmin: AccountAdminService;
   metadata: ItemMetadataRepository;
   catalog: ItemCatalogService;
   audit: AdminAuditRepository;
@@ -39,15 +46,30 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
   const router = Router();
 
   router.use((req, res, next) => {
-    try {
-      res.locals.adminSession = requireAdminSession(
-        deps.sessions,
-        req.header("authorization")
-      );
-      next();
-    } catch (error) {
-      next(error);
-    }
+    void requireAdminSession(deps.authService, req.header("authorization"))
+      .then((adminSession) => {
+        res.locals.adminSession = adminSession;
+        next();
+      })
+      .catch(next);
+  });
+
+  router.get("/accounts", async (req, res) => {
+    res.json(await deps.accountAdmin.listAccounts(parseAccountQuery(req)));
+  });
+
+  router.put("/accounts/:accountId/access", async (req, res) => {
+    const input = req.body as UpdateAccountAccessInput;
+    res.json(
+      await deps.accountAdmin.updateAccess(
+        session(res).accountId,
+        req.params.accountId,
+        {
+          ...(input.role === undefined ? {} : { role: input.role }),
+          ...(input.status === undefined ? {} : { status: input.status })
+        }
+      )
+    );
   });
 
   router.get("/item-metadata", async (_req, res) => {
@@ -61,7 +83,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
   router.post("/items", async (req, res) => {
     const created = await deps.catalog.createDraft(
       req.body as ItemDraftInput,
-      session(res).playerId
+      session(res).accountId
     );
     res.status(201).json(created);
   });
@@ -82,7 +104,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
         req.params.itemId,
         body.draft,
         body.expectedRevision as number,
-        session(res).playerId
+        session(res).accountId
       )
     );
   });
@@ -93,7 +115,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       await deps.catalog.publish(
         req.params.itemId,
         expectedRevision as number,
-        session(res).playerId
+        session(res).accountId
       )
     );
   });
@@ -106,13 +128,13 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
     const duplicated = await deps.catalog.duplicate(
       req.params.itemId,
       newItemId,
-      session(res).playerId
+      session(res).accountId
     );
     res.status(201).json(duplicated);
   });
 
   router.post("/items/:itemId/archive", async (req, res) => {
-    await deps.catalog.archive(req.params.itemId, session(res).playerId);
+    await deps.catalog.archive(req.params.itemId, session(res).accountId);
     res.status(204).end();
   });
 
@@ -134,7 +156,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       await deps.catalog.restoreVersion(
         req.params.itemId,
         parsePositiveInteger(req.params.versionNo, "INVALID_VERSION_NO"),
-        session(res).playerId
+        session(res).accountId
       )
     );
   });
@@ -158,7 +180,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
         name: input.name,
         allowedStatCodes: input.allowedStatCodes
       },
-      session(res).playerId
+      session(res).accountId
     );
     res.status(201).json(created);
   });
@@ -185,7 +207,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
         name: input.name,
         allowedStatCodes: input.allowedStatCodes
       },
-      session(res).playerId
+      session(res).accountId
     );
     res.status(201).json(created);
   });
@@ -199,7 +221,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       await deps.metadata.updateCategoryAllowedStats(
         req.params.categoryId,
         allowedStatCodes,
-        session(res).playerId
+        session(res).accountId
       )
     );
   });
@@ -213,7 +235,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       originalName: req.file.originalname
     });
     await deps.audit.append({
-      actorPlayerId: session(res).playerId,
+      actorAccountId: session(res).accountId,
       action: "UPLOAD_ICON",
       objectType: "item_icon",
       objectId: stored.key,
@@ -240,8 +262,19 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
   return router;
 }
 
-function session(res: Response): SessionRecord {
-  return res.locals.adminSession as SessionRecord;
+function session(res: Response): AdminSession {
+  return res.locals.adminSession as AdminSession;
+}
+
+function parseAccountQuery(req: Request): AdminAccountQuery {
+  const query: AdminAccountQuery = {};
+  const search = singleQuery(req.query.search);
+  const page = optionalPositiveInteger(req.query.page, "INVALID_PAGE");
+  const pageSize = optionalPositiveInteger(req.query.pageSize, "INVALID_PAGE_SIZE");
+  if (search !== undefined) query.search = search;
+  if (page !== undefined) query.page = page;
+  if (pageSize !== undefined) query.pageSize = pageSize;
+  return query;
 }
 
 function parseCatalogQuery(req: Request): ItemCatalogQuery {
@@ -285,6 +318,17 @@ function optionalInteger(value: unknown, code: string): number | undefined {
   return parsed;
 }
 
+function optionalPositiveInteger(value: unknown, code: string): number | undefined {
+  if (value === undefined) return undefined;
+  const raw = singleQuery(value);
+  if (!raw) throw new AccountAdminError(code, 400, code);
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new AccountAdminError(code, 400, code);
+  }
+  return parsed;
+}
+
 function parsePositiveInteger(value: string, code: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -295,6 +339,10 @@ function parsePositiveInteger(value: string, code: string): number {
 
 function sendAdminError(error: unknown, res: Response): void {
   if (error instanceof AdminAuthError) {
+    res.status(error.status).json({ code: error.code, message: error.message });
+    return;
+  }
+  if (error instanceof AccountAdminError) {
     res.status(error.status).json({ code: error.code, message: error.message });
     return;
   }

@@ -94,8 +94,8 @@ describe("CharacterCreatorPanel", () => {
     expect(getSession).toHaveBeenCalledWith("character-token");
     expect(store.getSession()).toEqual(refreshed);
     expect(enterWorld).toHaveBeenCalledWith("character-token", refreshed);
-    expect(createCharacter.mock.invocationCallOrder[0]).toBeLessThan(getSession.mock.invocationCallOrder[0]);
-    expect(getSession.mock.invocationCallOrder[0]).toBeLessThan(enterWorld.mock.invocationCallOrder[0]);
+    expect(createCharacter.mock.invocationCallOrder[0]!).toBeLessThan(getSession.mock.invocationCallOrder[0]!);
+    expect(getSession.mock.invocationCallOrder[0]!).toBeLessThan(enterWorld.mock.invocationCallOrder[0]!);
   });
 
   it("preserves the form and does not enter the world when creation fails", async () => {

@@ -4,6 +4,7 @@ import type {
   ItemSubcategoryDefinition
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
+import { AdminAuditRepository } from "../audit/AdminAuditRepository";
 import { ENGINE_EFFECTS, ENGINE_STATS, ENGINE_TRIGGERS } from "./statRegistry";
 
 export interface CreateCategoryInput {
@@ -41,7 +42,11 @@ interface StatRow {
 }
 
 export class ItemMetadataRepository {
-  constructor(private readonly pool: Pool) {}
+  private readonly audit: AdminAuditRepository;
+
+  constructor(private readonly pool: Pool) {
+    this.audit = new AdminAuditRepository(pool);
+  }
 
   async listMetadata(): Promise<ItemCreatorMetadata> {
     const [categoriesResult, subcategoriesResult, allowedResult, statsResult] =
@@ -125,7 +130,6 @@ export class ItemMetadataRepository {
     input: CreateCategoryInput,
     actor: string
   ): Promise<ItemCategoryDefinition> {
-    void actor;
     this.validateId(input.id);
     this.validateName(input.name);
     this.validateStatCodes(input.allowedStatCodes);
@@ -139,6 +143,16 @@ export class ItemMetadataRepository {
         [input.id, input.name.trim()]
       );
       await this.replaceAllowedStats(client, input.id, null, input.allowedStatCodes);
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "CREATE_CATEGORY",
+        objectType: "item_category",
+        objectId: input.id,
+        summary: {
+          name: input.name.trim(),
+          allowedStatCodes: [...new Set(input.allowedStatCodes)].sort()
+        }
+      });
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -159,7 +173,6 @@ export class ItemMetadataRepository {
     input: CreateSubcategoryInput,
     actor: string
   ): Promise<ItemSubcategoryDefinition> {
-    void actor;
     this.validateId(input.id);
     this.validateId(input.categoryId);
     this.validateName(input.name);
@@ -187,6 +200,17 @@ export class ItemMetadataRepository {
         input.id,
         input.allowedStatCodes
       );
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "CREATE_SUBCATEGORY",
+        objectType: "item_subcategory",
+        objectId: `${input.categoryId}:${input.id}`,
+        summary: {
+          categoryId: input.categoryId,
+          name: input.name.trim(),
+          allowedStatCodes: [...new Set(input.allowedStatCodes)].sort()
+        }
+      });
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");

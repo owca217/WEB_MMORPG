@@ -18,7 +18,7 @@ describeDatabase("item catalog database", () => {
     await pool.end();
   });
 
-  it("creates every required catalog table exactly once", async () => {
+  it("creates every required catalog and account table exactly once", async () => {
     const result = await pool.query<{ tablename: string }>(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
     );
@@ -26,6 +26,9 @@ describeDatabase("item catalog database", () => {
 
     expect(tables).toEqual(
       expect.arrayContaining([
+        "accounts",
+        "account_sessions",
+        "characters",
         "admin_audit_log",
         "category_allowed_stats",
         "item_categories",
@@ -45,7 +48,10 @@ describeDatabase("item catalog database", () => {
     const migrations = await pool.query<{ migration_name: string }>(
       "SELECT migration_name FROM schema_migrations ORDER BY migration_name"
     );
-    expect(migrations.rows).toEqual([{ migration_name: "001_item_catalog" }]);
+    expect(migrations.rows).toEqual([
+      { migration_name: "001_item_catalog" },
+      { migration_name: "002_account_auth" }
+    ]);
   });
 
   it("enforces stable unique itemId and foreign-key ownership", async () => {

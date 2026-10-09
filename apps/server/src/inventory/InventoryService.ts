@@ -208,7 +208,7 @@ export class InventoryService {
       category: row.category_id,
       description: row.description,
       ...(row.icon_url ? { iconUrl: row.icon_url } : {}),
-      ...(row.rarity ? { rarity: row.rarity } : {}),
+      rarity: row.rarity,
       ...(row.durability === null ? {} : { durability: Number(row.durability) }),
       ...(row.max_durability === null
         ? {}

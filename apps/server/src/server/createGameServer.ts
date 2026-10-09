@@ -42,7 +42,7 @@ export function createGameServer(
       if (!character) return;
       socket.emit("playerState", {
         character,
-        inventory: await inventory.getSnapshot(targetPlayerId)
+        inventory: await inventory.getLegacySessionSnapshot(targetPlayerId)
       });
     };
 
@@ -201,7 +201,7 @@ export function createGameServer(
 
         if (applied.victory && applied.encounterId && applied.seed !== undefined) {
           const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
-          await inventory.addItems(currentPlayerId, reward);
+          await inventory.addLegacySessionItems(currentPlayerId, reward);
         } else {
           characters.recoverAfterDefeat(currentPlayerId);
           world.resetPlayerToSpawn(currentPlayerId);
@@ -211,7 +211,7 @@ export function createGameServer(
         const session = sessions.get(currentPlayerId);
         if (!character || !session) return;
 
-        const inventorySnapshot = await inventory.getSnapshot(currentPlayerId);
+        const inventorySnapshot = await inventory.getLegacySessionSnapshot(currentPlayerId);
         await emitPlayerState(currentPlayerId);
         socket.emit("battleEnded", {
           outcome: applied.victory ? "victory" : "defeat",

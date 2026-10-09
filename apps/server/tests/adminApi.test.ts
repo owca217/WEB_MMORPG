@@ -130,6 +130,65 @@ describeDatabase("ADMIN item REST API", () => {
     );
   });
 
+  it("rejects PLAYER bearer tokens for every mutation family without changing persistent rows", async () => {
+    await catalog.createDraft(sword(), sessions.getByToken(adminToken)!.playerId);
+    await catalog.publish("api-iron-sword", 1, sessions.getByToken(adminToken)!.playerId);
+
+    const before = await mutationCounts();
+    const playerAuth = { Authorization: `Bearer ${playerToken}` };
+
+    await request(app).post("/api/admin/items").set(playerAuth).send(sword({ itemId: "api-forbidden" })).expect(403);
+    await request(app)
+      .put("/api/admin/items/api-iron-sword/draft")
+      .set(playerAuth)
+      .send({ expectedRevision: 1, draft: sword({ name: "Forbidden" }) })
+      .expect(403);
+    await request(app)
+      .post("/api/admin/items/api-iron-sword/publish")
+      .set(playerAuth)
+      .send({ expectedRevision: 1 })
+      .expect(403);
+    await request(app)
+      .post("/api/admin/items/api-iron-sword/duplicate")
+      .set(playerAuth)
+      .send({ newItemId: "api-forbidden-copy" })
+      .expect(403);
+    await request(app).post("/api/admin/items/api-iron-sword/archive").set(playerAuth).send({}).expect(403);
+    await request(app)
+      .post("/api/admin/items/api-iron-sword/versions/1/restore")
+      .set(playerAuth)
+      .send({})
+      .expect(403);
+    await request(app)
+      .post("/api/admin/categories")
+      .set(playerAuth)
+      .send({ id: "api-forbidden-category", name: "Forbidden", allowedStatCodes: ["ARMOR"] })
+      .expect(403);
+    await request(app)
+      .post("/api/admin/subcategories")
+      .set(playerAuth)
+      .send({
+        id: "api-forbidden-subcategory",
+        categoryId: "weapon",
+        name: "Forbidden",
+        allowedStatCodes: ["PHYSICAL_DAMAGE"]
+      })
+      .expect(403);
+    await request(app)
+      .put("/api/admin/categories/weapon/allowed-stats")
+      .set(playerAuth)
+      .send({ allowedStatCodes: ["ARMOR"] })
+      .expect(403);
+    await request(app)
+      .post("/api/admin/icons")
+      .set(playerAuth)
+      .attach("icon", Buffer.from("png"), { filename: "forbidden.png", contentType: "image/png" })
+      .expect(403);
+
+    expect(await mutationCounts()).toEqual(before);
+    expect(icons.writes).toHaveLength(0);
+  });
+
   it("creates, updates, rejects stale writes, publishes and reads history", async () => {
     const created = await request(app)
       .post("/api/admin/items")
@@ -269,4 +328,24 @@ describeDatabase("ADMIN item REST API", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .expect(404);
   });
+
+  async function mutationCounts(): Promise<Record<string, string>> {
+    const result = await pool.query<{
+      items: string;
+      versions: string;
+      categories: string;
+      subcategories: string;
+      audit: string;
+    }>(
+      `SELECT
+        (SELECT COUNT(*)::text FROM items) AS items,
+        (SELECT COUNT(*)::text FROM item_versions) AS versions,
+        (SELECT COUNT(*)::text FROM item_categories) AS categories,
+        (SELECT COUNT(*)::text FROM item_subcategories) AS subcategories,
+        (SELECT COUNT(*)::text FROM admin_audit_log) AS audit`
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("COUNT_QUERY_FAILED");
+    return row;
+  }
 });

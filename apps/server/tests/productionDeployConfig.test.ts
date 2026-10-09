@@ -16,12 +16,19 @@ const gameSocket = readFileSync(
   resolve(here, "../../client/src/net/GameSocket.ts"),
   "utf8"
 );
+const serverPackage = JSON.parse(
+  readFileSync(resolve(here, "../package.json"), "utf8")
+) as { scripts?: Record<string, string> };
 
 describe("production account-auth deployment", () => {
   it("deploys/builds the final main branch with npm 11", () => {
     expect(pagesWorkflow).toContain("      - main");
     expect(pagesWorkflow).toContain("npm install --global npm@11");
     expect(featureCi).toContain("      - main");
+  });
+
+  it("provides the Render production start command expected by the service", () => {
+    expect(serverPackage.scripts?.start).toBe("tsx src/index.ts");
   });
 
   it("does not expose the retired temporary ADMIN-token login flow", () => {

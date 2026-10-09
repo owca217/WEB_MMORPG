@@ -6,6 +6,10 @@ const MIGRATIONS = [
   {
     name: "001_item_catalog",
     url: new URL("./migrations/001_item_catalog.sql", import.meta.url)
+  },
+  {
+    name: "002_account_auth",
+    url: new URL("./migrations/002_account_auth.sql", import.meta.url)
   }
 ] as const;
 

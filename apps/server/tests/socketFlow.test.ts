@@ -343,7 +343,9 @@ describeDatabase("Socket.IO game flow", () => {
     const first = await connectClient();
     const second = await connectClient();
 
+    const initialFirstWorld = onceWithTimeout<WorldStateSnapshot>(first, "worldState");
     const firstPlayerId = await authenticate(first, firstIdentity.token);
+    expect((await initialFirstWorld).players).toHaveLength(1);
 
     const firstWorld = onceWithTimeout<WorldStateSnapshot>(first, "worldState");
     const secondWorld = onceWithTimeout<WorldStateSnapshot>(second, "worldState");

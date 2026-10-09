@@ -1,8 +1,11 @@
 import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
+import { AdminApi } from "../net/AdminApi";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
+import { sessionStateStore } from "../state/SessionStateStore";
+import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
@@ -37,6 +40,7 @@ export class WorldScene extends Phaser.Scene {
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
+  private adminPanel: AdminPanel | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {
@@ -84,10 +88,23 @@ export class WorldScene extends Phaser.Scene {
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
+
+    const session = sessionStateStore.getSnapshot();
+    if (session?.role === "ADMIN") {
+      const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+      this.adminPanel = new AdminPanel(
+        new AdminApi(serverUrl, () => sessionStateStore.getSnapshot()?.sessionToken ?? null)
+      );
+    }
+
     this.hud = new WorldHud({
       onInventory: () => this.inventoryPanel?.toggle(),
-      onCharacter: () => this.characterPanel?.toggle()
+      onCharacter: () => this.characterPanel?.toggle(),
+      onAdmin: () => {
+        if (this.adminPanel) void this.adminPanel.showCatalog();
+      }
     });
+    this.hud.updateSession(session?.role ?? "PLAYER");
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -231,12 +248,14 @@ export class WorldScene extends Phaser.Scene {
 
   private cleanup(): void {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
+    this.adminPanel?.destroy();
     this.hud?.destroy();
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
+    this.adminPanel = undefined;
     this.hud = undefined;
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;

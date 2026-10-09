@@ -179,7 +179,7 @@ CREATE INDEX item_instances_item_id_idx ON item_instances(item_id);
 
 CREATE TABLE admin_audit_log (
   id UUID PRIMARY KEY,
-  actor_player_id UUID NOT NULL,
+  actor_player_id TEXT NOT NULL,
   action TEXT NOT NULL,
   object_type TEXT NOT NULL,
   object_id TEXT NOT NULL,

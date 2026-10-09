@@ -115,6 +115,12 @@ export class AdminApi {
     );
   }
 
+  getVersion(itemId: string, versionNo: number): Promise<ItemVersion> {
+    return this.request<ItemVersion>(
+      `/items/${encodeURIComponent(itemId)}/versions/${versionNo}`
+    );
+  }
+
   restoreVersion(itemId: string, versionNo: number): Promise<ItemVersion> {
     return this.request<ItemVersion>(
       `/items/${encodeURIComponent(itemId)}/versions/${versionNo}/restore`,

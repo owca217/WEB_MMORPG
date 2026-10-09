@@ -5,6 +5,7 @@ interface WorldHudHandlers {
   onInventory: () => void;
   onCharacter: () => void;
   onAdmin: () => void;
+  onLogout: () => void;
 }
 
 export class WorldHud {
@@ -31,6 +32,7 @@ export class WorldHud {
         <button type="button" data-inventory>Ekwipunek</button>
         <button type="button" data-character>Postać</button>
         <button type="button" data-admin hidden>Panel ADMIN</button>
+        <button type="button" data-logout>Wyloguj</button>
       </div>
     `;
     document.body.appendChild(this.root);
@@ -43,6 +45,7 @@ export class WorldHud {
     this.require<HTMLButtonElement>("[data-inventory]").addEventListener("click", handlers.onInventory);
     this.require<HTMLButtonElement>("[data-character]").addEventListener("click", handlers.onCharacter);
     this.adminButton.addEventListener("click", handlers.onAdmin);
+    this.require<HTMLButtonElement>("[data-logout]").addEventListener("click", handlers.onLogout);
   }
 
   updateSession(role: UserRole): void {

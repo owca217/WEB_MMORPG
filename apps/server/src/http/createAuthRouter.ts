@@ -5,12 +5,14 @@ import {
   CharacterLifecycleError,
   type CharacterLifecycleService
 } from "../character/CharacterLifecycleService";
+import type { ActiveConnectionRegistry } from "../server/ActiveConnectionRegistry";
 import { AuthRateLimiter } from "./AuthRateLimiter";
 
 export interface AuthRouterDeps {
   authService: AuthService;
   characterService: CharacterLifecycleService;
   rateLimiter?: AuthRateLimiter;
+  connections?: ActiveConnectionRegistry;
 }
 
 function text(value: unknown): string {
@@ -65,6 +67,7 @@ export function createAuthRouter(deps: AuthRouterDeps): express.Router {
         text(request.body?.username),
         text(request.body?.password)
       );
+      deps.connections?.closeAccount(result.accountId, "SESSION_REPLACED");
       response.status(200).json({ token: result.token, session: result.session });
     })
   );
@@ -88,6 +91,7 @@ export function createAuthRouter(deps: AuthRouterDeps): express.Router {
       const validated = await deps.authService.validateToken(token);
       if (!validated) throw new AuthError("UNAUTHORIZED", 401, "Authentication is required.");
       await deps.authService.logout(token);
+      deps.connections?.closeAccount(validated.account.id, "SESSION_REVOKED");
       response.status(204).end();
     })
   );
@@ -106,6 +110,7 @@ export function createAuthRouter(deps: AuthRouterDeps): express.Router {
         text(request.body?.recoveryCode),
         newPassword
       );
+      deps.connections?.closeAccount(result.accountId, "SESSION_REVOKED");
       response.status(200).json(result.response);
     })
   );

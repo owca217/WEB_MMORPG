@@ -2,6 +2,13 @@
 
 import type { SessionView } from "@web-mmorpg/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("phaser", () => ({
+  default: {
+    Scene: class {}
+  }
+}));
+
 import { AuthApiRequestError, type AuthApi } from "../src/net/AuthApi";
 import { CharacterCreatorPanel } from "../src/scenes/CharacterCreatorScene";
 import { SessionStateStore } from "../src/state/SessionStateStore";

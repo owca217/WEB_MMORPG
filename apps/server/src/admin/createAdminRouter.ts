@@ -120,6 +120,15 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
     res.json(await deps.catalog.listVersions(req.params.itemId));
   });
 
+  router.get("/items/:itemId/versions/:versionNo", async (req, res) => {
+    res.json(
+      await deps.catalog.getVersion(
+        req.params.itemId,
+        parsePositiveInteger(req.params.versionNo, "INVALID_VERSION_NO")
+      )
+    );
+  });
+
   router.post("/items/:itemId/versions/:versionNo/restore", async (req, res) => {
     res.json(
       await deps.catalog.restoreVersion(

@@ -67,6 +67,12 @@ async function applyLegacyRenderSchema(pool: ReturnType<typeof createPool>): Pro
       experience INTEGER NOT NULL DEFAULT 0 CHECK (experience >= 0),
       CHECK (hp >= 0 AND hp <= max_hp)
     );
+
+    CREATE TABLE character_injuries (
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      injury_kind TEXT NOT NULL,
+      PRIMARY KEY (character_id, injury_kind)
+    );
   `);
 
   await pool.query(
@@ -80,6 +86,11 @@ async function applyLegacyRenderSchema(pool: ReturnType<typeof createPool>): Pro
       (id, account_id, nickname, nickname_normalized, appearance, location_id, x, y)
      VALUES
       ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'LegacyHero', 'legacyhero', '{}'::jsonb, 'forest-settlement-01', 12, 34)`
+  );
+  await pool.query(
+    `INSERT INTO character_injuries (character_id, injury_kind) VALUES
+      ('22222222-2222-4222-8222-222222222222', 'bleeding'),
+      ('22222222-2222-4222-8222-222222222222', 'chestWound')`
   );
 }
 
@@ -95,7 +106,7 @@ describeDatabase("Render legacy production migration compatibility", () => {
     await pool.end();
   });
 
-  it("upgrades the legacy Render schema in place without losing existing accounts or characters", async () => {
+  it("upgrades the legacy Render schema in place without losing existing accounts, characters, or injuries", async () => {
     await runMigrations(pool);
 
     const account = await pool.query<{ username: string; role: string; status: string }>(
@@ -108,7 +119,9 @@ describeDatabase("Render legacy production migration compatibility", () => {
     const character = await pool.query<{ nickname: string; injuries: unknown }>(
       "SELECT nickname, injuries FROM characters WHERE id = '22222222-2222-4222-8222-222222222222'"
     );
-    expect(character.rows).toEqual([{ nickname: "LegacyHero", injuries: [] }]);
+    expect(character.rows).toEqual([
+      { nickname: "LegacyHero", injuries: ["bleeding", "chestWound"] }
+    ]);
 
     const columns = await pool.query<{ table_name: string; column_name: string }>(`
       SELECT table_name, column_name

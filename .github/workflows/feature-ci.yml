@@ -6,6 +6,10 @@ on:
       - feature/mvp-vertical-slice
       - feature/item-creator-design
 
+concurrency:
+  group: feature-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest

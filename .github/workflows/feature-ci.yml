@@ -5,6 +5,8 @@ on:
     branches:
       - feature/mvp-vertical-slice
       - feature/item-creator-design
+      - fix/admin-creator-production-deploy
+      - main
 
 concurrency:
   group: feature-ci-${{ github.ref }}

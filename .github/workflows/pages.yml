@@ -3,7 +3,7 @@ name: Deploy client to GitHub Pages
 on:
   push:
     branches:
-      - feature/mvp-vertical-slice
+      - main
     paths:
       - "apps/client/**"
       - "packages/shared/**"
@@ -33,12 +33,16 @@ jobs:
         with:
           node-version: 22
 
+      - name: Use verified npm
+        run: npm install --global npm@11
+
       - name: Install dependencies
         run: npm install
 
       - name: Build client
         env:
           VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com
+          VITE_ENABLE_ADMIN_LOGIN: "true"
         run: npm run build -w @web-mmorpg/client
 
       - name: Configure Pages

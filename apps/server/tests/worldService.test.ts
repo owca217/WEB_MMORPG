@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { InventoryService } from "../src/inventory/InventoryService";
 import { LootService } from "../src/loot/LootService";
 import { SessionStore } from "../src/session/SessionStore";
 import { WorldService } from "../src/world/WorldService";
@@ -81,16 +80,14 @@ describe("SessionStore", () => {
   });
 });
 
-describe("Inventory and loot", () => {
-  it("awards and stacks deterministic wolf loot", () => {
-    const inventory = new InventoryService();
+describe("LootService", () => {
+  it("returns deterministic catalog references without duplicating item presentation", () => {
     const loot = new LootService();
 
-    inventory.addItems("p1", loot.rollEncounterLoot("wolf-pack-01", 1));
-    inventory.addItems("p1", loot.rollEncounterLoot("wolf-pack-01", 2));
-
-    const snapshot = inventory.getSnapshot("p1");
-    expect(snapshot.items.find((item) => item.itemId === "wolf-pelt")?.quantity).toBe(2);
-    expect(snapshot.items.find((item) => item.itemId === "field-bandage")?.quantity).toBe(4);
+    expect(loot.rollEncounterLoot("wolf-pack-01", 1)).toEqual([
+      { itemId: "wolf-pelt", quantity: 1 },
+      { itemId: "field-bandage", quantity: 2 }
+    ]);
+    expect(loot.rollEncounterLoot("unknown", 1)).toEqual([]);
   });
 });

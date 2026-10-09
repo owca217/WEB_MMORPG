@@ -179,8 +179,8 @@ describeDatabase("item creator end-to-end acceptance", () => {
     expect(publishedV1.body).toMatchObject({ versionNo: 1, state: "PUBLISHED", name: "Miecz Burzy" });
 
     const inventory = new InventoryService(pool);
-    await inventory.addItems(inventoryPlayerId, [{ itemId: "e2e-storm-sword", quantity: 1 }]);
-    const instanceBefore = (await inventory.getSnapshot(inventoryPlayerId)).items[0]!;
+    await inventory.addLegacySessionItems(inventoryPlayerId, [{ itemId: "e2e-storm-sword", quantity: 1 }]);
+    const instanceBefore = (await inventory.getLegacySessionSnapshot(inventoryPlayerId)).items[0]!;
     expect(instanceBefore).toMatchObject({
       itemId: "e2e-storm-sword",
       name: "Miecz Burzy",
@@ -236,12 +236,11 @@ describeDatabase("item creator end-to-end acceptance", () => {
       .expect(200);
     expect(publishedV2.body).toMatchObject({ versionNo: 2, state: "PUBLISHED", rarity: "EPIC" });
 
-    const instanceAfterV2 = (await inventory.getSnapshot(inventoryPlayerId)).items[0]!;
+    const instanceAfterV2 = (await inventory.getLegacySessionSnapshot(inventoryPlayerId)).items[0]!;
     expect(instanceAfterV2.instanceId).toBe(instanceBefore.instanceId);
     expect(instanceAfterV2.quantity).toBe(instanceBefore.quantity);
     expect(instanceAfterV2).toMatchObject({ name: "Miecz Burzy v2", rarity: "EPIC" });
 
-    // A new pool/service pair simulates an application reconnect/restart against the same DB.
     const reconnectedPool = createPool(databaseUrl);
     try {
       const reconnectedMetadata = new ItemMetadataRepository(reconnectedPool);
@@ -250,7 +249,7 @@ describeDatabase("item creator end-to-end acceptance", () => {
 
       const persistedItem = await reconnectedCatalog.getItem("e2e-storm-sword");
       const persistedVersions = await reconnectedCatalog.listVersions("e2e-storm-sword");
-      const persistedInstance = (await reconnectedInventory.getSnapshot(inventoryPlayerId)).items[0]!;
+      const persistedInstance = (await reconnectedInventory.getLegacySessionSnapshot(inventoryPlayerId)).items[0]!;
 
       expect(persistedItem.item).toMatchObject({ activeVersionNo: 2, name: "Miecz Burzy v2" });
       expect(persistedVersions.map((entry) => entry.versionNo)).toEqual([2, 1]);

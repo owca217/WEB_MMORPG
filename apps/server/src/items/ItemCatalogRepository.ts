@@ -13,6 +13,7 @@ import type {
   ItemVersionSummary
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
+import { AdminAuditRepository } from "../audit/AdminAuditRepository";
 import { ItemConflictError, ItemNotFoundError } from "./itemValidation";
 
 interface ItemRow {
@@ -85,7 +86,11 @@ interface VersionSummaryRow {
 }
 
 export class ItemCatalogRepository {
-  constructor(private readonly pool: Pool) {}
+  private readonly audit: AdminAuditRepository;
+
+  constructor(private readonly pool: Pool) {
+    this.audit = new AdminAuditRepository(pool);
+  }
 
   async itemIdExists(itemId: string): Promise<boolean> {
     const result = await this.pool.query("SELECT 1 FROM items WHERE item_id = $1", [
@@ -108,6 +113,14 @@ export class ItemCatalogRepository {
       );
       await this.insertVersion(client, versionUuid, itemUuid, 1, 1, "DRAFT", input, actor);
       await this.replaceChildren(client, versionUuid, input);
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "CREATE_DRAFT",
+        objectType: "item",
+        objectId: input.itemId,
+        toVersion: 1,
+        summary: { name: input.name, revision: 1 }
+      });
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -126,21 +139,124 @@ export class ItemCatalogRepository {
     actor: string
   ): Promise<ItemVersion> {
     const client = await this.pool.connect();
+    let resultingVersionNo = 0;
 
     try {
       await client.query("BEGIN");
-      const itemResult = await client.query<ItemRow>(
-        `SELECT id, item_id, status, active_version_no, created_at, updated_at
-         FROM items
-         WHERE item_id = $1
+      const item = await this.requireItemWithClient(client, stableItemId, true);
+      const draftResult = await client.query<{
+        id: string;
+        revision: number;
+        version_no: number;
+      }>(
+        `SELECT id, revision, version_no
+         FROM item_versions
+         WHERE item_id = $1 AND state = 'DRAFT'
          FOR UPDATE`,
-        [stableItemId]
+        [item.id]
       );
-      const item = itemResult.rows[0];
-      if (!item) throw new ItemNotFoundError(`ITEM_NOT_FOUND:${stableItemId}`);
+      const draft = draftResult.rows[0];
 
-      const draftResult = await client.query<{ id: string; revision: number }>(
-        `SELECT id, revision
+      if (draft) {
+        if (draft.revision !== expectedRevision) {
+          throw new ItemConflictError(`ITEM_CONFLICT:${stableItemId}`);
+        }
+
+        const nextRevision = draft.revision + 1;
+        resultingVersionNo = draft.version_no;
+        await this.updateVersionRow(client, draft.id, nextRevision, input, actor);
+        await this.replaceChildren(client, draft.id, input);
+        await this.audit.appendWithClient(client, {
+          actorPlayerId: actor,
+          action: "UPDATE_DRAFT",
+          objectType: "item",
+          objectId: stableItemId,
+          fromVersion: draft.version_no,
+          toVersion: draft.version_no,
+          summary: {
+            name: input.name,
+            revisionFrom: draft.revision,
+            revisionTo: nextRevision
+          }
+        });
+      } else {
+        if (item.active_version_no === null) {
+          throw new ItemNotFoundError(`DRAFT_NOT_FOUND:${stableItemId}`);
+        }
+        const activeResult = await client.query<{ revision: number }>(
+          `SELECT revision
+           FROM item_versions
+           WHERE item_id = $1 AND state = 'PUBLISHED' AND version_no = $2
+           FOR UPDATE`,
+          [item.id, item.active_version_no]
+        );
+        const active = activeResult.rows[0];
+        if (!active) {
+          throw new ItemNotFoundError(`ITEM_VERSION_NOT_FOUND:${stableItemId}`);
+        }
+        if (active.revision !== expectedRevision) {
+          throw new ItemConflictError(`ITEM_CONFLICT:${stableItemId}`);
+        }
+
+        const nextVersion = await this.nextVersionNo(client, item.id);
+        const versionUuid = randomUUID();
+        resultingVersionNo = nextVersion;
+        await this.insertVersion(
+          client,
+          versionUuid,
+          item.id,
+          nextVersion,
+          1,
+          "DRAFT",
+          input,
+          actor
+        );
+        await this.replaceChildren(client, versionUuid, input);
+        await this.audit.appendWithClient(client, {
+          actorPlayerId: actor,
+          action: "CREATE_DRAFT",
+          objectType: "item",
+          objectId: stableItemId,
+          fromVersion: item.active_version_no,
+          toVersion: nextVersion,
+          summary: { name: input.name, revision: 1, source: "published" }
+        });
+      }
+
+      await client.query("UPDATE items SET updated_at = NOW() WHERE id = $1", [item.id]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const result = await this.requireDraft(stableItemId);
+    if (result.versionNo !== resultingVersionNo) {
+      throw new ItemConflictError(`ITEM_CONFLICT:${stableItemId}`);
+    }
+    return result;
+  }
+
+  async publish(
+    stableItemId: string,
+    expectedRevision: number,
+    actor: string
+  ): Promise<ItemVersion> {
+    const client = await this.pool.connect();
+    let publishedVersionNo = 0;
+
+    try {
+      await client.query("BEGIN");
+      const item = await this.requireItemWithClient(client, stableItemId, true);
+      const draftResult = await client.query<{
+        id: string;
+        version_no: number;
+        revision: number;
+        name: string;
+      }>(
+        `SELECT id, version_no, revision, name
          FROM item_versions
          WHERE item_id = $1 AND state = 'DRAFT'
          FOR UPDATE`,
@@ -152,59 +268,28 @@ export class ItemCatalogRepository {
         throw new ItemConflictError(`ITEM_CONFLICT:${stableItemId}`);
       }
 
-      const nextRevision = draft.revision + 1;
+      publishedVersionNo = draft.version_no;
       await client.query(
-        `UPDATE item_versions SET
-          revision = $2,
-          name = $3,
-          category_id = $4,
-          subcategory_id = $5,
-          description = $6,
-          icon_key = $7,
-          icon_url = $8,
-          rarity = $9,
-          item_level = $10,
-          minimum_level = $11,
-          sell_value = $12,
-          sellable = $13,
-          tradable = $14,
-          droppable = $15,
-          stackable = $16,
-          max_stack = $17,
-          weight = $18,
-          soulbound = $19,
-          unique_item = $20,
-          special_data = $21::jsonb,
-          created_by = $22,
-          updated_at = NOW()
+        `UPDATE item_versions
+         SET state = 'PUBLISHED', updated_at = NOW()
          WHERE id = $1`,
-        [
-          draft.id,
-          nextRevision,
-          input.name,
-          input.categoryId,
-          input.subcategoryId ?? null,
-          input.description,
-          input.iconKey ?? null,
-          input.iconUrl ?? null,
-          input.rarity,
-          input.itemLevel,
-          input.minimumLevel,
-          input.sellValue,
-          input.sellable,
-          input.tradable,
-          input.droppable,
-          input.stackable,
-          input.maxStack,
-          input.weight,
-          input.soulbound,
-          input.unique,
-          JSON.stringify(input.specialData),
-          actor
-        ]
+        [draft.id]
       );
-      await this.replaceChildren(client, draft.id, input);
-      await client.query("UPDATE items SET updated_at = NOW() WHERE id = $1", [item.id]);
+      await client.query(
+        `UPDATE items
+         SET status = 'PUBLISHED', active_version_no = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [item.id, draft.version_no]
+      );
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "PUBLISH",
+        objectType: "item",
+        objectId: stableItemId,
+        ...(item.active_version_no === null ? {} : { fromVersion: item.active_version_no }),
+        toVersion: draft.version_no,
+        summary: { name: draft.name, revision: draft.revision }
+      });
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -213,7 +298,131 @@ export class ItemCatalogRepository {
       client.release();
     }
 
-    return this.requireDraft(stableItemId);
+    return this.getVersion(stableItemId, publishedVersionNo);
+  }
+
+  async restoreVersion(
+    stableItemId: string,
+    sourceVersionNo: number,
+    actor: string
+  ): Promise<ItemVersion> {
+    const source = await this.getVersion(stableItemId, sourceVersionNo);
+    const client = await this.pool.connect();
+    let restoredVersionNo = 0;
+
+    try {
+      await client.query("BEGIN");
+      const item = await this.requireItemWithClient(client, stableItemId, true);
+      const draft = await client.query(
+        "SELECT 1 FROM item_versions WHERE item_id = $1 AND state = 'DRAFT' FOR UPDATE",
+        [item.id]
+      );
+      if ((draft.rowCount ?? 0) > 0) {
+        throw new ItemConflictError(`DRAFT_EXISTS:${stableItemId}`);
+      }
+
+      restoredVersionNo = await this.nextVersionNo(client, item.id);
+      const versionUuid = randomUUID();
+      await this.insertVersion(
+        client,
+        versionUuid,
+        item.id,
+        restoredVersionNo,
+        1,
+        "PUBLISHED",
+        source,
+        actor
+      );
+      await this.replaceChildren(client, versionUuid, source);
+      await client.query(
+        `UPDATE items
+         SET status = 'PUBLISHED', active_version_no = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [item.id, restoredVersionNo]
+      );
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "RESTORE",
+        objectType: "item",
+        objectId: stableItemId,
+        ...(item.active_version_no === null ? {} : { fromVersion: item.active_version_no }),
+        toVersion: restoredVersionNo,
+        summary: { restoredFromVersion: sourceVersionNo, name: source.name }
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return this.getVersion(stableItemId, restoredVersionNo);
+  }
+
+  async duplicate(
+    source: ItemVersion,
+    newItemId: string,
+    actor: string
+  ): Promise<ItemVersion> {
+    const client = await this.pool.connect();
+    const itemUuid = randomUUID();
+    const versionUuid = randomUUID();
+    const input = this.toDraftInput(source, newItemId);
+
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO items (id, item_id, status)
+         VALUES ($1, $2, 'DRAFT')`,
+        [itemUuid, newItemId]
+      );
+      await this.insertVersion(client, versionUuid, itemUuid, 1, 1, "DRAFT", input, actor);
+      await this.replaceChildren(client, versionUuid, input);
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "DUPLICATE",
+        objectType: "item",
+        objectId: newItemId,
+        toVersion: 1,
+        summary: { sourceItemId: source.itemId, sourceVersion: source.versionNo }
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return this.requireDraft(newItemId);
+  }
+
+  async archive(stableItemId: string, actor: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const item = await this.requireItemWithClient(client, stableItemId, true);
+      await client.query(
+        "UPDATE items SET status = 'ARCHIVED', updated_at = NOW() WHERE id = $1",
+        [item.id]
+      );
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "ARCHIVE",
+        objectType: "item",
+        objectId: stableItemId,
+        ...(item.active_version_no === null ? {} : { fromVersion: item.active_version_no }),
+        ...(item.active_version_no === null ? {} : { toVersion: item.active_version_no }),
+        summary: { previousStatus: item.status, newStatus: "ARCHIVED" }
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getItem(stableItemId: string): Promise<ItemDetails> {
@@ -225,14 +434,7 @@ export class ItemCatalogRepository {
     const itemRow = itemResult.rows[0];
     if (!itemRow) throw new ItemNotFoundError(`ITEM_NOT_FOUND:${stableItemId}`);
 
-    const versionsResult = await this.pool.query<VersionSummaryRow>(
-      `SELECT version_no, revision, state, created_by, created_at
-       FROM item_versions
-       WHERE item_id = $1
-       ORDER BY version_no DESC`,
-      [itemRow.id]
-    );
-    const versions = versionsResult.rows.map((row) => this.mapVersionSummary(row));
+    const versions = await this.listVersionsByUuid(itemRow.id);
     const draft = await this.loadVersion(itemRow.id, "DRAFT");
     const preferred = itemRow.active_version_no
       ? await this.loadPublishedVersion(itemRow.id, itemRow.active_version_no)
@@ -243,6 +445,32 @@ export class ItemCatalogRepository {
     const details: ItemDetails = { item, versions };
     if (draft) details.draft = draft;
     return details;
+  }
+
+  async getVersion(stableItemId: string, versionNo: number): Promise<ItemVersion> {
+    const result = await this.pool.query<VersionRow>(
+      `SELECT v.*, i.item_id AS stable_item_id
+       FROM item_versions v
+       JOIN items i ON i.id = v.item_id
+       WHERE i.item_id = $1 AND v.version_no = $2
+       LIMIT 1`,
+      [stableItemId, versionNo]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new ItemNotFoundError(`ITEM_VERSION_NOT_FOUND:${stableItemId}:${versionNo}`);
+    }
+    return this.hydrateVersion(row);
+  }
+
+  async listVersions(stableItemId: string): Promise<ItemVersionSummary[]> {
+    const itemResult = await this.pool.query<{ id: string }>(
+      "SELECT id FROM items WHERE item_id = $1",
+      [stableItemId]
+    );
+    const item = itemResult.rows[0];
+    if (!item) throw new ItemNotFoundError(`ITEM_NOT_FOUND:${stableItemId}`);
+    return this.listVersionsByUuid(item.id);
   }
 
   async listItems(query: ItemCatalogQuery): Promise<ItemCatalogPage> {
@@ -300,6 +528,91 @@ export class ItemCatalogRepository {
     const draft = await this.loadVersion(item.id, "DRAFT");
     if (!draft) throw new ItemNotFoundError(`DRAFT_NOT_FOUND:${stableItemId}`);
     return draft;
+  }
+
+  private async requireItemWithClient(
+    client: PoolClient,
+    stableItemId: string,
+    forUpdate: boolean
+  ): Promise<ItemRow> {
+    const result = await client.query<ItemRow>(
+      `SELECT id, item_id, status, active_version_no, created_at, updated_at
+       FROM items
+       WHERE item_id = $1
+       ${forUpdate ? "FOR UPDATE" : ""}`,
+      [stableItemId]
+    );
+    const row = result.rows[0];
+    if (!row) throw new ItemNotFoundError(`ITEM_NOT_FOUND:${stableItemId}`);
+    return row;
+  }
+
+  private async nextVersionNo(client: PoolClient, itemUuid: string): Promise<number> {
+    const result = await client.query<{ next_version: number }>(
+      `SELECT COALESCE(MAX(version_no), 0)::int + 1 AS next_version
+       FROM item_versions WHERE item_id = $1`,
+      [itemUuid]
+    );
+    return result.rows[0]?.next_version ?? 1;
+  }
+
+  private async updateVersionRow(
+    client: PoolClient,
+    versionUuid: string,
+    revision: number,
+    input: ItemDraftInput,
+    actor: string
+  ): Promise<void> {
+    await client.query(
+      `UPDATE item_versions SET
+        revision = $2,
+        name = $3,
+        category_id = $4,
+        subcategory_id = $5,
+        description = $6,
+        icon_key = $7,
+        icon_url = $8,
+        rarity = $9,
+        item_level = $10,
+        minimum_level = $11,
+        sell_value = $12,
+        sellable = $13,
+        tradable = $14,
+        droppable = $15,
+        stackable = $16,
+        max_stack = $17,
+        weight = $18,
+        soulbound = $19,
+        unique_item = $20,
+        special_data = $21::jsonb,
+        created_by = $22,
+        updated_at = NOW()
+       WHERE id = $1`,
+      [
+        versionUuid,
+        revision,
+        input.name,
+        input.categoryId,
+        input.subcategoryId ?? null,
+        input.description,
+        input.iconKey ?? null,
+        input.iconUrl ?? null,
+        input.rarity,
+        input.itemLevel,
+        input.minimumLevel,
+        input.sellValue,
+        input.sellable,
+        input.tradable,
+        input.droppable,
+        input.stackable,
+        input.maxStack,
+        input.weight,
+        input.soulbound,
+        input.unique,
+        JSON.stringify(input.specialData),
+        actor
+      ]
+    );
   }
 
   private async insertVersion(
@@ -415,6 +728,17 @@ export class ItemCatalogRepository {
         [versionUuid, tag]
       );
     }
+  }
+
+  private async listVersionsByUuid(itemUuid: string): Promise<ItemVersionSummary[]> {
+    const result = await this.pool.query<VersionSummaryRow>(
+      `SELECT version_no, revision, state, created_by, created_at
+       FROM item_versions
+       WHERE item_id = $1
+       ORDER BY version_no DESC`,
+      [itemUuid]
+    );
+    return result.rows.map((row) => this.mapVersionSummary(row));
   }
 
   private async loadVersion(
@@ -575,6 +899,39 @@ export class ItemCatalogRepository {
       definition.activeVersionNo = itemRow.active_version_no;
     }
     return definition;
+  }
+
+  private toDraftInput(version: ItemVersion, itemId: string): ItemDraftInput {
+    const input: ItemDraftInput = {
+      itemId,
+      name: version.name,
+      categoryId: version.categoryId,
+      description: version.description,
+      rarity: version.rarity,
+      itemLevel: version.itemLevel,
+      minimumLevel: version.minimumLevel,
+      sellValue: version.sellValue,
+      sellable: version.sellable,
+      tradable: version.tradable,
+      droppable: version.droppable,
+      stackable: version.stackable,
+      maxStack: version.maxStack,
+      weight: version.weight,
+      soulbound: version.soulbound,
+      unique: version.unique,
+      tags: [...version.tags],
+      stats: version.stats.map((stat) => ({ ...stat })),
+      requirements: version.requirements.map((requirement) => ({ ...requirement })),
+      effects: version.effects.map((effect) => ({
+        ...effect,
+        ...(effect.condition ? { condition: { ...effect.condition } } : {})
+      })),
+      specialData: { ...version.specialData }
+    };
+    if (version.subcategoryId !== undefined) input.subcategoryId = version.subcategoryId;
+    if (version.iconKey !== undefined) input.iconKey = version.iconKey;
+    if (version.iconUrl !== undefined) input.iconUrl = version.iconUrl;
+    return input;
   }
 
   private mapVersionSummary(row: VersionSummaryRow): ItemVersionSummary {

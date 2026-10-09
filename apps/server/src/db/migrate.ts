@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 const MIGRATION_LOCK_ID = 184472031;
 const MIGRATIONS = [
@@ -16,7 +16,7 @@ const MIGRATIONS = [
 type MigrationNameColumn = "migration_name" | "name";
 
 async function resolveMigrationNameColumn(
-  client: Awaited<ReturnType<Pool["connect"]>>
+  client: PoolClient
 ): Promise<MigrationNameColumn> {
   const columns = await client.query<{ column_name: string }>(`
     SELECT column_name

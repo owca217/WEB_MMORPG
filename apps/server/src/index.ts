@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import cors from "cors";
 import express from "express";
-import { AdminAuditRepository } from "./audit/AdminAuditRepository";
+import { AccountAdminService } from "./admin/AccountAdminService";
 import { S3IconStorage } from "./admin/S3IconStorage";
 import { createAdminRouter } from "./admin/createAdminRouter";
+import { AdminAuditRepository } from "./audit/AdminAuditRepository";
 import { AuthService } from "./auth/AuthService";
 import { bootstrapInitialAdmin } from "./auth/bootstrapInitialAdmin";
 import { CharacterLifecycleService } from "./character/CharacterLifecycleService";
@@ -16,7 +17,6 @@ import { seedItemMetadata } from "./items/seedItemMetadata";
 import { AccountRepository } from "./persistence/AccountRepository";
 import { ActiveConnectionRegistry } from "./server/ActiveConnectionRegistry";
 import { createGameServer } from "./server/createGameServer";
-import { SessionStore } from "./session/SessionStore";
 
 const port = Number(process.env.PORT ?? 3001);
 const host = "0.0.0.0";
@@ -30,13 +30,10 @@ async function startServer(): Promise<void> {
   const characters = new CharacterLifecycleService(pool);
   const authService = new AuthService(pool, new AccountRepository(pool), characters);
   const connections = new ActiveConnectionRegistry();
-
-  // Transitional ADMIN session store only. Task 8 removes it after Admin API
-  // authorization is moved onto persistent accounts.
-  const sessions = new SessionStore();
   const metadata = new ItemMetadataRepository(pool);
   const catalog = new ItemCatalogService(pool, metadata);
   const audit = new AdminAuditRepository(pool);
+  const accountAdmin = new AccountAdminService(pool, audit, connections);
   const iconStorage = S3IconStorage.fromEnv();
 
   const app = express();
@@ -52,7 +49,14 @@ async function startServer(): Promise<void> {
   );
   app.use(
     "/api/admin",
-    createAdminRouter({ sessions, metadata, catalog, audit, iconStorage })
+    createAdminRouter({
+      authService,
+      accountAdmin,
+      metadata,
+      catalog,
+      audit,
+      iconStorage
+    })
   );
 
   const httpServer = createServer(app);

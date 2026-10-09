@@ -45,7 +45,7 @@ describeDatabase("additive account auth migration", () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
     );
     expect(tables.rows.map((row) => row.tablename)).toEqual(
-      expect.arrayContaining(["accounts", "account_sessions", "characters"])
+      expect.arrayContaining(["accounts", "account_sessions", "characters", "item_icon_assets"])
     );
 
     const instanceOwner = await pool.query<{ is_nullable: string }>(`
@@ -71,7 +71,8 @@ describeDatabase("additive account auth migration", () => {
     );
     expect(migrations.rows).toEqual([
       { migration_name: "001_item_catalog" },
-      { migration_name: "002_account_auth" }
+      { migration_name: "002_account_auth" },
+      { migration_name: "003_item_icon_assets" }
     ]);
   });
 

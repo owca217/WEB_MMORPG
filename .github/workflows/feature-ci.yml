@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/mvp-vertical-slice
+      - feature/item-creator-design
 
 jobs:
   verify:

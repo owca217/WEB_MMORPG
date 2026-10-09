@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the temporary nickname + `ADMIN_ACCESS_TOKEN` login with persistent username/password accounts, PostgreSQL-backed sessions, character ownership, role-based ADMIN access, recovery, and account administration while preserving the existing Item Creator and gameplay.
+**Goal:** Replace the temporary nickname + `ADMIN_ACCESS_TOKEN` login with persistent username/password accounts, PostgreSQL-backed sessions, persistent character identity/state, role-based ADMIN access, recovery, and account administration while preserving the existing Item Creator and gameplay.
 
-**Architecture:** Reuse and adapt the historical account/auth design instead of restoring it byte-for-byte. PostgreSQL becomes the source of truth for accounts, sessions, roles, characters, and inventory ownership; REST handles registration/login/recovery/session validation, while Socket.IO authenticates with the same opaque session token and derives gameplay identity from the persistent character. The existing Admin API remains REST-based but swaps its in-memory `SessionStore` guard for database-backed auth context.
+**Architecture:** Reuse and adapt the historical account/auth design instead of restoring it byte-for-byte. PostgreSQL becomes the source of truth for accounts, sessions, roles, characters, character runtime state, and inventory ownership; REST handles registration/login/recovery/session validation, while Socket.IO authenticates with the same opaque session token and derives gameplay identity from the persistent character. The existing Admin API remains REST-based but swaps its in-memory `SessionStore` guard for database-backed auth context.
 
 **Tech Stack:** TypeScript 5.9, Node.js 22, npm 11, Express 5.1, Socket.IO 4.8.3, PostgreSQL 16 via `pg`, Argon2id via `argon2`, Phaser, Zod where already used, Vitest 5.0.1, Supertest, GitHub Actions.
 
@@ -24,6 +24,7 @@
 - The last active ADMIN cannot be demoted or banned; violations return `409`.
 - The Item Creator catalog/version model remains the source of item definitions and must not lose data during migration.
 - New inventory writes/read ownership use persistent `character_id`; legacy `player_id` rows are preserved as unassigned legacy/orphans and are never guessed onto an account by nickname.
+- Persistent character state includes identity, nickname/appearance, location, position, level/HP/AP and existing injury flags needed by current gameplay.
 - Migrations are additive and run before HTTP/Socket.IO starts.
 - Final production Pages artifact must contain the current `main` build even while the repository's GitHub Pages environment still requires the approved deploy branch workaround.
 
@@ -32,11 +33,11 @@
 ### Shared contracts
 - Create `packages/shared/src/auth.ts` — account/session/recovery and character lifecycle contracts.
 - Create `packages/shared/src/accountAdmin.ts` — account list/admin mutation contracts.
-- Modify `packages/shared/src/protocol.ts` — remove nickname login as authentication and add socket session authentication contract.
+- Modify `packages/shared/src/protocol.ts` — replace nickname login with explicit `authenticate` session-token event.
 - Modify `packages/shared/src/index.ts` — export auth/account contracts.
 
 ### Server auth/persistence
-- Create `apps/server/src/db/migrations/002_account_auth.sql` — accounts, account_sessions, characters, persistent inventory owner columns/indexes.
+- Create `apps/server/src/db/migrations/002_account_auth.sql` — accounts, account_sessions, characters, persistent inventory owner, account-aware audit fields/indexes.
 - Create `apps/server/src/auth/credentials.ts` — username validation and Argon2id helpers.
 - Create `apps/server/src/auth/secrets.ts` — session/recovery secret generation and opaque hashing.
 - Create `apps/server/src/auth/AuthService.ts` — register/login/session/logout/recovery.
@@ -44,17 +45,17 @@
 - Create `apps/server/src/auth/bootstrapInitialAdmin.ts` — one-time first-admin bootstrap.
 - Create `apps/server/src/persistence/AccountRepository.ts` — account data access.
 - Create `apps/server/src/persistence/SessionRepository.ts` — durable session data access.
-- Create `apps/server/src/persistence/CharacterRepository.ts` — durable character data access.
-- Create `apps/server/src/character/CharacterLifecycleService.ts` — create/read character lifecycle.
+- Create `apps/server/src/persistence/CharacterRepository.ts` — durable character data access and runtime state updates.
+- Create `apps/server/src/character/CharacterLifecycleService.ts` — create/read character lifecycle and hydrate/persist runtime state.
 - Create `apps/server/src/http/createAuthRouter.ts` — `/api/auth/*` and `/api/character/*`.
 - Create `apps/server/src/http/AuthRateLimiter.ts` — bounded auth-attempt limiter reused from historical behavior.
-- Create `apps/server/src/server/ActiveConnectionRegistry.ts` — map account/session to active sockets so logout/recovery/new login can terminate stale gameplay connections.
+- Create `apps/server/src/server/ActiveConnectionRegistry.ts` — map account/session to active sockets so logout/recovery/new login/ban can terminate stale gameplay connections.
 - Modify `apps/server/src/admin/AdminAuth.ts` — require DB-backed ADMIN auth context.
 - Create `apps/server/src/admin/AccountAdminService.ts` — list accounts, role/status mutation, last-admin protection.
 - Modify `apps/server/src/admin/createAdminRouter.ts` — account management routes.
-- Modify `apps/server/src/audit/AdminAuditRepository.ts` — audit account role/status mutations with account actor identity.
+- Modify `apps/server/src/audit/AdminAuditRepository.ts` — audit item/account mutations with account actor identity while preserving legacy audit rows.
 - Modify `apps/server/src/inventory/InventoryService.ts` — owner is `characterId`, not ephemeral playerId.
-- Modify `apps/server/src/server/createGameServer.ts` — authenticate socket with session token and load persistent character.
+- Modify `apps/server/src/server/createGameServer.ts` — authenticate socket with session token, load persistent character, save runtime character state.
 - Modify `apps/server/src/index.ts` — startup ordering, routers, auth services, bootstrap.
 - Modify `apps/server/package.json` and root lockfile — add `argon2`, retain verified npm/CI behavior.
 
@@ -65,7 +66,7 @@
 - Create/adapt `apps/client/src/scenes/CharacterCreatorScene.ts` — persistent character creation.
 - Modify `apps/client/src/scenes/BootScene.ts` — session resume and route.
 - Retire `apps/client/src/scenes/LoginScene.ts` after AuthScene is wired.
-- Modify `apps/client/src/net/GameSocket.ts` — socket auth uses opaque session token.
+- Modify `apps/client/src/net/GameSocket.ts` — socket `authenticate` uses opaque session token.
 - Modify `apps/client/src/scenes/WorldScene.ts` — role-driven Admin panel and logout behavior.
 - Modify `apps/client/src/ui/AdminPanel.ts` — add Accounts navigation.
 - Create `apps/client/src/ui/admin/AccountManagerView.ts` — search/list/role/status management.
@@ -100,15 +101,16 @@
 
 **Interfaces:**
 - Produces `CharacterLifecycleSummary = {state:"none"} | {state:"active"; characterId:string; nickname:string} | {state:"pendingDeletion"; characterId:string; nickname:string; deletionEffectiveAt:string}`.
-- Produces `AccountRole` as the same allowed values as existing `UserRole`: `"PLAYER" | "ADMIN"`.
+- Produces `AccountRole` with the same values as existing `UserRole`: `"PLAYER" | "ADMIN"`.
 - Produces `SessionView { accountUsername:string; accountRole:AccountRole; character:CharacterLifecycleSummary }`.
 - Produces `RegisterResponse { recoveryCode:string }`, `LoginResponse { token:string; session:SessionView }`, `RecoverResponse { recoveryCode:string }`.
+- Produces `SocketAuthResult = {ok:true; characterId:string; locationId:LocationId} | {ok:false; code:string; message:string}`.
+- `ClientToServerEvents.authenticate(payload:{sessionToken:string}, ack:(result:SocketAuthResult)=>void)` replaces the current `login({nickname,adminToken})` event.
 - Produces account-admin types: `AccountStatus`, `AdminAccountSummary`, `AdminAccountPage`, `AdminAccountQuery`, `UpdateAccountAccessInput`.
-- Replaces Socket.IO login payload with session-token authentication. The client never sends role/account/player identity as authentication evidence.
 
 - [ ] **Step 1: Write failing shared-contract tests**
 
-Add tests that instantiate all three lifecycle variants, assert role values are `PLAYER|ADMIN`, verify LoginResponse contains token + SessionView, and verify account-admin mutation input can express only role/status values.
+Add tests that instantiate all lifecycle variants, assert role values are `PLAYER|ADMIN`, verify LoginResponse contains token + SessionView, verify SocketAuthResult/authenticate payload carries no role/account/player/nickname authority, and verify account-admin mutation input can express only role/status values.
 
 - [ ] **Step 2: Run shared tests to verify RED**
 
@@ -117,12 +119,12 @@ Expected: FAIL because `auth.ts` / `accountAdmin.ts` exports and new protocol co
 
 - [ ] **Step 3: Add the shared contracts and `argon2` dependency**
 
-Add `argon2@^0.44.0` to server dependencies and update the lockfile. Remove `adminToken` from the Socket.IO auth contract; define socket authentication in terms of the opaque session token.
+Add `argon2@^0.44.0` to server dependencies and update the lockfile. Stage downstream call sites only enough to compile; do not implement auth behavior in this task.
 
 - [ ] **Step 4: Run shared tests and full typecheck**
 
 Run: `npm test -w @web-mmorpg/shared && npm run build`
-Expected: PASS after downstream compile call sites are minimally staged with type-compatible adapters where required; no behavior migration yet.
+Expected: PASS with staged type adapters; runtime still follows old behavior until later tasks.
 
 - [ ] **Step 5: Commit**
 
@@ -130,7 +132,7 @@ Expected: PASS after downstream compile call sites are minimally staged with typ
 
 ---
 
-### Task 2: Additive PostgreSQL auth/character/inventory-owner migration
+### Task 2: Additive PostgreSQL auth/character/inventory-owner/audit migration
 
 **Files:**
 - Create: `apps/server/src/db/migrations/002_account_auth.sql`
@@ -141,13 +143,14 @@ Expected: PASS after downstream compile call sites are minimally staged with typ
 - Produces tables `accounts`, `account_sessions`, `characters`.
 - `accounts.role` is constrained to `PLAYER|ADMIN`; `status` to `active|banned`.
 - `account_sessions` stores only `token_hash`, supports expiry/revocation, and enforces one active session per account.
-- `characters.account_id` is unique.
+- `characters.account_id` is unique and stores nickname/appearance/location/x/y/level/hp/max_hp/max_ap/initiative/injury state plus timestamps.
 - Adds nullable `item_instances.character_id UUID REFERENCES characters(id) ON DELETE CASCADE` and index.
-- Existing `player_id` remains as a legacy owner column during this migration so old rows are preserved; new code stops using it after Task 6.
+- Existing `player_id` remains as a legacy owner column so old rows are preserved; new code stops using it after Task 6.
+- Adds nullable `admin_audit_log.actor_account_id UUID REFERENCES accounts(id) ON DELETE SET NULL`, drops the old `actor_player_id NOT NULL` requirement without deleting the column, and keeps all existing Item Creator audit rows valid.
 
 - [ ] **Step 1: Write failing migration tests**
 
-Tests start from (a) empty DB and (b) DB already migrated with `001_item_catalog.sql`, insert published item/version plus legacy `item_instances.player_id`, run migrations, then assert account/session/character schema exists, item catalog counts remain unchanged, and the legacy instance remains with `character_id IS NULL`.
+Tests start from (a) empty DB and (b) DB already migrated with `001_item_catalog.sql`, insert published item/version, legacy `item_instances.player_id`, and an existing admin audit row; run migrations; assert auth schema exists, item catalog/history/audit counts remain unchanged, legacy instance has `character_id IS NULL`, and legacy audit row remains readable with `actor_account_id IS NULL`.
 
 - [ ] **Step 2: Run migration tests to verify RED**
 
@@ -161,7 +164,7 @@ Use the current `schema_migrations` runner. Do not copy historical migration num
 - [ ] **Step 4: Run migration tests twice against the same schema**
 
 Run: `npm test -w @web-mmorpg/server -- authMigration.test.ts migrate.test.ts`
-Expected: PASS, including repeat-migration safety and unchanged item catalog/history rows.
+Expected: PASS, including repeat-migration safety and unchanged item catalog/history/audit rows.
 
 - [ ] **Step 5: Commit**
 
@@ -216,38 +219,40 @@ Expected: PASS.
 
 ---
 
-### Task 4: Persistent character lifecycle
+### Task 4: Persistent character lifecycle and runtime state
 
 **Files:**
 - Create: `apps/server/src/persistence/CharacterRepository.ts`
 - Create: `apps/server/src/character/CharacterLifecycleService.ts`
 - Modify/adapt: `apps/server/src/character/CharacterService.ts`
 - Test: `apps/server/tests/characterLifecycle.test.ts`
+- Test: `apps/server/tests/characterStatePersistence.test.ts`
 
 **Interfaces:**
 - `CharacterLifecycleService.getLifecycle(accountId, now) -> Promise<CharacterLifecycleSummary>`.
 - `getCharacter(accountId) -> Promise<CharacterRecord|null>`.
 - `createCharacter(accountId,{nickname,appearance}) -> Promise<CharacterRecord>`.
+- `CharacterRepository.updateRuntimeState(characterId, statePatch) -> Promise<void>` persists at least locationId/x/y/level/hp/maxHp/maxAp/initiative/severelyInjured fields owned by current gameplay.
+- `CharacterLifecycleService.hydrateRuntimeCharacter(accountId) -> Promise<CharacterRecord|null>` supplies the persistent character ID/state for Socket.IO.
 - One character per account; nickname uniqueness is case-insensitive.
 - Initial location remains `forest-settlement-01` with current spawn defaults.
-- Existing in-memory battle-stat mutation can remain a runtime projection, but source identity and load/save boundary use persistent `character.id`.
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [ ] **Step 1: Write failing lifecycle/state tests**
 
-Cover account with no character -> `none`, create -> `active`, duplicate account/nickname rejection, reload service -> same character id/state, and invalid appearance/nickname validation using current game rules.
+Cover account with no character -> `none`, create -> `active`, duplicate account/nickname rejection, invalid nickname/appearance validation, reload service -> same character id/state, mutate HP/location/position -> persist -> reconstruct services -> restored values.
 
 - [ ] **Step 2: Run tests to verify RED**
 
-Run: `npm test -w @web-mmorpg/server -- characterLifecycle.test.ts`
-Expected: FAIL on missing repository/service.
+Run: `npm test -w @web-mmorpg/server -- characterLifecycle.test.ts characterStatePersistence.test.ts`
+Expected: FAIL on missing repository/service and persistence methods.
 
-- [ ] **Step 3: Implement the persistent lifecycle**
+- [ ] **Step 3: Implement persistent lifecycle and runtime state mapping**
 
-Adapt historical CharacterRepository/Lifecycle behavior only where compatible with current character snapshot fields; do not restore old duplicate inventory tables.
+Adapt historical CharacterRepository/Lifecycle behavior only where compatible with current character snapshot fields; do not restore old duplicate inventory tables. Keep mapping between DB snake_case and current shared/runtime fields isolated in the repository/service.
 
 - [ ] **Step 4: Run tests and build**
 
-Run: `npm test -w @web-mmorpg/server -- characterLifecycle.test.ts && npm run build -w @web-mmorpg/server`
+Run: `npm test -w @web-mmorpg/server -- characterLifecycle.test.ts characterStatePersistence.test.ts && npm run build -w @web-mmorpg/server`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -268,7 +273,7 @@ Expected: PASS.
 - Test: `apps/server/tests/adminBootstrap.test.ts`
 
 **Interfaces:**
-- `POST /api/auth/register` -> 201 RegisterResponse; accepts username/password/passwordConfirmation but ignores/rejects extra role/status fields.
+- `POST /api/auth/register` -> 201 RegisterResponse; accepts username/password/passwordConfirmation but rejects/ignores any role/status elevation fields.
 - `POST /api/auth/login` -> 200 LoginResponse.
 - `GET /api/auth/session` -> SessionView using Bearer token.
 - `POST /api/auth/logout` -> 204.
@@ -307,7 +312,7 @@ Expected: PASS.
 
 **Files:**
 - Modify: `apps/server/src/inventory/InventoryService.ts`
-- Modify: `packages/shared/src/inventory.ts` only if naming must distinguish character-bound ownership from legacy player binding.
+- Modify: `packages/shared/src/inventory.ts` only if naming must distinguish character-bound ownership from legacy binding fields.
 - Test: `apps/server/tests/inventoryPersistence.test.ts`
 - Test: `apps/server/tests/authMigration.test.ts`
 
@@ -340,7 +345,7 @@ Expected: PASS.
 
 ---
 
-### Task 7: Authenticate Socket.IO with the durable session and character identity
+### Task 7: Authenticate Socket.IO with durable sessions and persist gameplay character state
 
 **Files:**
 - Create: `apps/server/src/server/ActiveConnectionRegistry.ts`
@@ -351,27 +356,28 @@ Expected: PASS.
 - Modify/Test: `apps/server/tests/socketFlow.test.ts`
 
 **Interfaces:**
-- `GameSocket.authenticate(sessionToken:string)` sends only the opaque token.
-- Server resolves token -> current account -> active character; `playerId` inside runtime world/battle becomes the persistent `character.id`.
+- `GameSocket.authenticate(sessionToken:string)` emits `authenticate({sessionToken})` and receives `SocketAuthResult`.
+- Server resolves token -> current account -> active character; runtime world/battle player ID becomes persistent `character.id`.
 - `ActiveConnectionRegistry.closeAccount(accountId, reason)` disconnects stale sockets after replacement login/logout/recovery/ban.
 - Invalid/revoked/banned session cannot start gameplay.
+- Server hydrates CharacterService/WorldService from persistent character state at authentication and writes changed location/position/HP/progression state through CharacterRepository at defined mutation/disconnect checkpoints.
 
-- [ ] **Step 1: Write failing socket auth tests**
+- [ ] **Step 1: Write failing socket auth/persistence tests**
 
-Cover valid token + active character -> world, missing character -> rejected/not world, invalid token -> rejected, forged player/account/role/nickname values cannot change resolved identity, replacement login invalidates old socket, and reload/reconnect preserves character + inventory.
+Cover valid token + active character -> world, missing character -> rejected/not world, invalid token -> rejected, forged player/account/role/nickname values cannot change resolved identity, replacement login invalidates old socket, reconnect preserves character + inventory, and HP/location/position survive service/server reconstruction.
 
 - [ ] **Step 2: Run socket tests to verify RED**
 
-Run: `npm test -w @web-mmorpg/server -- socketAuthFlow.test.ts socketFlow.test.ts`
-Expected: FAIL because createGameServer still calls in-memory `SessionStore.login(nickname, adminToken)`.
+Run: `npm test -w @web-mmorpg/server -- socketAuthFlow.test.ts socketFlow.test.ts characterStatePersistence.test.ts`
+Expected: FAIL because createGameServer still calls in-memory `SessionStore.login(nickname, adminToken)` and drops runtime character state on disconnect.
 
-- [ ] **Step 3: Replace memory-session login with durable auth**
+- [ ] **Step 3: Replace memory-session login with durable auth and persistence checkpoints**
 
-Reuse AuthService/CharacterLifecycleService from Tasks 3–5. Remove disconnect-time deletion of identity/session; only transient world/battle projections are removed.
+Reuse AuthService/CharacterLifecycleService from Tasks 3–5. Disconnect removes only transient world/battle projections; it never deletes account/session/character/inventory. Persist state after movement checkpoints, healing/battle completion, and disconnect; avoid a database write for every render frame.
 
 - [ ] **Step 4: Run socket tests and server/client typecheck**
 
-Run: `npm test -w @web-mmorpg/server -- socketAuthFlow.test.ts socketFlow.test.ts && npm run build`
+Run: `npm test -w @web-mmorpg/server -- socketAuthFlow.test.ts socketFlow.test.ts characterStatePersistence.test.ts && npm run build`
 Expected: PASS, including existing forest -> battle -> loot -> inventory flow.
 
 - [ ] **Step 5: Commit**
@@ -395,11 +401,12 @@ Expected: PASS, including existing forest -> battle -> loot -> inventory flow.
 - `GET /api/admin/accounts?search=&page=&pageSize=` -> AdminAccountPage.
 - `PUT /api/admin/accounts/:accountId/access` body `{role?,status?}` -> AdminAccountSummary.
 - `AccountAdminService.updateAccess(actorAccountId,targetAccountId,input)` runs in a transaction and protects the last active ADMIN.
-- Audit records identify actor account and record previous/new role/status without secrets.
+- New audit records set `actor_account_id`; existing Item Creator audit rows with only legacy actor field remain readable.
+- Account access audit summary records target account ID and previous/new role/status only; never credentials or secrets.
 
 - [ ] **Step 1: Write failing admin access tests**
 
-Cover PLAYER `403` across item/admin-account mutation families, ADMIN success, forged role headers/body ignored, role change effective on next request, banned account loses access, last active ADMIN cannot be demoted/banned, and all mutations audited.
+Cover PLAYER `403` across item/admin-account mutation families, ADMIN success, forged role headers/body ignored, role change effective on next request, banned account loses access, last active ADMIN cannot be demoted/banned, and all account mutations audited.
 
 Add Review Focus concurrency test: two simultaneous transactions targeting the final two active ADMINs cannot both commit leaving zero; one returns conflict (`409`).
 
@@ -410,7 +417,7 @@ Expected: FAIL because AdminAuth still trusts in-memory SessionStore and account
 
 - [ ] **Step 3: Implement DB-backed admin guard and account service/routes**
 
-Use row/advisory locking sufficient to serialize the active-admin count check and target mutation in one transaction.
+Use a transaction-level advisory lock (or equivalently strict serializing lock documented in the implementation) around the active-admin count check and target mutation so concurrent demote/ban requests cannot both pass.
 
 - [ ] **Step 4: Run admin tests and full server suite**
 
@@ -517,7 +524,7 @@ Expected: PASS.
 - Modify/Test: `apps/client/tests/worldHud.test.ts`
 
 **Interfaces:**
-- World UI derives role from current SessionView, not Socket.IO login result.
+- World UI derives role from current SessionView, not Socket.IO authentication ack.
 - Logout calls AuthApi logout, disconnects GameSocket, clears SessionStateStore, returns to AuthScene even if logout HTTP request fails.
 - AdminApi adds `listAccounts(query)` and `updateAccountAccess(accountId,input)`.
 - AdminPanel adds `Konta` navigation only for ADMIN session.
@@ -569,7 +576,7 @@ Expected: PASS.
 
 E2E sequence: register PLAYER -> capture recovery code -> explicit login -> create character -> world -> reconnect/reload resume -> no Admin panel/403 admin API -> bootstrap ADMIN login -> Item Creator access -> create/publish item -> promote second account -> current role applies at next validation -> recover password -> old REST token and old socket invalid -> new login works.
 
-Migration compatibility fixture starts with existing Item Creator/catalog/history + legacy inventory row, applies auth migration, runs E2E, and verifies catalog/history counts unchanged and legacy orphan remains unassigned.
+Migration compatibility fixture starts with existing Item Creator/catalog/history/audit + legacy inventory row, applies auth migration, runs E2E, and verifies catalog/history/audit counts unchanged and legacy orphan remains unassigned.
 
 Deployment test asserts final client workflow does not set `VITE_ENABLE_ADMIN_LOGIN`, does not rely on `ADMIN_ACCESS_TOKEN`, and the Pages-approved bridge checks out/builds current `main` until the environment rule can be changed.
 
@@ -580,7 +587,7 @@ Expected: FAIL until remaining legacy token/session code and workflow flags are 
 
 - [ ] **Step 3: Remove legacy login/token bootstrap and finalize docs/workflows**
 
-Search repository for `ADMIN_ACCESS_TOKEN`, `VITE_ENABLE_ADMIN_LOGIN`, `adminToken`, and nickname-auth SessionStore usage. After this step, occurrences may remain only in migration/history documentation explicitly describing removed behavior, not runtime code/workflows.
+Search repository for `ADMIN_ACCESS_TOKEN`, `VITE_ENABLE_ADMIN_LOGIN`, `adminToken`, nickname-auth `login` event, and in-memory SessionStore usage. After this step, occurrences may remain only in migration/history documentation explicitly describing removed behavior, not runtime code/workflows.
 
 README/ops docs must describe DB migration, bootstrap variables, recovery code handling, Render configuration, post-bootstrap variable removal, and current Pages bridge limitation.
 
@@ -613,6 +620,8 @@ Verify backend health/startup logs contain no secret values; create/validate PLA
 - Confirm no runtime authorization path trusts client-supplied role/account/character/player identifiers.
 - Confirm last-admin protection is transactionally race-safe.
 - Confirm session replacement/recovery/logout/ban close or invalidate stale sockets.
+- Confirm character identity plus HP/location/position persist across reconnect/restart.
 - Confirm Item Creator version/history/catalog tests remain unchanged and GREEN.
 - Confirm inventory reads/writes use `character_id`, while legacy rows remain preserved but unassigned.
+- Confirm legacy Item Creator audit rows survive and new audit entries identify actor accounts.
 - Confirm production workflows publish the latest final `main` artifact and do not expose a special ADMIN login field.

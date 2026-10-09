@@ -1,4 +1,8 @@
-import type { ItemVersion, ItemVersionSummary } from "@web-mmorpg/shared";
+import type {
+  ItemDraftInput,
+  ItemVersion,
+  ItemVersionSummary
+} from "@web-mmorpg/shared";
 import { AdminApi, AdminApiRequestError, type AdminAuditEntry } from "../../net/AdminApi";
 
 export interface ItemHistoryHandlers {
@@ -23,8 +27,9 @@ export class ItemHistoryView {
         this.api.listVersions(this.itemId),
         this.api.getAudit("item", this.itemId)
       ]);
+      const comparisonVersions = await this.loadComparisonVersions(audit);
       if (this.destroyed) return;
-      this.render(versions, audit);
+      this.render(versions, audit, comparisonVersions);
     } catch (error) {
       if (this.destroyed) return;
       this.host.textContent = this.errorMessage(error);
@@ -36,7 +41,34 @@ export class ItemHistoryView {
     this.host.replaceChildren();
   }
 
-  private render(versions: ItemVersionSummary[], audit: AdminAuditEntry[]): void {
+  private async loadComparisonVersions(
+    audit: AdminAuditEntry[]
+  ): Promise<Map<number, ItemVersion>> {
+    const versionNos = new Set<number>();
+
+    for (const entry of audit) {
+      if (readChangedFields(entry.summary).length > 0) continue;
+      if (entry.fromVersion !== undefined && entry.toVersion !== undefined) {
+        versionNos.add(entry.fromVersion);
+        versionNos.add(entry.toVersion);
+      }
+    }
+
+    const loaded = await Promise.all(
+      [...versionNos].sort((a, b) => a - b).map(async (versionNo) => {
+        const version = await this.api.getVersion(this.itemId, versionNo);
+        return [versionNo, version] as const;
+      })
+    );
+
+    return new Map(loaded);
+  }
+
+  private render(
+    versions: ItemVersionSummary[],
+    audit: AdminAuditEntry[],
+    comparisonVersions: ReadonlyMap<number, ItemVersion>
+  ): void {
     this.host.replaceChildren();
     const root = document.createElement("section");
     root.className = "item-history";
@@ -87,7 +119,14 @@ export class ItemHistoryView {
         change.className = "item-history__change";
         const from = entry.fromVersion ?? Math.max(1, version.versionNo - 1);
         const to = entry.toVersion ?? version.versionNo;
-        const changedFields = readChangedFields(entry.summary);
+        let changedFields = readChangedFields(entry.summary);
+
+        if (changedFields.length === 0 && entry.fromVersion !== undefined && entry.toVersion !== undefined) {
+          const before = comparisonVersions.get(entry.fromVersion);
+          const after = comparisonVersions.get(entry.toVersion);
+          if (before && after) changedFields = diffItemVersions(before, after);
+        }
+
         const transition = document.createElement("b");
         transition.textContent = `v${from} → v${to}`;
         const fields = document.createElement("span");
@@ -129,6 +168,58 @@ export class ItemHistoryView {
     if (error instanceof AdminApiRequestError || error instanceof Error) return error.message;
     return "Nie udało się załadować historii wersji.";
   }
+}
+
+const COMPARABLE_FIELDS: ReadonlyArray<keyof ItemDraftInput> = [
+  "name",
+  "categoryId",
+  "subcategoryId",
+  "description",
+  "iconKey",
+  "iconUrl",
+  "rarity",
+  "itemLevel",
+  "minimumLevel",
+  "sellValue",
+  "sellable",
+  "tradable",
+  "droppable",
+  "stackable",
+  "maxStack",
+  "weight",
+  "soulbound",
+  "unique",
+  "tags",
+  "stats",
+  "requirements",
+  "effects",
+  "specialData"
+];
+
+function diffItemVersions(before: ItemVersion, after: ItemVersion): string[] {
+  return COMPARABLE_FIELDS.filter(
+    (field) => canonicalJson(before[field]) !== canonicalJson(after[field])
+  );
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => canonicalize(entry))
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)])
+    );
+  }
+  return value ?? null;
 }
 
 function readChangedFields(summary: Record<string, unknown>): string[] {

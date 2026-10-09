@@ -1,0 +1,31 @@
+name: Runtime dependency audit
+
+on:
+  push:
+    branches:
+      - audit/aws-sdk-security-upgrade
+    paths:
+      - ".github/workflows/runtime-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Use verified npm
+        run: npm install --global npm@11
+      - name: Install dependencies
+        run: npm install
+      - name: Show S3 runtime version
+        run: npm ls --omit=dev @aws-sdk/client-s3 fast-xml-parser --all || true
+      - name: Audit runtime dependencies
+        run: |
+          npm audit --omit=dev --json > runtime-audit.json || true
+          cat runtime-audit.json

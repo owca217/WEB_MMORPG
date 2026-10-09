@@ -8,6 +8,7 @@ import type {
   NpcInteractionPayload,
   PlayerStateSnapshot,
   ServerToClientEvents,
+  SocketAuthResult,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
@@ -43,6 +44,11 @@ export class GameSocket {
     return socket;
   }
 
+  authenticate(sessionToken: string): Promise<SocketAuthResult> {
+    return this.connect().emitWithAck("authenticate", { sessionToken });
+  }
+
+  /** @deprecated Replaced by REST account login + authenticate(sessionToken). */
   async login(nickname: string, adminToken?: string): Promise<LoginResult> {
     const socket = this.connect();
     const payload = adminToken === undefined ? { nickname } : { nickname, adminToken };

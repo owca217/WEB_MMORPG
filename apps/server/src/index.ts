@@ -14,6 +14,7 @@ import { ItemCatalogService } from "./items/ItemCatalogService";
 import { ItemMetadataRepository } from "./items/ItemMetadataRepository";
 import { seedItemMetadata } from "./items/seedItemMetadata";
 import { AccountRepository } from "./persistence/AccountRepository";
+import { ActiveConnectionRegistry } from "./server/ActiveConnectionRegistry";
 import { createGameServer } from "./server/createGameServer";
 import { SessionStore } from "./session/SessionStore";
 
@@ -28,9 +29,10 @@ async function startServer(): Promise<void> {
 
   const characters = new CharacterLifecycleService(pool);
   const authService = new AuthService(pool, new AccountRepository(pool), characters);
+  const connections = new ActiveConnectionRegistry();
 
-  // Transitional gameplay/admin session store. Tasks 7-8 remove it after
-  // Socket.IO and Admin API are moved onto AuthService.
+  // Transitional ADMIN session store only. Task 8 removes it after Admin API
+  // authorization is moved onto persistent accounts.
   const sessions = new SessionStore();
   const metadata = new ItemMetadataRepository(pool);
   const catalog = new ItemCatalogService(pool, metadata);
@@ -40,14 +42,26 @@ async function startServer(): Promise<void> {
   const app = express();
   app.use(cors({ origin: true, credentials: false }));
   app.use(express.json({ limit: "1mb" }));
-  app.use("/api", createAuthRouter({ authService, characterService: characters }));
+  app.use(
+    "/api",
+    createAuthRouter({
+      authService,
+      characterService: characters,
+      connections
+    })
+  );
   app.use(
     "/api/admin",
     createAdminRouter({ sessions, metadata, catalog, audit, iconStorage })
   );
 
   const httpServer = createServer(app);
-  createGameServer(httpServer, { sessions, pool });
+  createGameServer(httpServer, {
+    pool,
+    authService,
+    characterLifecycle: characters,
+    connections
+  });
 
   httpServer.listen(port, host, () => {
     console.log(`WEB MMORPG server listening on http://${host}:${port}`);

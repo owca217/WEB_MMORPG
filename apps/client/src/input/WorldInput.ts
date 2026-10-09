@@ -21,6 +21,23 @@ export function resolveKeyboardIntent(keys: DirectionKeys): DirectionIntent {
   };
 }
 
+export function normalizeAnalogIntent(
+  offset: { x: number; y: number },
+  radius: number
+): DirectionIntent {
+  if (radius <= 0) return { dx: 0, dy: 0 };
+
+  const length = Math.hypot(offset.x, offset.y);
+  const deadzone = radius * 0.08;
+  if (length <= deadzone) return { dx: 0, dy: 0 };
+
+  const magnitude = Math.min(length / radius, 1);
+  return {
+    dx: (offset.x / length) * magnitude,
+    dy: (offset.y / length) * magnitude
+  };
+}
+
 export function moveTowardTarget(
   current: { x: number; y: number },
   target: { x: number; y: number },

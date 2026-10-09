@@ -9,13 +9,39 @@ import type {
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io as createClient, type Socket } from "socket.io-client";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it
+} from "vitest";
 import { findPath, hexDistance, hexKey, hexNeighbors } from "../src/battle/hex";
 import { hasLineOfSight } from "../src/battle/lineOfSight";
+import { createPool } from "../src/db/createPool";
+import { runMigrations } from "../src/db/migrate";
+import { seedItemMetadata } from "../src/items/seedItemMetadata";
 import { createGameServer } from "../src/server/createGameServer";
 
+const databaseUrl = process.env.DATABASE_URL;
+const describeDatabase = databaseUrl ? describe : describe.skip;
+const pool = databaseUrl ? createPool(databaseUrl) : null;
 const clients: Socket[] = [];
 let closeServer: (() => Promise<void>) | undefined;
+
+beforeAll(async () => {
+  if (!pool) return;
+  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
+  await runMigrations(pool);
+  await seedItemMetadata(pool);
+});
+
+beforeEach(async () => {
+  if (!pool) return;
+  await pool.query("DELETE FROM item_instances");
+});
 
 afterEach(async () => {
   for (const socket of clients.splice(0)) socket.disconnect();
@@ -23,9 +49,14 @@ afterEach(async () => {
   closeServer = undefined;
 });
 
+afterAll(async () => {
+  await pool?.end();
+});
+
 async function startTestServer() {
+  if (!pool) throw new Error("DATABASE_URL_REQUIRED_FOR_SOCKET_TESTS");
   const httpServer = createServer();
-  const game = createGameServer(httpServer);
+  const game = createGameServer(httpServer, { pool });
 
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
   const address = httpServer.address() as AddressInfo;
@@ -126,7 +157,16 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
   let battle = initial;
   const endedPromise = onceWithTimeout<{
     outcome: "victory" | "defeat";
-    inventory: { items: Array<{ itemId: string; quantity: number }> };
+    inventory: {
+      items: Array<{
+        instanceId: string;
+        itemDefinitionId?: string;
+        itemId: string;
+        name: string;
+        category: string;
+        quantity: number;
+      }>;
+    };
     character: { hp: number };
   }>(socket, "battleEnded", 4000);
 
@@ -140,7 +180,7 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
   return endedPromise;
 }
 
-describe("Socket.IO game flow", () => {
+describeDatabase("Socket.IO game flow", () => {
   it("emits player state after login and routes NPC interaction", async () => {
     const { game, connectClient } = await startTestServer();
     const client = await connectClient();
@@ -216,8 +256,20 @@ describe("Socket.IO game flow", () => {
     const ended = await winBattle(client, started, loginResult.playerId);
 
     expect(ended.outcome).toBe("victory");
-    expect(ended.inventory.items.find((item) => item.itemId === "wolf-pelt")?.quantity).toBe(1);
-    expect(ended.inventory.items.find((item) => item.itemId === "field-bandage")?.quantity).toBe(2);
+    const pelt = ended.inventory.items.find((item) => item.itemId === "wolf-pelt");
+    const bandage = ended.inventory.items.find((item) => item.itemId === "field-bandage");
+    expect(pelt).toMatchObject({
+      name: "Wolf Pelt",
+      category: "material",
+      quantity: 1
+    });
+    expect(pelt?.itemDefinitionId).toBeTruthy();
+    expect(bandage).toMatchObject({
+      name: "Field Bandage",
+      category: "consumable",
+      quantity: 2
+    });
+    expect(bandage?.itemDefinitionId).toBeTruthy();
 
     const returnedWorld = await worldReturnPromise;
     expect(returnedWorld.players.some((player) => player.id === loginResult.playerId)).toBe(true);

@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { seedStarterItems } from "./seedStarterItems";
 import {
   ENGINE_STATS,
   SYSTEM_CATEGORIES,
@@ -13,6 +14,7 @@ export async function seedItemMetadata(pool: Pool): Promise<void> {
     await seedStats(client);
     await seedCategories(client);
     await seedSubcategories(client);
+    await seedStarterItems(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

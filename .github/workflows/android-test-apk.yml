@@ -1,0 +1,73 @@
+name: Build Android test APK
+
+on:
+  push:
+    branches:
+      - codex/android-apk-spike
+    paths:
+      - "apps/android/**"
+      - "apps/client/**"
+      - "packages/shared/**"
+      - "package.json"
+      - ".github/workflows/android-test-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build WEB MMORPG Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install npm
+        run: npm install --global npm@11
+
+      - name: Install project dependencies
+        run: npm install
+
+      - name: Build the game client for Android assets
+        env:
+          VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com
+        run: npm run build -w @web-mmorpg/client -- --base=./
+
+      - name: Copy game client into the Android app
+        run: |
+          mkdir -p apps/android/app/src/main/assets/www
+          cp -R apps/client/dist/. apps/android/app/src/main/assets/www/
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        run: gradle -p apps/android assembleDebug
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-mmorpg-android-test-apk
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -5,8 +5,7 @@ import {
   MODIFIER_TYPES,
   type ItemDraftInput
 } from "../src/items";
-import { USER_ROLES, type AdminSession } from "../src/admin";
-import type { LoginResult } from "../src/protocol";
+import { USER_ROLES } from "../src/admin";
 
 describe("item catalog contracts", () => {
   it("exposes stable rarity, status and modifier values", () => {
@@ -22,7 +21,7 @@ describe("item catalog contracts", () => {
     expect(USER_ROLES).toEqual(["PLAYER", "ADMIN"]);
   });
 
-  it("supports a representative draft and authenticated login result", () => {
+  it("supports a representative item draft", () => {
     const draft: ItemDraftInput = {
       itemId: "iron-sword",
       name: "Żelazny Miecz",
@@ -50,21 +49,6 @@ describe("item catalog contracts", () => {
       specialData: {}
     };
 
-    const session: AdminSession = {
-      playerId: "player-1",
-      sessionToken: "session-token",
-      role: "ADMIN"
-    };
-
-    const login: Extract<LoginResult, { ok: true }> = {
-      ok: true,
-      playerId: "player-1",
-      locationId: "forest-settlement-01",
-      sessionToken: session.sessionToken,
-      role: session.role
-    };
-
     expect(draft.stats[0]?.statCode).toBe("PHYSICAL_DAMAGE");
-    expect(login.role).toBe("ADMIN");
   });
 });

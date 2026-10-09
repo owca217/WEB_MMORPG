@@ -13,8 +13,15 @@ import { LootService } from "../loot/LootService";
 import { SessionStore } from "../session/SessionStore";
 import { WorldService } from "../world/WorldService";
 
-export function createGameServer(httpServer: HttpServer) {
-  const sessions = new SessionStore();
+export interface GameServerOptions {
+  sessions?: SessionStore;
+}
+
+export function createGameServer(
+  httpServer: HttpServer,
+  options: GameServerOptions = {}
+) {
+  const sessions = options.sessions ?? new SessionStore();
   const world = new WorldService();
   const inventory = new InventoryService();
   const loot = new LootService();

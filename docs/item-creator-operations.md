@@ -1,18 +1,28 @@
 # Item Creator — operations guide
 
-This document describes the runtime configuration and deployment procedure for the ADMIN item catalog / item creator.
+This document describes the runtime configuration and deployment procedure for the persistent account system and the ADMIN item catalog / item creator.
 
 ## Required environment variables
 
 ### PostgreSQL
 
-- `DATABASE_URL` — PostgreSQL connection string used by the server, migrations, catalog, version history and persistent item instances. Example shape: `postgres://USER:PASSWORD@HOST:5432/DATABASE`.
+- `DATABASE_URL` — PostgreSQL connection string used by account authentication, durable sessions, characters, inventory, migrations, the item catalog, version history and audit records. Example shape: `postgres://USER:PASSWORD@HOST:5432/DATABASE`.
 
-### ADMIN bootstrap access
+### First ADMIN bootstrap
 
-- `ADMIN_ACCESS_TOKEN` — shared bootstrap secret used only when creating an ADMIN game session. A login without this token is a normal `PLAYER` session. A login with a value exactly matching the server environment variable receives role `ADMIN` and its generated `sessionToken` can be used as `Authorization: Bearer <sessionToken>` for `/api/admin/*`.
+The normal game login uses a username and password. ADMIN authorization comes only from the persistent `accounts.role` value in PostgreSQL; there is no special ADMIN token field in the browser.
 
-Keep `ADMIN_ACCESS_TOKEN` server-side. Do not place it in the client bundle, repository, screenshots or public deployment variables exposed to Vite.
+If the database does not yet contain an active ADMIN account, the server can create the first one at startup from all three variables below:
+
+- `INITIAL_ADMIN_USERNAME` — username accepted by the normal account username rules.
+- `INITIAL_ADMIN_PASSWORD` — bootstrap password, 10–256 characters.
+- `INITIAL_ADMIN_RECOVERY_CODE` — recovery code in groups of four uppercase letters/digits separated by dashes, for example the shape `ABCD-EFGH-JKLM-NPQR`. Use a unique secret value, not this example.
+
+All three variables must be supplied together. If an active ADMIN already exists, bootstrap is skipped. If the configured username already belongs to another account, startup refuses to silently promote that account.
+
+The password and recovery code are hashed before storage. The server logs only that the initial ADMIN was created; it does not print the credentials.
+
+After the first ADMIN has been created and a normal username/password login has been verified, remove `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD` and `INITIAL_ADMIN_RECOVERY_CODE` from the hosting environment and redeploy/restart. The ADMIN account remains in PostgreSQL.
 
 ### Item icon object storage
 
@@ -20,7 +30,7 @@ Required by `S3IconStorage.fromEnv()`:
 
 - `ITEM_ASSET_S3_BUCKET` — bucket name.
 - `ITEM_ASSET_S3_REGION` — S3 region.
-- `ITEM_ASSET_PUBLIC_BASE_URL` — public/CDN base URL used when storing `iconUrl` (without a trailing slash requirement).
+- `ITEM_ASSET_PUBLIC_BASE_URL` — public/CDN base URL used when storing `iconUrl`.
 
 Optional S3-compatible endpoint:
 
@@ -41,10 +51,11 @@ Uploaded ADMIN icons are limited to PNG/WebP, at most 2 MiB. The storage key is 
 The production server performs these operations before it starts listening on the HTTP port:
 
 1. Create the PostgreSQL pool from `DATABASE_URL`.
-2. Run all database migrations.
+2. Run all additive database migrations.
 3. Seed/update engine stat metadata, system categories/subcategories and starter item definitions.
-4. Construct the ADMIN catalog, audit, icon-storage and game services.
-5. Start Express + Socket.IO on the same HTTP server.
+4. Bootstrap the first ADMIN only when no active ADMIN exists and all `INITIAL_ADMIN_*` variables are supplied.
+5. Construct account auth, durable session, character, ADMIN catalog, audit, icon-storage and gameplay services.
+6. Start Express + Socket.IO on the same HTTP server.
 
 For an explicit deployment migration step, run from the repository root:
 
@@ -52,19 +63,30 @@ For an explicit deployment migration step, run from the repository root:
 npm run db:migrate --workspace @web-mmorpg/server
 ```
 
-Then start the server using the deployment command for the server workspace. Migrations are designed to be safe to run before startup; startup runs them again before accepting traffic.
+Migrations are designed to preserve the existing Item Creator catalog/history/audit data. Legacy inventory rows using `player_id` remain stored as unassigned legacy rows; new inventory ownership uses persistent `character_id` and does not guess ownership from a nickname.
 
-## ADMIN login flow
+## Account and ADMIN login flow
 
-1. Configure `ADMIN_ACCESS_TOKEN` on the server.
-2. On the game login screen / socket login request, provide the same token in the optional admin-token field.
-3. The server creates an in-memory session with role `ADMIN` and returns a generated `sessionToken`.
-4. The browser keeps that generated session token in session state.
-5. The ADMIN panel is shown only when the returned role is `ADMIN`.
-6. Every REST request to `/api/admin/*` sends the generated session token as `Authorization: Bearer <sessionToken>`.
-7. The server independently checks both session validity and role. Merely showing/hiding the button is not the security boundary.
+1. A player registers with a username and password. Public registration always creates role `PLAYER`.
+2. Registration returns a one-time recovery code for the player to save. The raw recovery code is not stored in PostgreSQL.
+3. Login with username/password creates a durable PostgreSQL-backed session and returns an opaque session token.
+4. The browser persists only that opaque token. Passwords and recovery codes are never stored by the client.
+5. The same session token authenticates REST calls and Socket.IO gameplay. The server derives the account, current role and persistent character from server-side data.
+6. `accounts.role = 'ADMIN'` makes the ADMIN panel and Item Creator available. Hiding/showing the UI is not the security boundary: `/api/admin/*` independently validates the current account role and status on every request.
+7. A new login replaces the previous active account session. Logout and successful password recovery revoke old sessions. A banned account or revoked token cannot keep using stale ADMIN privileges.
+8. The last active ADMIN cannot be demoted or banned; such a request returns `409`.
 
-Restarting the process invalidates in-memory login sessions, so an administrator signs in again. Catalog data, version history, audit rows and item instances remain in PostgreSQL.
+Administrators can manage account role/status from the in-game ADMIN panel. Promote another trusted account before removing access from an existing administrator.
+
+## Password recovery
+
+Recovery requires the username, current recovery code and a new password. A successful recovery:
+
+- replaces the password hash,
+- rotates the recovery code and returns the new code once,
+- revokes existing account sessions.
+
+The user must save the newly returned recovery code. There is no e-mail recovery service in this iteration.
 
 ## Item publication model
 
@@ -75,24 +97,49 @@ Restarting the process invalidates in-memory login sessions, so an administrator
 - Restoring a historical version never overwrites history: it creates a new published version copied from the selected old version.
 - Archiving changes catalog status without deleting historical versions or existing item-instance rows.
 
-Existing inventory instances store the stable item-definition reference plus instance state/quantity. Snapshot reads resolve the current active published definition, so a newly published base definition is visible to existing instances without resetting their `instanceId`, quantity, durability/upgrades or binding state.
+Existing persistent character inventory instances store the stable item-definition reference plus instance state/quantity. Snapshot reads resolve the current active published definition, so a newly published base definition is visible to existing instances without resetting their `instanceId`, quantity, durability/upgrades or binding state.
 
 ## Category/stat safety
 
 System and custom categories can only map to engine stat codes already present in the server registry/metadata. The ADMIN UI renders those known codes as choices; the API rejects unknown stat codes. System categories are not hard-deleted by the UI.
 
+## Render deployment checklist
+
+For the production Node service:
+
+1. Deploy the current `main` branch.
+2. Ensure `DATABASE_URL` points to the production PostgreSQL database.
+3. Keep the item-icon S3-compatible variables configured.
+4. For the first account-auth deployment only, configure all three `INITIAL_ADMIN_*` variables with secrets chosen for the real administrator.
+5. Deploy and verify normal username/password ADMIN login and a harmless ADMIN API read.
+6. Remove all three `INITIAL_ADMIN_*` variables after bootstrap is confirmed, then redeploy/restart.
+7. Do not configure the retired `ADMIN_ACCESS_TOKEN` or `VITE_ENABLE_ADMIN_LOGIN`; neither is part of the runtime login flow anymore.
+
+Never paste production passwords, recovery codes, database credentials or S3 secrets into commits, issue comments, screenshots or public client build variables.
+
+## GitHub Pages client
+
+The browser build requires `VITE_GAME_SERVER_URL` pointing at the production backend. The login screen always shows the normal account login/register/recovery UI; it has no separate ADMIN secret field.
+
+If the repository's `github-pages` environment still restricts which branch may deploy, the approved bridge workflow may be used only as the deployment trigger while explicitly checking out and building current `main`. The published artifact must always come from current `main`.
+
 ## CI acceptance
 
-The feature CI starts PostgreSQL 16, explicitly verifies migrations against the CI database, then runs all workspace tests and builds. The acceptance suites cover:
+Feature CI starts PostgreSQL 16, explicitly verifies migrations against the CI database, then runs all workspace tests and builds. The acceptance suites cover:
 
-- server-side 401/403 authorization,
-- PLAYER mutation denial,
+- registration/login/logout/recovery and secret hashing,
+- durable session replacement/revocation,
+- persistent character lifecycle/state,
+- server-side ADMIN authorization and forged-role denial,
+- last-active-ADMIN race protection,
+- ADMIN account management,
 - create/save/publish/version/restore/archive,
 - optimistic-concurrency conflicts,
 - category/stat validation,
 - icon validation before storage write,
-- audit records,
-- PostgreSQL persistence/reconnect,
-- active-definition refresh for existing item instances,
+- account-aware audit records,
+- migration compatibility with existing Item Creator data,
+- persistent `character_id` inventory ownership while preserving legacy orphan rows,
 - the existing world → battle → loot → inventory flow,
-- client catalog, nine-step creator, live preview, history and category-manager behavior.
+- login/register/recovery, character creation, session resume and logout UI,
+- client catalog, nine-step creator, live preview, history, category manager and account manager behavior.

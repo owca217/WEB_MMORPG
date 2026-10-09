@@ -55,15 +55,17 @@ describeDatabase("account auth REST API", () => {
   });
 
   it("validates password confirmation and maps bad credentials generically", async () => {
-    await request(app)
+    const mismatch = await request(app)
       .post("/api/auth/register")
       .send({ username: "mismatch", password: PASSWORD, passwordConfirmation: `${PASSWORD}-x` })
-      .expect(400, expect.objectContaining({ code: "PASSWORD_MISMATCH" }));
+      .expect(400);
+    expect(mismatch.body).toEqual(expect.objectContaining({ code: "PASSWORD_MISMATCH" }));
 
-    await request(app)
+    const invalid = await request(app)
       .post("/api/auth/login")
       .send({ username: "missing", password: PASSWORD })
-      .expect(401, expect.objectContaining({ code: "INVALID_CREDENTIALS" }));
+      .expect(401);
+    expect(invalid.body).toEqual(expect.objectContaining({ code: "INVALID_CREDENTIALS" }));
   });
 
   it("logs in, resumes the session, creates/reads a character, and logs out", async () => {
@@ -80,21 +82,26 @@ describeDatabase("account auth REST API", () => {
     const token = String(login.body.token);
     expect(login.body.session.character).toEqual({ state: "none" });
 
-    await request(app)
+    const resumed = await request(app)
       .get("/api/auth/session")
       .set("Authorization", `Bearer ${token}`)
-      .expect(200, expect.objectContaining({ accountUsername: "api_player", accountRole: "PLAYER" }));
+      .expect(200);
+    expect(resumed.body).toEqual(
+      expect.objectContaining({ accountUsername: "api_player", accountRole: "PLAYER" })
+    );
 
-    await request(app)
+    const created = await request(app)
       .post("/api/character")
       .set("Authorization", `Bearer ${token}`)
       .send({ nickname: "ApiHero", appearance: {} })
-      .expect(201, expect.objectContaining({ nickname: "ApiHero" }));
+      .expect(201);
+    expect(created.body).toEqual(expect.objectContaining({ nickname: "ApiHero" }));
 
-    await request(app)
+    const fetched = await request(app)
       .get("/api/character")
       .set("Authorization", `Bearer ${token}`)
-      .expect(200, expect.objectContaining({ nickname: "ApiHero" }));
+      .expect(200);
+    expect(fetched.body).toEqual(expect.objectContaining({ nickname: "ApiHero" }));
 
     await request(app)
       .post("/api/auth/logout")
@@ -125,7 +132,7 @@ describeDatabase("account auth REST API", () => {
     expect(recovered.body.recoveryCode).toBeTruthy();
     expect(recovered.body.recoveryCode).not.toBe(registration.body.recoveryCode);
 
-    await request(app)
+    const invalid = await request(app)
       .post("/api/auth/recover")
       .send({
         username: "missing_api",
@@ -133,7 +140,8 @@ describeDatabase("account auth REST API", () => {
         newPassword,
         passwordConfirmation: newPassword
       })
-      .expect(401, expect.objectContaining({ code: "INVALID_RECOVERY_CODE" }));
+      .expect(401);
+    expect(invalid.body).toEqual(expect.objectContaining({ code: "INVALID_RECOVERY_CODE" }));
   });
 
   it("returns 403 for a banned account whose otherwise-valid session is reused", async () => {
@@ -141,10 +149,11 @@ describeDatabase("account auth REST API", () => {
     const login = await auth.login("ban_me", PASSWORD);
     await pool.query("UPDATE accounts SET status = 'banned' WHERE username_normalized = 'ban_me'");
 
-    await request(app)
+    const disabled = await request(app)
       .get("/api/auth/session")
       .set("Authorization", `Bearer ${login.token}`)
-      .expect(403, expect.objectContaining({ code: "ACCOUNT_DISABLED" }));
+      .expect(403);
+    expect(disabled.body).toEqual(expect.objectContaining({ code: "ACCOUNT_DISABLED" }));
   });
 
   it("derives AuthContext from the bearer session and ignores forged identity fields", async () => {
@@ -173,10 +182,11 @@ describeDatabase("account auth REST API", () => {
         .set("X-Forwarded-For", "203.0.113.10")
         .send({ username: "missing", password: PASSWORD });
     }
-    await request(app)
+    const limited = await request(app)
       .post("/api/auth/login")
       .set("X-Forwarded-For", "203.0.113.10")
       .send({ username: "missing", password: PASSWORD })
-      .expect(429, expect.objectContaining({ code: "RATE_LIMITED" }));
+      .expect(429);
+    expect(limited.body).toEqual(expect.objectContaining({ code: "RATE_LIMITED" }));
   });
 });

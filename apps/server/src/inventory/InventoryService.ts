@@ -38,13 +38,53 @@ interface InventoryRow {
   bound_to_player_id: string | null;
 }
 
+type OwnerKind = "character" | "legacyPlayer";
+
 export class InventoryService {
   constructor(private readonly pool: Pool) {}
 
   async addItems(
+    characterId: string,
+    rewards: readonly InventoryReward[]
+  ): Promise<InventorySnapshot> {
+    await this.addItemsForOwner("character", characterId, rewards);
+    return this.getSnapshot(characterId);
+  }
+
+  async getSnapshot(characterId: string): Promise<InventorySnapshot> {
+    return this.getSnapshotForOwner("character", characterId);
+  }
+
+  /**
+   * Transitional compatibility for the pre-account Socket.IO flow.
+   * Task 7 removes these methods when gameplay identity becomes character.id.
+   */
+  async addLegacySessionItems(
     playerId: PlayerId,
     rewards: readonly InventoryReward[]
   ): Promise<InventorySnapshot> {
+    await this.addItemsForOwner("legacyPlayer", playerId, rewards);
+    return this.getLegacySessionSnapshot(playerId);
+  }
+
+  /** @deprecated Removed with legacy socket sessions in Task 7. */
+  getLegacySessionSnapshot(playerId: PlayerId): Promise<InventorySnapshot> {
+    return this.getSnapshotForOwner("legacyPlayer", playerId);
+  }
+
+  removePlayer(_playerId: PlayerId): void {
+    // Inventory is persistent. Disconnecting a player must never delete item instances.
+  }
+
+  private ownerColumn(ownerKind: OwnerKind): "character_id" | "player_id" {
+    return ownerKind === "character" ? "character_id" : "player_id";
+  }
+
+  private async addItemsForOwner(
+    ownerKind: OwnerKind,
+    ownerId: string,
+    rewards: readonly InventoryReward[]
+  ): Promise<void> {
     const client = await this.pool.connect();
 
     try {
@@ -52,7 +92,13 @@ export class InventoryService {
       for (const reward of rewards) {
         this.validateReward(reward);
         const definition = await this.requirePublishedDefinition(client, reward.itemId);
-        await this.addReward(client, playerId, definition, reward.quantity);
+        await this.addReward(
+          client,
+          ownerKind,
+          ownerId,
+          definition,
+          reward.quantity
+        );
       }
       await client.query("COMMIT");
     } catch (error) {
@@ -61,11 +107,13 @@ export class InventoryService {
     } finally {
       client.release();
     }
-
-    return this.getSnapshot(playerId);
   }
 
-  async getSnapshot(playerId: PlayerId): Promise<InventorySnapshot> {
+  private async getSnapshotForOwner(
+    ownerKind: OwnerKind,
+    ownerId: string
+  ): Promise<InventorySnapshot> {
+    const ownerColumn = this.ownerColumn(ownerKind);
     const result = await this.pool.query<InventoryRow>(
       `SELECT
         instance.id AS instance_id,
@@ -87,18 +135,14 @@ export class InventoryService {
          ON version.item_id = item.id
         AND version.version_no = item.active_version_no
         AND version.state = 'PUBLISHED'
-       WHERE instance.player_id = $1
+       WHERE instance.${ownerColumn} = $1
        ORDER BY instance.created_at ASC, instance.id ASC`,
-      [playerId]
+      [ownerId]
     );
 
     return {
       items: result.rows.map((row) => this.mapInventoryRow(row))
     };
-  }
-
-  removePlayer(_playerId: PlayerId): void {
-    // Inventory is persistent. Disconnecting a player must never delete item instances.
   }
 
   private validateReward(reward: InventoryReward): void {
@@ -133,23 +177,25 @@ export class InventoryService {
 
   private async addReward(
     client: PoolClient,
-    playerId: PlayerId,
+    ownerKind: OwnerKind,
+    ownerId: string,
     definition: PublishedDefinitionRow,
     quantity: number
   ): Promise<void> {
     if (!definition.stackable) {
       for (let index = 0; index < quantity; index += 1) {
-        await this.insertInstance(client, playerId, definition.id, 1);
+        await this.insertInstance(client, ownerKind, ownerId, definition.id, 1);
       }
       return;
     }
 
+    const ownerColumn = this.ownerColumn(ownerKind);
     let remaining = quantity;
     while (remaining > 0) {
       const existingResult = await client.query<StackRow>(
         `SELECT id, quantity
          FROM item_instances
-         WHERE player_id = $1
+         WHERE ${ownerColumn} = $1
            AND item_id = $2
            AND quantity < $3
            AND durability IS NULL
@@ -161,7 +207,7 @@ export class InventoryService {
          ORDER BY created_at ASC, id ASC
          LIMIT 1
          FOR UPDATE`,
-        [playerId, definition.id, definition.max_stack]
+        [ownerId, definition.id, definition.max_stack]
       );
 
       const existing = existingResult.rows[0];
@@ -179,22 +225,30 @@ export class InventoryService {
       }
 
       const stackQuantity = Math.min(definition.max_stack, remaining);
-      await this.insertInstance(client, playerId, definition.id, stackQuantity);
+      await this.insertInstance(
+        client,
+        ownerKind,
+        ownerId,
+        definition.id,
+        stackQuantity
+      );
       remaining -= stackQuantity;
     }
   }
 
   private async insertInstance(
     client: PoolClient,
-    playerId: PlayerId,
+    ownerKind: OwnerKind,
+    ownerId: string,
     itemDefinitionUuid: string,
     quantity: number
   ): Promise<void> {
+    const ownerColumn = this.ownerColumn(ownerKind);
     await client.query(
       `INSERT INTO item_instances (
-        id, player_id, item_id, quantity, upgrade_level, affixes, sockets
+        id, ${ownerColumn}, item_id, quantity, upgrade_level, affixes, sockets
        ) VALUES ($1, $2, $3, $4, 0, '[]'::jsonb, '[]'::jsonb)`,
-      [randomUUID(), playerId, itemDefinitionUuid, quantity]
+      [randomUUID(), ownerId, itemDefinitionUuid, quantity]
     );
   }
 

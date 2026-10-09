@@ -228,6 +228,62 @@ export class ItemMetadataRepository {
     };
   }
 
+  async updateCategoryAllowedStats(
+    categoryId: string,
+    allowedStatCodes: string[],
+    actor: string
+  ): Promise<ItemCategoryDefinition> {
+    this.validateId(categoryId);
+    this.validateStatCodes(allowedStatCodes);
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const categoryResult = await client.query<CategoryRow>(
+        `SELECT id, name, system
+         FROM item_categories
+         WHERE id = $1
+         FOR UPDATE`,
+        [categoryId]
+      );
+      const category = categoryResult.rows[0];
+      if (!category) throw new Error(`CATEGORY_NOT_FOUND:${categoryId}`);
+
+      const beforeResult = await client.query<{ stat_code: string }>(
+        `SELECT stat_code
+         FROM category_allowed_stats
+         WHERE category_id = $1 AND subcategory_id IS NULL
+         ORDER BY stat_code`,
+        [categoryId]
+      );
+      const next = [...new Set(allowedStatCodes)].sort();
+      await this.replaceAllowedStats(client, categoryId, null, next);
+      await this.audit.appendWithClient(client, {
+        actorPlayerId: actor,
+        action: "UPDATE_CATEGORY_ALLOWED_STATS",
+        objectType: "item_category",
+        objectId: categoryId,
+        summary: {
+          before: beforeResult.rows.map((row) => row.stat_code),
+          after: next
+        }
+      });
+      await client.query("COMMIT");
+
+      return {
+        id: category.id,
+        name: category.name,
+        system: category.system,
+        allowedStatCodes: next
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private validateStatCodes(statCodes: readonly string[]): void {
     for (const code of statCodes) {
       if (!ENGINE_STATS[code]) throw new Error(`UNKNOWN_STAT_CODE:${code}`);

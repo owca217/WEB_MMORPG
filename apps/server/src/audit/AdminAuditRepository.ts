@@ -57,6 +57,26 @@ export class AdminAuditRepository {
     if (!input.actorPlayerId && !input.actorAccountId) {
       throw new Error("ADMIN_AUDIT_ACTOR_REQUIRED");
     }
+
+    let actorPlayerId = input.actorPlayerId ?? null;
+    let actorAccountId = input.actorAccountId ?? null;
+
+    // Item Creator repositories historically accepted one opaque actor string and
+    // wrote it as actor_player_id. During the account-auth migration the router now
+    // passes the persistent account UUID through that existing parameter. Normalize
+    // it here so all new persistent-account actions use actor_account_id while old
+    // player/session audit rows remain untouched and readable.
+    if (!actorAccountId && actorPlayerId) {
+      const account = await client.query(
+        "SELECT 1 FROM accounts WHERE id::text = $1 LIMIT 1",
+        [actorPlayerId]
+      );
+      if ((account.rowCount ?? 0) > 0) {
+        actorAccountId = actorPlayerId;
+        actorPlayerId = null;
+      }
+    }
+
     await client.query(
       `INSERT INTO admin_audit_log (
         id, actor_player_id, actor_account_id, action, object_type, object_id,
@@ -64,8 +84,8 @@ export class AdminAuditRepository {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
       [
         randomUUID(),
-        input.actorPlayerId ?? null,
-        input.actorAccountId ?? null,
+        actorPlayerId,
+        actorAccountId,
         input.action,
         input.objectType,
         input.objectId,

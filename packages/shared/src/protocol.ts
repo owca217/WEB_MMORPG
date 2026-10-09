@@ -5,7 +5,16 @@ import type { InventorySnapshot } from "./inventory";
 import type { LocationId, PlayerId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
+export type SocketAuthResult =
+  | { ok: true; characterId: string; locationId: LocationId }
+  | { ok: false; code: string; message: string };
+
 export interface ClientToServerEvents {
+  authenticate: (
+    payload: { sessionToken: string },
+    ack: (result: SocketAuthResult) => void
+  ) => void;
+  /** @deprecated Transitional adapter. Removed when socket auth is migrated in Task 7. */
   login: (
     payload: { nickname: string; adminToken?: string },
     ack: (result: LoginResult) => void

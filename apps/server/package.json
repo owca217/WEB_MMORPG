@@ -11,7 +11,7 @@
     "db:migrate": "tsx src/db/runMigrationsCli.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.901.0",
+    "@aws-sdk/client-s3": "3.901.0",
     "@web-mmorpg/shared": "*",
     "argon2": "^0.44.0",
     "cors": "^2.8.5",

@@ -1,4 +1,4 @@
-import type { EncounterSnapshot, LocationId } from "@web-mmorpg/shared";
+import type { EncounterSnapshot, LocationId, NpcSnapshot } from "@web-mmorpg/shared";
 
 export interface WorldFixture {
   id: LocationId;
@@ -6,18 +6,37 @@ export interface WorldFixture {
   height: number;
   spawn: { x: number; y: number };
   encounters: EncounterSnapshot[];
+  npcs: NpcSnapshot[];
 }
 
-export const MEADOW_01: WorldFixture = {
-  id: "meadow-01",
+export const FOREST_SETTLEMENT_01: WorldFixture = {
+  id: "forest-settlement-01",
   width: 1600,
   height: 900,
-  spawn: { x: 300, y: 450 },
+  spawn: { x: 360, y: 470 },
+  npcs: [
+    {
+      id: "guide-boran",
+      kind: "guide",
+      name: "Boran",
+      x: 610,
+      y: 420,
+      interactionRadius: 95
+    },
+    {
+      id: "healer-ada",
+      kind: "healer",
+      name: "Ada",
+      x: 720,
+      y: 535,
+      interactionRadius: 95
+    }
+  ],
   encounters: [
     {
       id: "wolf-pack-01",
-      x: 1050,
-      y: 450,
+      x: 1320,
+      y: 455,
       label: "Wolf Pack"
     }
   ]

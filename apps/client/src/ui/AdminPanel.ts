@@ -1,12 +1,16 @@
 import { AdminApi, AdminApiRequestError } from "../net/AdminApi";
+import { CategoryManagerView } from "./admin/CategoryManagerView";
 import { ItemCatalogView } from "./admin/ItemCatalogView";
 import { ItemCreatorView } from "./admin/ItemCreatorView";
+import { ItemHistoryView } from "./admin/ItemHistoryView";
 
 export class AdminPanel {
   private readonly root: HTMLDivElement;
   private readonly content: HTMLDivElement;
   private catalogView: ItemCatalogView | null = null;
   private creatorView: ItemCreatorView | null = null;
+  private historyView: ItemHistoryView | null = null;
+  private categoryManagerView: CategoryManagerView | null = null;
 
   constructor(private readonly api: AdminApi) {
     this.root = document.createElement("div");
@@ -18,6 +22,7 @@ export class AdminPanel {
           <nav class="admin-panel__nav" aria-label="Nawigacja administratora">
             <button type="button" data-catalog>Katalog</button>
             <button type="button" data-create>Nowy przedmiot</button>
+            <button type="button" data-categories>Kategorie</button>
           </nav>
         </div>
         <button type="button" data-close aria-label="Zamknij">×</button>
@@ -34,6 +39,9 @@ export class AdminPanel {
     this.require<HTMLButtonElement>("[data-create]").addEventListener("click", () => {
       this.showCreator();
     });
+    this.require<HTMLButtonElement>("[data-categories]").addEventListener("click", () => {
+      void this.showCategories();
+    });
   }
 
   async showCatalog(): Promise<void> {
@@ -43,7 +51,7 @@ export class AdminPanel {
     this.catalogView = new ItemCatalogView(this.content, this.api, {
       onPreview: (itemId) => void this.showPreview(itemId),
       onEdit: (itemId) => this.showCreator(itemId),
-      onHistory: (itemId) => this.showHistoryPlaceholder(itemId)
+      onHistory: (itemId) => void this.showHistory(itemId)
     });
     await this.catalogView.show();
   }
@@ -62,6 +70,27 @@ export class AdminPanel {
         : "Nie udało się otworzyć kreatora.";
       this.content.textContent = message;
     });
+  }
+
+  async showHistory(itemId: string): Promise<void> {
+    this.root.classList.remove("is-hidden");
+    this.destroyActiveView();
+    this.content.replaceChildren();
+    this.historyView = new ItemHistoryView(this.content, this.api, itemId, {
+      onBack: () => void this.showCatalog(),
+      onRestored: () => void this.showCatalog()
+    });
+    await this.historyView.show();
+  }
+
+  async showCategories(): Promise<void> {
+    this.root.classList.remove("is-hidden");
+    this.destroyActiveView();
+    this.content.replaceChildren();
+    this.categoryManagerView = new CategoryManagerView(this.content, this.api, {
+      onBack: () => void this.showCatalog()
+    });
+    await this.categoryManagerView.show();
   }
 
   hide(): void {
@@ -104,22 +133,15 @@ export class AdminPanel {
     }
   }
 
-  private showHistoryPlaceholder(itemId: string): void {
-    this.destroyActiveView();
-    this.content.innerHTML = `
-      <section class="admin-placeholder" data-history-placeholder>
-        <h3>Historia wersji</h3>
-        <p>${escapeHtml(itemId)}</p>
-        <p>Widok historii zostanie osadzony w tym miejscu.</p>
-      </section>
-    `;
-  }
-
   private destroyActiveView(): void {
     this.catalogView?.destroy();
     this.creatorView?.destroy();
+    this.historyView?.destroy();
+    this.categoryManagerView?.destroy();
     this.catalogView = null;
     this.creatorView = null;
+    this.historyView = null;
+    this.categoryManagerView = null;
   }
 
   private require<T extends HTMLElement>(selector: string): T {
@@ -127,10 +149,4 @@ export class AdminPanel {
     if (!element) throw new Error(`Admin panel element missing: ${selector}`);
     return element;
   }
-}
-
-function escapeHtml(value: string): string {
-  const node = document.createElement("span");
-  node.textContent = value;
-  return node.innerHTML;
 }

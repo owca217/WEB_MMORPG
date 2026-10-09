@@ -33,6 +33,7 @@ describeDatabase("item catalog database", () => {
         "category_allowed_stats",
         "item_categories",
         "item_effects",
+        "item_icon_assets",
         "item_instances",
         "item_requirements",
         "item_stat_modifiers",
@@ -50,7 +51,8 @@ describeDatabase("item catalog database", () => {
     );
     expect(migrations.rows).toEqual([
       { migration_name: "001_item_catalog" },
-      { migration_name: "002_account_auth" }
+      { migration_name: "002_account_auth" },
+      { migration_name: "003_item_icon_assets" }
     ]);
   });
 

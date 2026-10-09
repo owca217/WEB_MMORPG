@@ -1,4 +1,7 @@
 import type {
+  AdminAccountPage,
+  AdminAccountQuery,
+  AdminAccountSummary,
   AdminApiError,
   ItemCatalogPage,
   ItemCatalogQuery,
@@ -8,7 +11,8 @@ import type {
   ItemDraftInput,
   ItemSubcategoryDefinition,
   ItemVersion,
-  ItemVersionSummary
+  ItemVersionSummary,
+  UpdateAccountAccessInput
 } from "@web-mmorpg/shared";
 
 export interface StoredIconResponse {
@@ -51,6 +55,28 @@ export class AdminApi {
     private readonly fetcher: typeof fetch = fetch
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
+
+  listAccounts(query: AdminAccountQuery = {}): Promise<AdminAccountPage> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    }
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    return this.request<AdminAccountPage>(`/accounts${suffix}`);
+  }
+
+  updateAccountAccess(
+    accountId: string,
+    input: UpdateAccountAccessInput
+  ): Promise<AdminAccountSummary> {
+    return this.request<AdminAccountSummary>(
+      `/accounts/${encodeURIComponent(accountId)}/access`,
+      {
+        method: "PUT",
+        body: JSON.stringify(input)
+      }
+    );
   }
 
   getMetadata(): Promise<ItemCreatorMetadata> {

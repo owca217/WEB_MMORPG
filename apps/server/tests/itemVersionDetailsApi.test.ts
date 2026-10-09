@@ -2,19 +2,22 @@ import type { ItemDraftInput } from "@web-mmorpg/shared";
 import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { AccountAdminService } from "../src/admin/AccountAdminService";
 import type { IconStorage } from "../src/admin/IconStorage";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
+import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { AuthService } from "../src/auth/AuthService";
+import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
 import { createPool } from "../src/db/createPool";
 import { runMigrations } from "../src/db/migrate";
 import { ItemCatalogService } from "../src/items/ItemCatalogService";
 import { ItemMetadataRepository } from "../src/items/ItemMetadataRepository";
 import { seedItemMetadata } from "../src/items/seedItemMetadata";
-import { SessionStore } from "../src/session/SessionStore";
+import { AccountRepository } from "../src/persistence/AccountRepository";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
-const originalAdminToken = process.env.ADMIN_ACCESS_TOKEN;
+const PASSWORD = "correct-horse-battery-staple";
 
 function draft(): ItemDraftInput {
   return {
@@ -39,7 +42,7 @@ function draft(): ItemDraftInput {
     stats: [{ statCode: "PHYSICAL_DAMAGE", modifierType: "flat", value: 25 }],
     requirements: [],
     effects: [],
-    specialData: {},
+    specialData: {}
   };
 }
 
@@ -55,7 +58,6 @@ describeDatabase("ADMIN historical item version endpoint", () => {
   let token: string;
 
   beforeAll(async () => {
-    process.env.ADMIN_ACCESS_TOKEN = "history-api-secret";
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
     await runMigrations(pool);
     await seedItemMetadata(pool);
@@ -64,32 +66,36 @@ describeDatabase("ADMIN historical item version endpoint", () => {
   beforeEach(async () => {
     await pool.query(
       `TRUNCATE item_instances, item_tags, item_effects, item_requirements,
-       item_stat_modifiers, item_versions, items, admin_audit_log CASCADE`
+       item_stat_modifiers, item_versions, items, admin_audit_log,
+       account_sessions, characters, accounts CASCADE`
     );
     await seedItemMetadata(pool);
 
-    const sessions = new SessionStore();
-    const login = sessions.login("HistoryAdmin", "history-api-secret");
-    if (!login.ok) throw new Error("HISTORY_ADMIN_LOGIN_FAILED");
-    token = login.sessionToken;
+    const lifecycle = new CharacterLifecycleService(pool);
+    const accounts = new AccountRepository(pool);
+    const auth = new AuthService(pool, accounts, lifecycle);
+    await auth.register("HistoryAdmin", PASSWORD);
+    const admin = await accounts.findByNormalizedUsername("historyadmin");
+    if (!admin) throw new Error("HISTORY_ADMIN_ACCOUNT_MISSING");
+    await accounts.updateRole(admin.id, "ADMIN");
+    token = (await auth.login("HistoryAdmin", PASSWORD)).token;
 
     const metadata = new ItemMetadataRepository(pool);
     const catalog = new ItemCatalogService(pool, metadata);
     const audit = new AdminAuditRepository(pool);
-    await catalog.createDraft(draft(), login.playerId);
-    await catalog.publish("history-api-sword", 1, login.playerId);
+    const accountAdmin = new AccountAdminService(pool, audit);
+    await catalog.createDraft(draft(), admin.id);
+    await catalog.publish("history-api-sword", 1, admin.id);
 
     app = express();
     app.use(express.json());
     app.use(
       "/api/admin",
-      createAdminRouter({ sessions, metadata, catalog, audit, iconStorage: icons })
+      createAdminRouter({ authService: auth, accountAdmin, metadata, catalog, audit, iconStorage: icons })
     );
   });
 
   afterAll(async () => {
-    if (originalAdminToken === undefined) delete process.env.ADMIN_ACCESS_TOKEN;
-    else process.env.ADMIN_ACCESS_TOKEN = originalAdminToken;
     await pool.end();
   });
 

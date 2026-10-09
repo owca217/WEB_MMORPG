@@ -4,7 +4,6 @@ import type {
   CharacterSnapshot,
   ClientToServerEvents,
   InventorySnapshot,
-  LoginResult,
   NpcInteractionPayload,
   PlayerStateSnapshot,
   ServerToClientEvents,
@@ -45,13 +44,6 @@ export class GameSocket {
 
   authenticate(sessionToken: string): Promise<SocketAuthResult> {
     return this.connect().emitWithAck("authenticate", { sessionToken });
-  }
-
-  /** @deprecated Replaced by REST account login + authenticate(sessionToken). */
-  login(nickname: string, adminToken?: string): Promise<LoginResult> {
-    const socket = this.connect();
-    const payload = adminToken === undefined ? { nickname } : { nickname, adminToken };
-    return socket.emitWithAck("login", payload);
   }
 
   disconnect(): void {

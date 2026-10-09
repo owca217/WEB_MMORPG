@@ -36,5 +36,7 @@ jobs:
           node-version: 22
       - run: npm install --global npm@11
       - run: npm install
+      - name: Verify empty-database migrations
+        run: npm run db:migrate --workspace @web-mmorpg/server
       - run: npm test
       - run: npm run build

@@ -38,7 +38,7 @@ export type LoginResult =
       ok: true;
       playerId: PlayerId;
       locationId: LocationId;
-      sessionToken?: string;
-      role?: UserRole;
+      sessionToken: string;
+      role: UserRole;
     }
   | { ok: false; code: string; message: string };

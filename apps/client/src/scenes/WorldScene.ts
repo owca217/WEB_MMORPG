@@ -1,19 +1,16 @@
-import type { AccountRole, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
-import { VirtualJoystick } from "../input/VirtualJoystick";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
-import { apiClient } from "../net/ApiClient";
+import { AdminApi } from "../net/AdminApi";
+import { AuthApi } from "../net/AuthApi";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
-import { worldSceneData } from "../state/sessionRouting";
-import { CharacterPanel } from "../ui/CharacterPanel";
-import { StatisticsPanel } from "../ui/StatisticsPanel";
-import { DialoguePanel } from "../ui/DialoguePanel";
+import { sessionStateStore } from "../state/SessionStateStore";
+import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
+import { CharacterPanel } from "../ui/CharacterPanel";
+import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
-import { InterfaceWindowControls } from "../ui/InterfaceWindowControls";
-import { PartyPanel } from "../ui/PartyPanel";
-import { ProfessionsPanel } from "../ui/ProfessionsPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
@@ -21,46 +18,17 @@ import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
 
 interface WorldSceneData {
   playerId: PlayerId;
-  accountRole?: AccountRole;
 }
-
-const persistentAccountsEnabled =
-  import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
 
 const WORLD_ERROR_LABELS: Record<string, string> = {
   ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do wilków.",
   NPC_OUT_OF_RANGE: "Podejdź bliżej do tej postaci.",
   NPC_NOT_FOUND: "Nie znaleziono tej postaci.",
-  HEAL_REJECTED: "Leczenie nie jest teraz dostępne.",
-  PARTY_SELF_INVITE: "Nie możesz zaprosić samego siebie.",
-  PARTY_ONLY_LEADER_CAN_INVITE: "Tylko lider drużyny może zapraszać graczy.",
-  PARTY_TARGET_ALREADY_IN_PARTY: "Ten gracz jest już w drużynie.",
-  PARTY_FULL: "Drużyna jest pełna.",
-  PARTY_INVITE_NOT_FOUND: "To zaproszenie nie jest już aktywne.",
-  PARTY_INVITE_EXPIRED: "Zaproszenie do drużyny wygasło.",
-  PARTY_PLAYER_NOT_FOUND: "Ten gracz nie jest już dostępny.",
-  PARTY_TARGET_BUSY: "Ten gracz jest teraz zajęty walką.",
-  PARTY_ONLY_LEADER_CAN_START_BATTLE:
-    "Tylko lider drużyny może rozpocząć wspólną walkę.",
-  PARTY_ONLY_LEADER_CAN_TOGGLE_BATTLE:
-    "Tylko lider drużyny może zmieniać tryb walk drużynowych.",
-  PARTY_INVALID_BATTLE_MODE: "Nieprawidłowy tryb walk drużynowych.",
-  PLAYER_ALREADY_IN_BATTLE: "Ta postać jest już w walce.",
-  INVALID_CONTAINER_SLOT: "Nieprawidłowy slot pojemnika.",
-  CONTAINER_ITEM_NOT_FOUND: "Nie znaleziono tego pojemnika.",
-  ITEM_IS_NOT_CONTAINER: "Ten przedmiot nie jest pojemnikiem.",
-  CONTAINER_SLOT_REJECTED: "Nie można założyć tego przedmiotu w slocie pojemnika.",
-  ADMIN_REQUIRED: "Panel administratora wymaga rangi ADMIN.",
-  ADMIN_INVALID_ITEM: "Wybrany przedmiot nie jest dostępny w katalogu administratora.",
-  ADMIN_INVALID_QUANTITY: "Ilość musi być liczbą całkowitą od 1 do 1000.",
-  ADMIN_IN_BATTLE: "Nie można dodawać przedmiotów podczas walki.",
-  ADMIN_OPERATION_CONFLICT: "Ten identyfikator operacji został już użyty z innymi danymi.",
-  PERSISTENCE_FAILED: "Nie udało się trwale zapisać przedmiotu. Spróbuj ponownie."
+  HEAL_REJECTED: "Leczenie nie jest teraz dostępne."
 };
 
 export class WorldScene extends Phaser.Scene {
   private playerId: PlayerId = "";
-  private accountRole: AccountRole = "PLAYER";
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private pointerTarget: { x: number; y: number } | null = null;
@@ -73,14 +41,8 @@ export class WorldScene extends Phaser.Scene {
   private hud: WorldHud | undefined;
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
-  private statisticsPanel: StatisticsPanel | undefined;
-  private professionsPanel: ProfessionsPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
-  private partyPanel: PartyPanel | undefined;
   private adminPanel: AdminPanel | undefined;
-  private joystick: VirtualJoystick | undefined;
-  private deletionDialog: HTMLDivElement | undefined;
-  private deletionWindowControls: InterfaceWindowControls | undefined;
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {
@@ -89,7 +51,6 @@ export class WorldScene extends Phaser.Scene {
 
   init(data: WorldSceneData): void {
     this.playerId = data.playerId;
-    this.accountRole = data.accountRole ?? "PLAYER";
     this.pointerTarget = null;
     this.authoritativePosition = null;
     this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
@@ -123,66 +84,32 @@ export class WorldScene extends Phaser.Scene {
       this.pointerTarget = null;
       gameSocket.startEncounter(encounterId);
     };
-    this.entitiesRenderer.onPlayerContextMenu = (player, screen) => {
-      this.pointerTarget = null;
-      this.partyPanel?.showPlayerMenu(player, screen.x, screen.y);
-    };
 
-    this.input.mouse?.disableContextMenu();
-
-    this.inventoryPanel = new InventoryPanel({
-      onEquipContainer: (slot, itemInstanceId) =>
-        gameSocket.setContainerSlot(slot, itemInstanceId),
-      onUnequipContainer: (slot) => gameSocket.setContainerSlot(slot, null),
-      onMoveItem: (itemInstanceId, containerInstanceId) =>
-        gameSocket.moveInventoryItem(itemInstanceId, containerInstanceId)
-    });
+    this.inventoryPanel = new InventoryPanel();
     this.characterPanel = new CharacterPanel();
-    this.statisticsPanel = new StatisticsPanel(
-      persistentAccountsEnabled
-        ? { onDeleteCharacter: () => this.showDeleteCharacterDialog() }
-        : {}
-    );
-    this.professionsPanel = new ProfessionsPanel();
     this.dialoguePanel = new DialoguePanel({
-      onHeal: (npcId) => gameSocket.healAtNpc(npcId),
-      onClaimBag: (npcId) => gameSocket.claimSimpleBag(npcId)
+      onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
-    this.partyPanel = new PartyPanel(this.playerId, {
-      onInvite: (targetPlayerId) => gameSocket.inviteToParty(targetPlayerId),
-      onRespond: (inviteId, accept) =>
-        gameSocket.respondPartyInvite(inviteId, accept),
-      onBattleModeChange: (enabled) =>
-        gameSocket.setPartyBattleMode(enabled),
-      onLeave: () => gameSocket.leaveParty()
-    });
-    if (this.accountRole === "ADMIN") this.installAdminPanel();
+
+    const session = sessionStateStore.getSession();
+    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    if (session?.accountRole === "ADMIN") {
+      this.adminPanel = new AdminPanel(
+        new AdminApi(serverUrl, () => sessionStateStore.getToken())
+      );
+    }
+
     this.hud = new WorldHud({
-      onInventory: () => this.inventoryPanel?.openGeneralInventory(),
-      onOpenBagStorage: (containerInstanceId) =>
-        this.inventoryPanel?.openBagStorage(containerInstanceId),
-      onContainerSlotChange: (slot, itemInstanceId) =>
-        gameSocket.setContainerSlot(slot, itemInstanceId),
-      onMoveItem: (itemInstanceId, containerInstanceId) =>
-        gameSocket.moveInventoryItem(itemInstanceId, containerInstanceId),
+      onInventory: () => this.inventoryPanel?.toggle(),
       onCharacter: () => this.characterPanel?.toggle(),
-      onStatistics: () => this.statisticsPanel?.toggle(),
-      onProfessions: () => this.professionsPanel?.toggle(),
-      onParty: () => this.partyPanel?.toggle(),
-      isAdmin: this.accountRole === "ADMIN",
-      onAdminPanel: () => this.adminPanel?.show(),
+      onAdmin: () => {
+        if (this.adminPanel) void this.adminPanel.showCatalog();
+      },
       onLogout: () => {
-        gameSocket.disconnect();
-        if (!persistentAccountsEnabled) {
-          this.scene.start("LoginScene");
-          return;
-        }
-        void apiClient.logout().finally(() => {
-          if (typeof window !== "undefined") window.location.reload();
-        });
+        void this.logout(serverUrl);
       }
     });
-    this.joystick = new VirtualJoystick();
+    this.hud.updateSession(session?.accountRole ?? "PLAYER");
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -193,8 +120,6 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (pointer.rightButtonDown()) return;
-      this.partyPanel?.hidePlayerMenu();
       this.pointerTarget = {
         x: Phaser.Math.Clamp(pointer.worldX, 0, FOREST_SETTLEMENT_LAYOUT.width),
         y: Phaser.Math.Clamp(pointer.worldY, 0, FOREST_SETTLEMENT_LAYOUT.height)
@@ -207,72 +132,46 @@ export class WorldScene extends Phaser.Scene {
         playerStateStore.set(state);
         this.hud?.update(state);
         this.inventoryPanel?.update(state.inventory);
-        this.characterPanel?.update(state);
-        this.statisticsPanel?.update(state.character);
+        this.characterPanel?.update(state.character);
       }),
       gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
-      gameSocket.onPartyInviteReceived((payload) => this.partyPanel?.showInvite(payload)),
-      gameSocket.onPartyInviteResolved((payload) => {
-        this.showToast(
-          payload.accepted
-            ? `${payload.targetNickname} dołączył(a) do drużyny.`
-            : `${payload.targetNickname} odrzucił(a) zaproszenie.`
-        );
-      }),
-      gameSocket.onPartyState((snapshot) => this.partyPanel?.update(snapshot)),
-      gameSocket.onAdminCatalog((catalog) => this.adminPanel?.setCatalog(catalog)),
-      gameSocket.onAdminGrantResult((result) => this.adminPanel?.handleGrantResult(result)),
-      gameSocket.onConnectionState((state) => {
-        this.hud?.setConnectionState(state);
-        if (state === "connected") void this.refreshAccountRole();
-      }),
+      gameSocket.onConnectionState((state) => this.hud?.setConnectionState(state)),
       gameSocket.onCommandRejected(({ code, message }) => {
-        if (code === "ADMIN_REQUIRED") {
-          this.removeAdminAccess();
-        }
         this.showToast(WORLD_ERROR_LABELS[code] ?? message);
       }),
       gameSocket.onBattleStarted((snapshot) => {
-        this.scene.start("BattleScene", {
-          playerId: this.playerId,
-          snapshot,
-          accountRole: this.accountRole
-        });
+        this.scene.start("BattleScene", { playerId: this.playerId, snapshot });
       })
     );
 
     gameSocket.requestWorldState();
     gameSocket.requestPlayerState();
-    gameSocket.requestPartyState();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
   }
 
   update(_time: number, delta: number): void {
-    const previousPosition = this.localPosition;
     const keyboardIntent = resolveKeyboardIntent({
       left: Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
       right: Boolean(this.cursors?.right.isDown || this.wasd?.D.isDown),
       up: Boolean(this.cursors?.up.isDown || this.wasd?.W.isDown),
       down: Boolean(this.cursors?.down.isDown || this.wasd?.S.isDown)
     });
-    const analogIntent = this.joystick?.getIntent() ?? { dx: 0, dy: 0 };
+
     const hasKeyboardIntent = keyboardIntent.dx !== 0 || keyboardIntent.dy !== 0;
-    const directionalIntent = hasKeyboardIntent ? keyboardIntent : analogIntent;
-    const hasDirectionalIntent = directionalIntent.dx !== 0 || directionalIntent.dy !== 0;
     const speed = 220;
     const travel = (speed * delta) / 1000;
 
-    if (hasDirectionalIntent) {
+    if (hasKeyboardIntent) {
       this.pointerTarget = null;
       this.localPosition = {
         x: Phaser.Math.Clamp(
-          this.localPosition.x + directionalIntent.dx * travel,
+          this.localPosition.x + keyboardIntent.dx * travel,
           0,
           FOREST_SETTLEMENT_LAYOUT.width
         ),
         y: Phaser.Math.Clamp(
-          this.localPosition.y + directionalIntent.dy * travel,
+          this.localPosition.y + keyboardIntent.dy * travel,
           0,
           FOREST_SETTLEMENT_LAYOUT.height
         )
@@ -296,11 +195,6 @@ export class WorldScene extends Phaser.Scene {
       };
     }
 
-    // Animate player-driven motion, not reconciliation drift from the server.
-    const movement = hasDirectionalIntent || this.pointerTarget
-      ? { dx: this.localPosition.x - previousPosition.x, dy: this.localPosition.y - previousPosition.y }
-      : { dx: 0, dy: 0 };
-
     if (this.authoritativePosition) {
       const correctionDistance = Phaser.Math.Distance.Between(
         this.localPosition.x,
@@ -317,12 +211,23 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x, this.localPosition.y);
-    this.entitiesRenderer?.update(delta, movement);
+    this.entitiesRenderer?.updateRemotePlayers();
 
-    if ((hasDirectionalIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
+    if ((hasKeyboardIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
       gameSocket.sendMoveIntent(this.localPosition);
     }
+  }
+
+  private async logout(serverUrl: string): Promise<void> {
+    const authApi = new AuthApi(serverUrl);
+    await logoutSession({
+      token: sessionStateStore.getToken(),
+      logout: (token) => authApi.logout(token),
+      disconnect: () => gameSocket.disconnect(),
+      reset: () => sessionStateStore.reset(),
+      onFinished: () => this.scene.start("AuthScene")
+    });
   }
 
   private renderWorld(snapshot: WorldStateSnapshot): void {
@@ -345,153 +250,6 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private installAdminPanel(): void {
-    if (this.adminPanel || this.accountRole !== "ADMIN") return;
-
-    this.adminPanel = new AdminPanel({
-      onRequestCatalog: () => gameSocket.requestAdminCatalog(),
-      onGrantItem: (payload) => gameSocket.grantAdminItem(payload),
-      onAccessRevoked: () => this.removeAdminAccess()
-    });
-    this.hud?.grantAdminAccess(() => this.adminPanel?.show());
-  }
-
-  private removeAdminAccess(): void {
-    this.accountRole = "PLAYER";
-    const panel = this.adminPanel;
-    this.adminPanel = undefined;
-    panel?.destroy();
-    this.hud?.revokeAdminAccess();
-  }
-
-  private syncAccountRole(role: AccountRole): void {
-    if (role === "ADMIN") {
-      this.accountRole = "ADMIN";
-      this.installAdminPanel();
-      this.hud?.grantAdminAccess(() => this.adminPanel?.show());
-      return;
-    }
-
-    this.removeAdminAccess();
-  }
-
-  private async refreshAccountRole(): Promise<void> {
-    if (!persistentAccountsEnabled) return;
-
-    try {
-      const session = await apiClient.getSession();
-      this.syncAccountRole(session.accountRole ?? "PLAYER");
-    } catch {
-      this.removeAdminAccess();
-    }
-  }
-
-  private showDeleteCharacterDialog(): void {
-    this.deletionWindowControls?.destroy();
-    this.deletionWindowControls = undefined;
-    this.deletionDialog?.remove();
-
-    const panel = document.createElement("div");
-    panel.className = "auth-panel character-delete-dialog";
-
-    const header = document.createElement("div");
-    header.className = "character-delete-dialog__header";
-
-    const heading = document.createElement("h2");
-    heading.textContent = "Usuń postać";
-    header.appendChild(heading);
-
-    const warning = document.createElement("p");
-    warning.className = "auth-panel__subtitle";
-    warning.textContent =
-      "Postać zostanie oznaczona do usunięcia na 24 godziny. W tym czasie możesz anulować operację.";
-
-    const password = document.createElement("input");
-    password.type = "password";
-    password.placeholder = "Aktualne hasło do konta";
-    password.autocomplete = "current-password";
-
-    const error = document.createElement("p");
-    error.className = "form-error";
-
-    const confirm = document.createElement("button");
-    confirm.type = "button";
-    confirm.textContent = "Zleć usunięcie";
-
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.textContent = "Anuluj";
-
-    const closeDialog = () => {
-      this.deletionWindowControls?.destroy();
-      this.deletionWindowControls = undefined;
-      panel.remove();
-      if (this.deletionDialog === panel) {
-        this.deletionDialog = undefined;
-      }
-    };
-
-    cancel.addEventListener("click", closeDialog);
-
-    confirm.addEventListener("click", () => {
-      if (!password.value) {
-        error.textContent = "Wpisz aktualne hasło.";
-        return;
-      }
-
-      confirm.disabled = true;
-      error.textContent = "Zapisywanie żądania usunięcia…";
-
-      void apiClient
-        .requestCharacterDeletion(password.value)
-        .then((lifecycle) => {
-          this.deletionWindowControls?.destroy();
-          this.deletionWindowControls = undefined;
-          panel.remove();
-          this.deletionDialog = undefined;
-          gameSocket.disconnect();
-
-          if (lifecycle.state === "pendingDeletion") {
-            this.scene.start("CharacterDeletionScene", {
-              character: lifecycle,
-              accountRole: this.accountRole
-            });
-            return;
-          }
-
-          if (lifecycle.state === "none") {
-            this.scene.start("CharacterCreatorScene", {
-              accountRole: this.accountRole
-            });
-          }
-        })
-        .catch((caught: unknown) => {
-          confirm.disabled = false;
-          error.textContent =
-            caught instanceof Error
-              ? caught.message
-              : "Nie udało się zlecić usunięcia postaci.";
-        });
-    });
-
-    panel.append(
-      header,
-      warning,
-      password,
-      confirm,
-      cancel,
-      error
-    );
-    document.body.appendChild(panel);
-    this.deletionDialog = panel;
-    this.deletionWindowControls = new InterfaceWindowControls({
-      root: panel,
-      header,
-      onClose: closeDialog
-    });
-    password.focus();
-  }
-
   private showToast(message: string): void {
     const toast = this.add.text(this.cameras.main.centerX, 92, message, {
       fontFamily: "sans-serif",
@@ -506,30 +264,18 @@ export class WorldScene extends Phaser.Scene {
 
   private cleanup(): void {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
-    this.joystick?.destroy();
+    this.adminPanel?.destroy();
     this.hud?.destroy();
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
-    this.statisticsPanel?.destroy();
-    this.professionsPanel?.destroy();
     this.dialoguePanel?.destroy();
-    this.partyPanel?.destroy();
-    this.adminPanel?.destroy();
-    this.deletionWindowControls?.destroy();
-    this.deletionDialog?.remove();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
-    this.joystick = undefined;
+    this.adminPanel = undefined;
     this.hud = undefined;
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;
-    this.statisticsPanel = undefined;
-    this.professionsPanel = undefined;
     this.dialoguePanel = undefined;
-    this.partyPanel = undefined;
-    this.adminPanel = undefined;
-    this.deletionWindowControls = undefined;
-    this.deletionDialog = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;
   }

@@ -1,5 +1,4 @@
 import type {
-  AppearanceSelection,
   EncounterSnapshot,
   LocationId,
   NpcSnapshot,
@@ -7,12 +6,10 @@ import type {
   WorldPlayerSnapshot,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
-import { DEFAULT_APPEARANCE } from "@web-mmorpg/shared";
 import {
   ENCOUNTER_ACTIVATION_RADIUS,
   FOREST_SETTLEMENT_01,
-  MAX_WORLD_SPEED,
-  PARTY_BATTLE_VISION_RADIUS
+  MAX_WORLD_SPEED
 } from "./worldFixtures";
 
 interface WorldPlayerState extends WorldPlayerSnapshot {
@@ -27,7 +24,6 @@ export class WorldService {
     input: {
       id: PlayerId;
       nickname: string;
-      appearance?: AppearanceSelection;
       locationId?: LocationId;
       x?: number;
       y?: number;
@@ -37,7 +33,6 @@ export class WorldService {
     const player: WorldPlayerState = {
       id: input.id,
       nickname: input.nickname,
-      appearance: { ...(input.appearance ?? DEFAULT_APPEARANCE) },
       x: input.x ?? FOREST_SETTLEMENT_01.spawn.x,
       y: input.y ?? FOREST_SETTLEMENT_01.spawn.y,
       locationId: input.locationId ?? FOREST_SETTLEMENT_01.id,
@@ -108,21 +103,9 @@ export class WorldService {
     const player = this.requirePlayer(playerId);
     player.x = FOREST_SETTLEMENT_01.spawn.x;
     player.y = FOREST_SETTLEMENT_01.spawn.y;
+    player.locationId = FOREST_SETTLEMENT_01.id;
     player.lastMoveAt = now;
     return this.toSnapshot(player);
-  }
-
-  getPersistenceState(playerId: PlayerId):
-    | { locationId: LocationId; x: number; y: number }
-    | undefined {
-    const player = this.players.get(playerId);
-    return player
-      ? {
-          locationId: player.locationId,
-          x: player.x,
-          y: player.y
-        }
-      : undefined;
   }
 
   getPlayer(playerId: PlayerId): WorldPlayerSnapshot | undefined {
@@ -130,18 +113,8 @@ export class WorldService {
     return player ? this.toSnapshot(player) : undefined;
   }
 
-  isWithinPartyBattleVision(
-    leaderPlayerId: PlayerId,
-    targetPlayerId: PlayerId,
-    radius = PARTY_BATTLE_VISION_RADIUS
-  ): boolean {
-    const leader = this.players.get(leaderPlayerId);
-    const target = this.players.get(targetPlayerId);
-    if (!leader || !target || leader.locationId !== target.locationId) {
-      return false;
-    }
-
-    return Math.hypot(target.x - leader.x, target.y - leader.y) <= radius;
+  getPlayerLocationId(playerId: PlayerId): LocationId | undefined {
+    return this.players.get(playerId)?.locationId;
   }
 
   snapshot(locationId: LocationId = FOREST_SETTLEMENT_01.id): WorldStateSnapshot {
@@ -171,7 +144,6 @@ export class WorldService {
     return {
       id: player.id,
       nickname: player.nickname,
-      appearance: { ...player.appearance },
       x: player.x,
       y: player.y
     };

@@ -1,80 +1,75 @@
+import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
-import { CHARACTER_ATLAS_URL } from "../appearance/characterSprites";
-import { WALK_SHEETS } from "../appearance/walkSprites";
-import { apiClient } from "../net/ApiClient";
+import { AuthApi, AuthApiRequestError } from "../net/AuthApi";
 import { gameSocket } from "../net/GameSocket";
-import { authSessionStore } from "../state/AuthSessionStore";
-import {
-  sceneForCharacterLifecycle,
-  worldSceneData
-} from "../state/sessionRouting";
+import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
 
-const persistentAccountsEnabled =
-  import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
+export type BootDestination = "AuthScene" | "CharacterCreatorScene" | "WorldScene";
+
+export interface SessionResumeApi {
+  getSession(token: string): Promise<SessionView>;
+}
+
+export async function resolveBootDestination(
+  api: SessionResumeApi,
+  store: SessionStateStore
+): Promise<BootDestination> {
+  const token = store.getToken();
+  if (!token) return "AuthScene";
+
+  try {
+    const session = await api.getSession(token);
+    store.updateSession(session);
+    if (session.character.state === "active") return "WorldScene";
+    if (session.character.state === "none") return "CharacterCreatorScene";
+    return "AuthScene";
+  } catch (error) {
+    if (error instanceof AuthApiRequestError && error.status === 401) {
+      store.reset();
+      return "AuthScene";
+    }
+    throw error;
+  }
+}
 
 export class BootScene extends Phaser.Scene {
   constructor() {
     super("BootScene");
   }
 
-  preload(): void {
-    for (const sheet of WALK_SHEETS) {
-      if (!this.textures.exists(sheet.key)) this.load.image(sheet.key, sheet.url);
-    }
-    if (!this.textures.exists("character-base-atlas")) {
-      this.load.image("character-base-atlas", CHARACTER_ATLAS_URL);
-    }
-  }
-
   create(): void {
-    if (!persistentAccountsEnabled) {
-      gameSocket.connect();
-      this.scene.start("LoginScene");
-      return;
-    }
-
-    void this.routePersistentSession();
+    void this.resumeSession();
   }
 
-  private async routePersistentSession(): Promise<void> {
-    const token = authSessionStore.getToken();
-    if (!token) {
-      this.scene.start("AuthScene");
-      return;
-    }
+  private async resumeSession(): Promise<void> {
+    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    const authApi = new AuthApi(serverUrl);
 
     try {
-      const session = await apiClient.getSession();
-      const destination = sceneForCharacterLifecycle(
-        session.character
-      );
-
-      if (destination === "WorldScene") {
-        if (session.character.state !== "active") return;
-        this.scene.start(
-          destination,
-          worldSceneData(
-            session.character.characterId,
-            session.accountRole ?? "PLAYER"
-          )
-        );
+      const destination = await resolveBootDestination(authApi, sessionStateStore);
+      if (destination !== "WorldScene") {
+        this.scene.start(destination);
         return;
       }
 
-      if (destination === "CharacterDeletionScene") {
-        if (session.character.state !== "pendingDeletion") return;
-        this.scene.start(destination, {
-          character: session.character,
-          accountRole: session.accountRole ?? "PLAYER"
-        });
+      const token = sessionStateStore.getToken();
+      const current = sessionStateStore.getSession();
+      if (!token || current?.character.state !== "active") {
+        sessionStateStore.reset();
+        this.scene.start("AuthScene");
         return;
       }
 
-      this.scene.start(destination, {
-        accountRole: session.accountRole ?? "PLAYER"
-      });
-    } catch {
-      authSessionStore.clear();
+      const socketAuth = await gameSocket.authenticate(token);
+      if (!socketAuth.ok) {
+        sessionStateStore.reset();
+        this.scene.start("AuthScene");
+        return;
+      }
+
+      this.scene.start("WorldScene", { playerId: socketAuth.characterId });
+    } catch (error) {
+      console.error("Could not resume the saved session", error);
       this.scene.start("AuthScene");
     }
   }

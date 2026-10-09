@@ -1,10 +1,8 @@
 import Phaser from "phaser";
 import { AuthScene } from "../scenes/AuthScene";
 import { BattleScene } from "../scenes/BattleScene";
-import { CharacterCreatorScene } from "../scenes/CharacterCreatorScene";
-import { CharacterDeletionScene } from "../scenes/CharacterDeletionScene";
 import { BootScene } from "../scenes/BootScene";
-import { LoginScene } from "../scenes/LoginScene";
+import { CharacterCreatorScene } from "../scenes/CharacterCreatorScene";
 import { WorldScene } from "../scenes/WorldScene";
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
@@ -13,15 +11,7 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   width: 1280,
   height: 720,
   backgroundColor: "#111318",
-  scene: [
-    BootScene,
-    LoginScene,
-    AuthScene,
-    CharacterCreatorScene,
-    CharacterDeletionScene,
-    WorldScene,
-    BattleScene
-  ],
+  scene: [BootScene, AuthScene, CharacterCreatorScene, WorldScene, BattleScene],
   physics: {
     default: "arcade",
     arcade: { debug: false }

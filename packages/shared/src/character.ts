@@ -1,18 +1,11 @@
-import type { AppearanceSelection } from "./appearance";
 import type { InjuryKind } from "./battle";
 import type { PlayerId } from "./ids";
-import type {
-  EquipmentSnapshot,
-  InventorySnapshot
-} from "./inventory";
+import type { InventorySnapshot } from "./inventory";
 
 export interface CharacterSnapshot {
   playerId: PlayerId;
   nickname: string;
-  appearance: AppearanceSelection;
   level: number;
-  /** Total earned experience. Optional for compatibility with older snapshots. */
-  experience?: number;
   hp: number;
   maxHp: number;
   maxAp: number;
@@ -21,14 +14,7 @@ export interface CharacterSnapshot {
   injuries: InjuryKind[];
 }
 
-export interface CharacterProfile {
-  id: PlayerId;
-  nickname: string;
-  appearance: AppearanceSelection;
-}
-
 export interface PlayerStateSnapshot {
   character: CharacterSnapshot;
   inventory: InventorySnapshot;
-  equipment: EquipmentSnapshot;
 }

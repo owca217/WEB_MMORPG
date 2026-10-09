@@ -1,22 +1,22 @@
-import type { AppearanceSelection } from "@web-mmorpg/shared";
-import type { DbExecutor } from "./dbTypes";
+import type { InjuryKind } from "@web-mmorpg/shared";
+import type { Pool, PoolClient } from "pg";
 
 export interface PersistedCharacterRecord {
   id: string;
   accountId: string;
   nickname: string;
   nicknameNormalized: string;
-  appearance: AppearanceSelection;
+  appearance: Record<string, unknown>;
   locationId: string;
   x: number;
   y: number;
   level: number;
-  experience: number;
   hp: number;
   maxHp: number;
   maxAp: number;
   initiative: number;
   severelyInjured: boolean;
+  injuries: InjuryKind[];
   deletionRequestedAt: Date | null;
   deletionEffectiveAt: Date | null;
 }
@@ -26,25 +26,25 @@ interface CharacterRow {
   account_id: string;
   nickname: string;
   nickname_normalized: string;
-  appearance: AppearanceSelection;
+  appearance: Record<string, unknown>;
   location_id: string;
-  x: number;
-  y: number;
+  x: number | string;
+  y: number | string;
   level: number;
-  experience: number;
   hp: number;
   max_hp: number;
   max_ap: number;
   initiative: number;
   severely_injured: boolean;
+  injuries: InjuryKind[];
   deletion_requested_at: Date | null;
   deletion_effective_at: Date | null;
 }
 
 const SELECT_COLUMNS = `
   id, account_id, nickname, nickname_normalized, appearance,
-  location_id, x, y, level, experience, hp, max_hp, max_ap, initiative,
-  severely_injured, deletion_requested_at, deletion_effective_at
+  location_id, x, y, level, hp, max_hp, max_ap, initiative,
+  severely_injured, injuries, deletion_requested_at, deletion_effective_at
 `;
 
 function mapCharacter(row: CharacterRow): PersistedCharacterRecord {
@@ -58,26 +58,26 @@ function mapCharacter(row: CharacterRow): PersistedCharacterRecord {
     x: Number(row.x),
     y: Number(row.y),
     level: row.level,
-    experience: row.experience,
     hp: row.hp,
     maxHp: row.max_hp,
     maxAp: row.max_ap,
     initiative: row.initiative,
     severelyInjured: row.severely_injured,
+    injuries: row.injuries,
     deletionRequestedAt: row.deletion_requested_at,
     deletionEffectiveAt: row.deletion_effective_at
   };
 }
 
 export class CharacterRepository {
-  constructor(private readonly db: DbExecutor) {}
+  constructor(private readonly db: Pool | PoolClient) {}
 
   async create(input: {
     id: string;
     accountId: string;
     nickname: string;
     nicknameNormalized: string;
-    appearance: AppearanceSelection;
+    appearance: Record<string, unknown>;
     locationId: string;
     x: number;
     y: number;
@@ -103,135 +103,62 @@ export class CharacterRepository {
 
   async findByAccountId(accountId: string): Promise<PersistedCharacterRecord | null> {
     const result = await this.db.query<CharacterRow>(
-      `SELECT ${SELECT_COLUMNS}
-       FROM characters
-       WHERE account_id = $1`,
+      `SELECT ${SELECT_COLUMNS} FROM characters WHERE account_id = $1`,
       [accountId]
     );
     return result.rows[0] ? mapCharacter(result.rows[0]) : null;
   }
 
-  async findById(id: string): Promise<PersistedCharacterRecord | null> {
+  async findById(characterId: string): Promise<PersistedCharacterRecord | null> {
     const result = await this.db.query<CharacterRow>(
-      `SELECT ${SELECT_COLUMNS}
-       FROM characters
-       WHERE id = $1`,
-      [id]
-    );
-    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
-  }
-
-
-  async findByIdForUpdate(id: string): Promise<PersistedCharacterRecord | null> {
-    const result = await this.db.query<CharacterRow>(
-      `SELECT ${SELECT_COLUMNS}
-       FROM characters
-       WHERE id = $1
-       FOR UPDATE`,
-      [id]
-    );
-    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
-  }
-
-  async findOverdueByNickname(
-    normalized: string,
-    now: Date
-  ): Promise<PersistedCharacterRecord | null> {
-    const result = await this.db.query<CharacterRow>(
-      `SELECT ${SELECT_COLUMNS}
-       FROM characters
-       WHERE nickname_normalized = $1
-         AND deletion_effective_at IS NOT NULL
-         AND deletion_effective_at <= $2`,
-      [normalized, now]
-    );
-    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
-  }
-
-  async markDeletionRequested(
-    characterId: string,
-    requestedAt: Date,
-    effectiveAt: Date
-  ): Promise<void> {
-    await this.db.query(
-      `UPDATE characters
-       SET deletion_requested_at = $2,
-           deletion_effective_at = $3,
-           updated_at = now()
-       WHERE id = $1`,
-      [characterId, requestedAt, effectiveAt]
-    );
-  }
-
-  async cancelDeletion(characterId: string): Promise<void> {
-    await this.db.query(
-      `UPDATE characters
-       SET deletion_requested_at = NULL,
-           deletion_effective_at = NULL,
-           updated_at = now()
-       WHERE id = $1`,
+      `SELECT ${SELECT_COLUMNS} FROM characters WHERE id = $1`,
       [characterId]
     );
+    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
   }
 
-  async deleteById(characterId: string): Promise<void> {
-    await this.db.query(
-      "DELETE FROM characters WHERE id = $1",
-      [characterId]
-    );
-  }
-
-  async updateVitals(character: import("@web-mmorpg/shared").CharacterSnapshot): Promise<void> {
-    await this.db.query(
-      `UPDATE characters
-       SET level = $2,
-           hp = $3,
-           max_hp = $4,
-           max_ap = $5,
-           initiative = $6,
-           severely_injured = $7,
-           experience = COALESCE($8, experience),
-           updated_at = now()
-       WHERE id = $1`,
-      [
-        character.playerId,
-        character.level,
-        character.hp,
-        character.maxHp,
-        character.maxAp,
-        character.initiative,
-        character.severelyInjured,
-        character.experience ?? null
-      ]
-    );
-  }
-
-  async updatePosition(
+  async updateGameplayState(
     characterId: string,
-    locationId: string,
-    x: number,
-    y: number
+    state: {
+      locationId: string;
+      x: number;
+      y: number;
+      level: number;
+      hp: number;
+      maxHp: number;
+      maxAp: number;
+      initiative: number;
+      severelyInjured: boolean;
+      injuries: InjuryKind[];
+    }
   ): Promise<void> {
     await this.db.query(
       `UPDATE characters
        SET location_id = $2,
            x = $3,
            y = $4,
-           updated_at = now()
+           level = $5,
+           hp = $6,
+           max_hp = $7,
+           max_ap = $8,
+           initiative = $9,
+           severely_injured = $10,
+           injuries = $11::jsonb,
+           updated_at = NOW()
        WHERE id = $1`,
-      [characterId, locationId, x, y]
+      [
+        characterId,
+        state.locationId,
+        state.x,
+        state.y,
+        state.level,
+        state.hp,
+        state.maxHp,
+        state.maxAp,
+        state.initiative,
+        state.severelyInjured,
+        JSON.stringify(state.injuries)
+      ]
     );
-  }
-
-  async findByNormalizedNickname(
-    normalized: string
-  ): Promise<PersistedCharacterRecord | null> {
-    const result = await this.db.query<CharacterRow>(
-      `SELECT ${SELECT_COLUMNS}
-       FROM characters
-       WHERE nickname_normalized = $1`,
-      [normalized]
-    );
-    return result.rows[0] ? mapCharacter(result.rows[0]) : null;
   }
 }

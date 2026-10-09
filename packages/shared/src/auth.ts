@@ -1,3 +1,8 @@
+import type { UserRole } from "./admin";
+
+export const ACCOUNT_ROLES = ["PLAYER", "ADMIN"] as const;
+export type AccountRole = UserRole;
+
 export type CharacterLifecycleSummary =
   | { state: "none" }
   | { state: "active"; characterId: string; nickname: string }
@@ -7,8 +12,6 @@ export type CharacterLifecycleSummary =
       nickname: string;
       deletionEffectiveAt: string;
     };
-
-export type AccountRole = "PLAYER" | "ADMIN";
 
 export interface SessionView {
   accountUsername: string;
@@ -28,4 +31,3 @@ export interface LoginResponse {
 export interface RecoverResponse {
   recoveryCode: string;
 }
-

@@ -1,4 +1,4 @@
-import type { DbExecutor } from "./dbTypes";
+import type { Pool, PoolClient } from "pg";
 
 export interface SessionRecord {
   id: string;
@@ -27,7 +27,7 @@ function mapSession(row: SessionRow): SessionRecord {
 }
 
 export class SessionRepository {
-  constructor(private readonly db: DbExecutor) {}
+  constructor(private readonly db: Pool | PoolClient) {}
 
   async replaceActiveSession(input: {
     id: string;
@@ -35,25 +35,20 @@ export class SessionRepository {
     tokenHash: string;
     expiresAt: Date;
   }): Promise<SessionRecord> {
+    await this.db.query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE", [
+      input.accountId
+    ]);
     await this.db.query(
-      "SELECT id FROM accounts WHERE id = $1 FOR UPDATE",
-      [input.accountId]
-    );
-
-    await this.db.query(
-      `UPDATE account_sessions
-       SET revoked_at = now()
+      `UPDATE account_sessions SET revoked_at = NOW()
        WHERE account_id = $1 AND revoked_at IS NULL`,
       [input.accountId]
     );
-
     const result = await this.db.query<SessionRow>(
       `INSERT INTO account_sessions (id, account_id, token_hash, expires_at)
        VALUES ($1,$2,$3,$4)
        RETURNING id, account_id, token_hash, expires_at, revoked_at`,
       [input.id, input.accountId, input.tokenHash, input.expiresAt]
     );
-
     return mapSession(result.rows[0]!);
   }
 
@@ -69,7 +64,6 @@ export class SessionRepository {
          AND expires_at > $2`,
       [tokenHash, now]
     );
-
     return result.rows[0] ? mapSession(result.rows[0]) : null;
   }
 
@@ -82,8 +76,7 @@ export class SessionRepository {
 
   async revokeByTokenHash(tokenHash: string): Promise<void> {
     await this.db.query(
-      `UPDATE account_sessions
-       SET revoked_at = now()
+      `UPDATE account_sessions SET revoked_at = NOW()
        WHERE token_hash = $1 AND revoked_at IS NULL`,
       [tokenHash]
     );
@@ -91,8 +84,7 @@ export class SessionRepository {
 
   async revokeAllForAccount(accountId: string): Promise<void> {
     await this.db.query(
-      `UPDATE account_sessions
-       SET revoked_at = now()
+      `UPDATE account_sessions SET revoked_at = NOW()
        WHERE account_id = $1 AND revoked_at IS NULL`,
       [accountId]
     );

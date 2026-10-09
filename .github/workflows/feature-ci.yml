@@ -4,13 +4,22 @@ on:
   push:
     branches:
       - feature/mvp-vertical-slice
+      - feature/item-creator-design
+      - feature/account-auth-restoration
+      - fix/admin-creator-production-deploy
+      - fix/render-legacy-migration-compatibility
+      - main
+
+concurrency:
+  group: feature-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -18,17 +27,20 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
+          --health-cmd "pg_isready -U postgres -d web_mmorpg_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
     env:
-      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/web_mmorpg_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/web_mmorpg_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm install --global npm@11
       - run: npm install
+      - name: Verify empty-database migrations
+        run: npm run db:migrate --workspace @web-mmorpg/server
       - run: npm test
       - run: npm run build

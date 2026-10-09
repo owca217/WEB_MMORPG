@@ -1,133 +1,71 @@
 # WEB_MMORPG
 
-Browser MMORPG prototype inspired by classic 2D map-based RPGs, with an original world and a deeper tactical combat system.
+Browser MMORPG prototype inspired by classic 2D map-based RPGs, with a deeper tactical combat system.
 
-## Public test
+## MVP direction
 
-Client: https://owca217.github.io/WEB_MMORPG/
+- 2D world split into separate locations
+- PC + mobile controls: click/tap, WASD, touch controls
+- authoritative multiplayer server
+- turn-based hex combat with AP and initiative
+- procedural obstacles, line of sight and cover
+- companions, summons and injury states
+- responsive browser client
 
-Server: https://web-mmorpg-server.onrender.com
-
-The Render instance may need a short warm-up after a period of inactivity, depending on the active service plan.
-
-## Persistent accounts and characters
-
-The feature branch now contains a persistent account system backed by PostgreSQL:
-
-- username + password registration
-- Argon2id password hashing
-- one-time recovery code stored only as a hash
-- 30-day opaque bearer sessions
-- one active session per account
-- one persistent character per account
-- globally unique character nicknames
-- first-login character creator with persistent appearance
-- authenticated Socket.IO gameplay
-- saved location and coordinates
-- durable HP, injuries, inventory and equipment state
-- 24-hour delayed character deletion with cancellation
-- 7-day nickname reservation after final deletion
-
-The authoritative game server keeps online state in memory. World position is checkpointed approximately every two seconds and on important transitions. Critical gameplay changes such as HP, injuries and inventory are committed to PostgreSQL before the server confirms final success to the client.
-
-## MVP 2 vertical slice
-
-The current playable slice contains:
-
-- one authored forest settlement and surrounding woodland
-- shared multiplayer world movement
-- desktop WASD/arrows + click-to-move
-- mobile tap-to-move + virtual joystick
-- guide Boran and healer Ada
-- one wolf encounter
-- tactical turn-based hex combat with AP and initiative
-- movement range preview, melee/ranged action modes and line-of-sight validation
-- obstacles and visible cover objects
-- automatic server-controlled wolf turns
-- character HP, injuries and severe-injury state
-- inventory and wolf loot
-- victory/defeat result screen and return to the shared world
-
-## Architecture
+## Stack
 
 - TypeScript
 - Phaser 4.2.1
 - Vite 8.2.2
-- Node.js 22+
-- Socket.IO 4.8.3
-- PostgreSQL
+- Node.js
+- Express + Socket.IO 4.8.3
+- PostgreSQL 16
 - Vitest 5.0.1
-- npm workspaces
+- S3-compatible object storage for item icons
 
-The browser client is deployed to GitHub Pages. The authoritative Node/Socket.IO game server is deployed separately to Render and owns movement validation, encounter range, battle rules, AP, turns, damage, injuries, NPC turns, loot and outcomes. PostgreSQL stores durable account and character state.
+The static client is intended for GitHub Pages. The authoritative game server is a separate Node service and cannot run on GitHub Pages.
 
-## Server environment
+## Accounts and authentication
 
-Required for persistent production mode:
+The game uses persistent username/password accounts backed by PostgreSQL. Passwords are stored as Argon2id hashes, session tokens are opaque and only their hashes are stored server-side, and one active session is maintained per account in this iteration.
 
-- `DATABASE_URL`
-- `CLIENT_ORIGIN`
+Players can register, log in, recover a password with a rotating recovery code, resume a saved browser session and create one persistent character per account. Gameplay Socket.IO authentication uses the same account session as REST; the server derives the persistent character identity instead of trusting a nickname or role sent by the client.
 
-Optional:
+Public registration always creates `PLAYER`. ADMIN authorization comes from `accounts.role` in PostgreSQL. There is no separate ADMIN token field in the login screen.
 
-- `SESSION_TTL_DAYS=30`
-- `POSITION_CHECKPOINT_MS=2000`
+For a fresh production database, the first ADMIN can be bootstrapped once with:
 
-Run migrations and the server:
+- `INITIAL_ADMIN_USERNAME`
+- `INITIAL_ADMIN_PASSWORD`
+- `INITIAL_ADMIN_RECOVERY_CODE`
+
+After the first ADMIN is created and normal login is verified, remove all three bootstrap variables from hosting. Do not use the retired `ADMIN_ACCESS_TOKEN` / `VITE_ENABLE_ADMIN_LOGIN` flow.
+
+## ADMIN item creator
+
+ADMIN accounts have an in-game catalog and a nine-step item creator with server-provided category/stat metadata, icon uploads, draft validation, optimistic concurrency, publication, version history/restore, archive actions and category/stat management.
+
+The ADMIN panel also contains account management for role/status changes. The last active ADMIN cannot be demoted or banned, and all ADMIN authorization remains enforced by the server on every request.
+
+Catalog definitions, version history, account-aware audit records and persistent character inventory instances are stored in PostgreSQL. Existing item instances resolve the currently active published base definition without losing instance identity or quantity when a new definition version is published.
+
+Deployment configuration, first-ADMIN bootstrap, S3 variables, migrations and production rollout are documented in [`docs/item-creator-operations.md`](docs/item-creator-operations.md).
+
+## Database migrations
+
+With `DATABASE_URL` configured, migrations can be run explicitly from the repository root:
 
 ```bash
-npm run start -w @web-mmorpg/server
+npm run db:migrate --workspace @web-mmorpg/server
 ```
 
-The start script runs versioned PostgreSQL migrations before starting the Node game server. Database credentials must be configured in the hosting environment and must never be committed to Git.
+The server also runs migrations and metadata/starter-item seeding before it begins listening for traffic. Account/auth migrations are additive: existing Item Creator data is preserved, while new inventory ownership uses persistent `character_id`. Legacy `player_id` inventory rows remain stored as unassigned legacy data rather than being guessed onto accounts by nickname.
 
-### Render deployment
+## Verification
 
-Configure the server service with:
-
-```text
-DATABASE_URL=<PostgreSQL connection string>
-CLIENT_ORIGIN=https://owca217.github.io
-SESSION_TTL_DAYS=30
-POSITION_CHECKPOINT_MS=2000
+```bash
+npm test
+npm run build
 ```
 
-Use this start command:
-
-```text
-npm run start -w @web-mmorpg/server
-```
-
-### Enabling persistent accounts on the public client
-
-The GitHub Pages build reads the repository Actions variable:
-
-```text
-VITE_PERSISTENT_ACCOUNTS
-```
-
-Leave it unset or set to `false` while the public backend has no PostgreSQL configuration. After the Render database and environment variables are ready and the persistent backend is verified, set:
-
-```text
-VITE_PERSISTENT_ACCOUNTS=true
-```
-
-Then re-run the Pages workflow (or push a client/shared change). The public flow becomes:
-
-```text
-Register -> save recovery code -> login -> create character -> enter world
-```
-
-## Persistence and security notes
-
-- The client sends gameplay intents; it does not authoritatively set HP, XP, items, damage or coordinates.
-- Passwords are hashed with Argon2id.
-- Session and recovery tokens are random; only their hashes are stored server-side.
-- A new login revokes the previous active session and removes the previous live character connection.
-- REST and persistent Socket.IO CORS are restricted to the configured client origin.
-- Normal disconnect, logout and graceful server shutdown flush pending world-position state.
-- A hard process/host failure can restore position from the most recent checkpoint, while critical gameplay/economy changes use immediate durable writes.
-
-## Development status
-
-All account/persistence work remains on `feature/mvp-vertical-slice`. Do not merge it into `main` until automated verification, public deployment acceptance and explicit approval are complete.
+Feature CI additionally starts PostgreSQL 16 and verifies the migration command before the complete test/build suite. Final acceptance also covers persistent account auth, character/session recovery, ADMIN account access, existing Item Creator flows and migration compatibility.

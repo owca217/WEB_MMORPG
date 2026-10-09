@@ -1,34 +1,21 @@
-interface RateEntry {
-  startedAt: number;
-  count: number;
-}
-
-export interface AuthRateLimiterConfig {
-  limit: number;
-  windowMs: number;
-}
-
 export class AuthRateLimiter {
-  private readonly entries = new Map<string, RateEntry>();
+  private readonly attempts = new Map<string, { count: number; resetAt: number }>();
 
   constructor(
-    private readonly config: AuthRateLimiterConfig = {
-      limit: 5,
-      windowMs: 60_000
-    }
+    private readonly limit = 8,
+    private readonly windowMs = 60_000,
+    private readonly now: () => number = Date.now
   ) {}
 
-  consume(key: string, now = Date.now()): boolean {
-    const current = this.entries.get(key);
-
-    if (!current || now - current.startedAt >= this.config.windowMs) {
-      this.entries.set(key, { startedAt: now, count: 1 });
+  consume(key: string): boolean {
+    const now = this.now();
+    const existing = this.attempts.get(key);
+    if (!existing || existing.resetAt <= now) {
+      this.attempts.set(key, { count: 1, resetAt: now + this.windowMs });
       return true;
     }
-
-    if (current.count >= this.config.limit) return false;
-
-    current.count += 1;
+    if (existing.count >= this.limit) return false;
+    existing.count += 1;
     return true;
   }
 }

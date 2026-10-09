@@ -1,7 +1,8 @@
 name: Deploy client to GitHub Pages
 
 # Temporary deployment bridge: the github-pages environment currently allows
-# this historical branch. The workflow itself always builds the current `main`.
+# this historical branch. The workflow itself always builds current `main`.
+# Bridge refreshed for main commit 3b60e95ab6932b06473e772d94edcb0f6006a343.
 on:
   push:
     branches:
@@ -42,7 +43,6 @@ jobs:
       - name: Build client
         env:
           VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com
-          VITE_ENABLE_ADMIN_LOGIN: "true"
           VITE_PERSISTENT_ACCOUNTS: ${{ vars.VITE_PERSISTENT_ACCOUNTS || 'false' }}
         run: npm run build -w @web-mmorpg/client
 

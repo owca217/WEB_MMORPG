@@ -1,17 +1,12 @@
-import type { LootItemDefinition } from "../inventory/InventoryService";
-import { adminItemDefinition } from "@web-mmorpg/shared";
+import type { InventoryReward } from "../inventory/InventoryService";
 
 export class LootService {
-  rollEncounterLoot(encounterId: string, _seed: number): LootItemDefinition[] {
+  rollEncounterLoot(encounterId: string, _seed: number): InventoryReward[] {
     if (encounterId !== "wolf-pack-01") return [];
 
-    const wolfPelt = adminItemDefinition("wolf-pelt");
-    const fieldBandage = adminItemDefinition("field-bandage");
-    if (!wolfPelt || !fieldBandage) return [];
-
     return [
-      { ...wolfPelt, quantity: 1 },
-      { ...fieldBandage, quantity: 2 }
+      { itemId: "wolf-pelt", quantity: 1 },
+      { itemId: "field-bandage", quantity: 2 }
     ];
   }
 }

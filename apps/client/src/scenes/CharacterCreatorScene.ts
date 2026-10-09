@@ -1,211 +1,163 @@
-import {
-  APPEARANCE_CATALOG,
-  DEFAULT_APPEARANCE,
-  type AppearanceSelection
-} from "@web-mmorpg/shared";
+import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
-import { CharacterPreview } from "../appearance/CharacterPreview";
-import { CHARACTER_PRESETS, EYE_LABELS } from "../appearance/characterSprites";
-import { apiClient } from "../net/ApiClient";
-import { worldSceneData } from "../state/sessionRouting";
+import { AuthApi, AuthApiRequestError } from "../net/AuthApi";
+import { gameSocket } from "../net/GameSocket";
+import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
 
-interface CharacterCreatorSceneData {
-  accountRole?: "PLAYER" | "ADMIN";
+type EnterWorld = (token: string, session: SessionView) => void;
+
+function errorMessage(error: unknown): string {
+  if (error instanceof AuthApiRequestError) return error.message;
+  return "Nie udało się utworzyć postaci. Spróbuj ponownie.";
 }
 
-type AppearanceKey = keyof typeof APPEARANCE_CATALOG;
+export class CharacterCreatorPanel {
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly api: AuthApi,
+    private readonly store: SessionStateStore,
+    private readonly onEnterWorld: EnterWorld
+  ) {}
 
-const LABELS: Record<AppearanceKey, string> = {
-  bodyType: "Sylwetka",
-  skinTone: "Kolor skóry",
-  face: "Twarz",
-  eyes: "Oczy",
-  hair: "Fryzura",
-  hairColor: "Kolor włosów",
-  facialHair: "Zarost",
-  marking: "Blizna / tatuaż",
-  startingOutfit: "Ubiór startowy"
-};
+  mount(): void {
+    this.host.innerHTML = `
+      <section class="character-creator login-panel" data-character-panel>
+        <header class="auth-panel__header">
+          <h1>Stwórz postać</h1>
+          <p>Ta postać będzie na stałe przypisana do Twojego konta.</p>
+        </header>
+        <form data-character-form novalidate>
+          <label>
+            Nick postaci
+            <input name="nickname" autocomplete="nickname" minlength="3" maxlength="20" required />
+          </label>
+          <label>
+            Sylwetka
+            <select name="bodyType">
+              <option value="balanced">Zrównoważona</option>
+              <option value="slim">Szczupła</option>
+              <option value="strong">Masywna</option>
+            </select>
+          </label>
+          <label>
+            Fryzura
+            <select name="hairStyle">
+              <option value="short">Krótka</option>
+              <option value="long">Długa</option>
+              <option value="shaved">Ogolona</option>
+            </select>
+          </label>
+          <label>
+            Kolor włosów
+            <select name="hairColor">
+              <option value="brown">Brązowe</option>
+              <option value="black">Czarne</option>
+              <option value="blonde">Jasne</option>
+              <option value="red">Rude</option>
+            </select>
+          </label>
+          <button type="submit">Wejdź do świata</button>
+          <p class="form-error" data-character-error></p>
+        </form>
+      </section>
+    `;
+
+    this.host
+      .querySelector<HTMLFormElement>("[data-character-form]")
+      ?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void this.submit();
+      });
+  }
+
+  unmount(): void {
+    this.host.replaceChildren();
+  }
+
+  private async submit(): Promise<void> {
+    const form = this.host.querySelector<HTMLFormElement>("[data-character-form]");
+    const error = this.host.querySelector<HTMLElement>("[data-character-error]");
+    if (!form || !error) return;
+
+    const data = new FormData(form);
+    const nickname = String(data.get("nickname") ?? "").trim();
+    const token = this.store.getToken();
+    error.textContent = "";
+
+    if (nickname.length < 3 || nickname.length > 20) {
+      error.textContent = "Nick postaci musi mieć od 3 do 20 znaków.";
+      return;
+    }
+    if (!token) {
+      error.textContent = "Sesja wygasła. Zaloguj się ponownie.";
+      return;
+    }
+
+    const appearance = {
+      bodyType: String(data.get("bodyType") ?? "balanced"),
+      hairStyle: String(data.get("hairStyle") ?? "short"),
+      hairColor: String(data.get("hairColor") ?? "brown")
+    };
+
+    try {
+      await this.api.createCharacter(token, { nickname, appearance });
+      const refreshed = await this.api.getSession(token);
+      this.store.updateSession(refreshed);
+      this.onEnterWorld(token, refreshed);
+    } catch (requestError) {
+      error.textContent = errorMessage(requestError);
+    }
+  }
+}
 
 export class CharacterCreatorScene extends Phaser.Scene {
-  private panel: HTMLDivElement | null = null;
-  private preview: CharacterPreview | null = null;
-  private readonly valueNodes = new Map<AppearanceKey, HTMLElement>();
-  private selection: AppearanceSelection = { ...DEFAULT_APPEARANCE };
-  private accountRole: "PLAYER" | "ADMIN" = "PLAYER";
+  private host: HTMLDivElement | undefined;
+  private panel: CharacterCreatorPanel | undefined;
 
   constructor() {
     super("CharacterCreatorScene");
   }
 
-  init(data: CharacterCreatorSceneData = {}): void {
-    this.accountRole = data.accountRole ?? "PLAYER";
-  }
-
   create(): void {
-    this.selection = { ...CHARACTER_PRESETS[0]!.appearance };
-    this.buildCreator();
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroyForm());
+    const host = document.createElement("div");
+    host.className = "character-creator-scene";
+    document.body.appendChild(host);
+    this.host = host;
+
+    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    this.panel = new CharacterCreatorPanel(
+      host,
+      new AuthApi(serverUrl),
+      sessionStateStore,
+      (token, session) => void this.enterWorld(token, session)
+    );
+    this.panel.mount();
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
   }
 
-  private buildCreator(): void {
-    this.destroyForm();
-
-    const panel = document.createElement("div");
-    panel.className = "character-creator";
-
-    const title = document.createElement("h1");
-    title.textContent = "Utwórz postać";
-
-    const subtitle = document.createElement("p");
-    subtitle.textContent =
-      "Ta postać będzie na stałe przypisana do Twojego konta.";
-
-    const content = document.createElement("div");
-    content.className = "character-creator__content";
-
-    this.preview = new CharacterPreview();
-    this.preview.render(this.selection);
-
-    const form = document.createElement("form");
-    form.className = "character-creator__form";
-
-    const nicknameLabel = document.createElement("label");
-    nicknameLabel.textContent = "Nick postaci";
-    const nicknameInput = document.createElement("input");
-    nicknameInput.name = "nickname";
-    nicknameInput.minLength = 3;
-    nicknameInput.maxLength = 20;
-    nicknameInput.required = true;
-    nicknameInput.autocomplete = "off";
-    nicknameInput.placeholder = "Np. Owczy";
-    nicknameLabel.appendChild(nicknameInput);
-    form.appendChild(nicknameLabel);
-
-    const presets = document.createElement("div");
-    presets.className = "character-creator__presets";
-    presets.setAttribute("aria-label", "Gotowe zestawy wyglądu");
-    for (const preset of CHARACTER_PRESETS) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = preset.name;
-      button.addEventListener("click", () => {
-        this.selection = { ...preset.appearance };
-        this.refreshSelection();
-      });
-      presets.appendChild(button);
-    }
-    form.appendChild(presets);
-
-    for (const key of Object.keys(APPEARANCE_CATALOG) as AppearanceKey[]) {
-      form.appendChild(this.createSelector(key));
+  private async enterWorld(token: string, session: SessionView): Promise<void> {
+    if (session.character.state !== "active") {
+      const error = this.host?.querySelector<HTMLElement>("[data-character-error]");
+      if (error) error.textContent = "Serwer nie potwierdził utworzonej postaci.";
+      return;
     }
 
-    const error = document.createElement("p");
-    error.className = "form-error";
-
-    const submit = document.createElement("button");
-    submit.type = "submit";
-    submit.textContent = "Utwórz postać";
-
-    form.append(error, submit);
-    content.append(this.preview.element, form);
-    panel.append(title, subtitle, content);
-    document.body.appendChild(panel);
-    this.panel = panel;
-
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      error.textContent = "Tworzenie postaci…";
-      submit.disabled = true;
-
-      void apiClient
-        .createCharacter({
-          nickname: nicknameInput.value,
-          appearance: { ...this.selection }
-        })
-        .then((character) => {
-          this.destroyForm();
-          this.scene.start(
-            "WorldScene",
-            worldSceneData(character.id, this.accountRole)
-          );
-        })
-        .catch((caught: unknown) => {
-          error.textContent =
-            caught instanceof Error
-              ? caught.message
-              : "Nie udało się utworzyć postaci.";
-          submit.disabled = false;
-        });
-    });
+    try {
+      const socketResult = await gameSocket.authenticate(token);
+      if (!socketResult.ok) throw new Error(socketResult.message);
+      this.cleanup();
+      this.scene.start("WorldScene", { playerId: socketResult.characterId });
+    } catch (requestError) {
+      const error = this.host?.querySelector<HTMLElement>("[data-character-error]");
+      if (error) error.textContent = errorMessage(requestError);
+    }
   }
 
-  private createSelector(key: AppearanceKey): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "character-creator__selector";
-
-    const label = document.createElement("strong");
-    label.textContent = LABELS[key];
-
-    const controls = document.createElement("div");
-    const previous = document.createElement("button");
-    previous.type = "button";
-    previous.textContent = "‹";
-    previous.setAttribute("aria-label", `Poprzedni wariant: ${LABELS[key]}`);
-
-    const valueNode = document.createElement("span");
-    valueNode.dataset.appearanceValue = key;
-    this.valueNodes.set(key, valueNode);
-
-    const next = document.createElement("button");
-    next.type = "button";
-    next.textContent = "›";
-    next.setAttribute("aria-label", `Następny wariant: ${LABELS[key]}`);
-
-    controls.append(previous, valueNode, next);
-    row.append(label, controls);
-
-    const cycle = (direction: -1 | 1): void => {
-      const options = APPEARANCE_CATALOG[key] as readonly string[];
-      const current = this.selection[key];
-      const currentIndex = Math.max(0, options.indexOf(current));
-      const nextIndex =
-        (currentIndex + direction + options.length) % options.length;
-      this.selection[key] = options[nextIndex]!;
-      this.refreshSelection();
-    };
-
-    previous.addEventListener("click", () => cycle(-1));
-    next.addEventListener("click", () => cycle(1));
-    this.updateValueNode(key);
-
-    return row;
-  }
-
-  private refreshSelection(): void {
-    this.preview?.render(this.selection);
-    for (const key of this.valueNodes.keys()) this.updateValueNode(key);
-  }
-
-  private updateValueNode(key: AppearanceKey): void {
-    const node = this.valueNodes.get(key);
-    if (!node) return;
-    const options = APPEARANCE_CATALOG[key] as readonly string[];
-    const index = Math.max(0, options.indexOf(this.selection[key]));
-    const names: Record<string, string> = {
-      ...EYE_LABELS, "outfit-base": "Bielizna", "body-01": "Męska", "body-02": "Żeńska",
-      "hair-01": "Z przedziałkiem", "hair-02": "Krótkie", "hair-03": "Kucyk", "hair-04": "Na bok", "hair-05": "Odwrócony przedziałek"
-    };
-    node.textContent = names[this.selection[key]] ?? `${index + 1} / ${options.length}`;
-    node.setAttribute("aria-live", "polite");
-  }
-
-  private destroyForm(): void {
-    this.preview?.destroy();
-    this.preview = null;
-    this.panel?.remove();
-    this.panel = null;
-    this.valueNodes.clear();
+  private cleanup(): void {
+    this.panel?.unmount();
+    this.panel = undefined;
+    this.host?.remove();
+    this.host = undefined;
   }
 }

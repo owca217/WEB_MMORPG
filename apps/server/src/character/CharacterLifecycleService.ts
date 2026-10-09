@@ -1,27 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AppearanceSelection,
-  CharacterLifecycleSummary,
-  CharacterProfile
-} from "@web-mmorpg/shared";
-import {
-  BAG_EQUIPMENT_SLOTS,
-  isAppearanceSelection
-} from "@web-mmorpg/shared";
+import type { CharacterLifecycleSummary, InjuryKind } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
-import { verifyPassword } from "../auth/credentials";
-import { withTransaction } from "../db/transaction";
-import { AccountRepository } from "../persistence/AccountRepository";
 import {
   CharacterRepository,
   type PersistedCharacterRecord
 } from "../persistence/CharacterRepository";
-import { EquipmentRepository } from "../persistence/EquipmentRepository";
-import { InventoryRepository } from "../persistence/InventoryRepository";
-import { NicknameReservationRepository } from "../persistence/NicknameReservationRepository";
-import { createStarterContainer } from "../inventory/containers";
-import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
-import { validateNickname } from "./nickname";
+
+const START_LOCATION = "forest-settlement-01";
+const START_X = 360;
+const START_Y = 470;
 
 export class CharacterLifecycleError extends Error {
   constructor(
@@ -30,24 +17,27 @@ export class CharacterLifecycleError extends Error {
     message: string
   ) {
     super(message);
+    this.name = "CharacterLifecycleError";
   }
+}
+
+function normalizeNickname(input: string): { display: string; normalized: string } | null {
+  const display = input.trim();
+  if (display.length < 3 || display.length > 20) return null;
+  return { display, normalized: display.toLowerCase() };
+}
+
+function validAppearance(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function hasPgCode(error: unknown, code: string): boolean {
   return (
-    typeof error === "object"
-    && error !== null
-    && "code" in error
-    && (error as { code?: unknown }).code === code
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === code
   );
-}
-
-function toProfile(character: PersistedCharacterRecord): CharacterProfile {
-  return {
-    id: character.id,
-    nickname: character.nickname,
-    appearance: character.appearance
-  };
 }
 
 export class CharacterLifecycleService {
@@ -55,125 +45,70 @@ export class CharacterLifecycleService {
 
   async getLifecycle(
     accountId: string,
-    now: Date
+    _now: Date = new Date()
   ): Promise<CharacterLifecycleSummary> {
-    let character =
-      await new CharacterRepository(this.pool).findByAccountId(accountId);
+    const character = await new CharacterRepository(this.pool).findByAccountId(accountId);
     if (!character) return { state: "none" };
-
-    if (
-      character.deletionEffectiveAt &&
-      character.deletionEffectiveAt <= now
-    ) {
-      await this.finalizeCharacter(character, now);
-      character =
-        await new CharacterRepository(this.pool).findByAccountId(accountId);
-      if (!character) return { state: "none" };
+    if (character.deletionEffectiveAt) {
+      return {
+        state: "pendingDeletion",
+        characterId: character.id,
+        nickname: character.nickname,
+        deletionEffectiveAt: character.deletionEffectiveAt.toISOString()
+      };
     }
-
-    return this.lifecycleFromCharacter(character);
+    return {
+      state: "active",
+      characterId: character.id,
+      nickname: character.nickname
+    };
   }
 
-  async getCharacter(accountId: string): Promise<CharacterProfile | null> {
-    const character =
-      await new CharacterRepository(this.pool).findByAccountId(accountId);
-    return character ? toProfile(character) : null;
+  getCharacter(accountId: string): Promise<PersistedCharacterRecord | null> {
+    return new CharacterRepository(this.pool).findByAccountId(accountId);
   }
 
   async createCharacter(
     accountId: string,
-    input: { nickname: string; appearance: unknown },
-    now = new Date()
-  ): Promise<CharacterProfile> {
-    const nickname = validateNickname(input.nickname);
-    if (!nickname.ok) {
+    input: { nickname: string; appearance: unknown }
+  ): Promise<PersistedCharacterRecord> {
+    const nickname = normalizeNickname(input.nickname);
+    if (!nickname) {
       throw new CharacterLifecycleError(
-        nickname.code,
+        "INVALID_NICKNAME",
         400,
-        "Character nickname is invalid."
+        "Character nickname must contain between 3 and 20 characters."
       );
     }
-    if (!isAppearanceSelection(input.appearance)) {
+    if (!validAppearance(input.appearance)) {
       throw new CharacterLifecycleError(
         "INVALID_APPEARANCE",
         400,
-        "Character appearance contains an unsupported option."
+        "Character appearance must be an object."
+      );
+    }
+
+    const repository = new CharacterRepository(this.pool);
+    if (await repository.findByAccountId(accountId)) {
+      throw new CharacterLifecycleError(
+        "CHARACTER_ALREADY_EXISTS",
+        409,
+        "This account already owns a character."
       );
     }
 
     try {
-      const existing =
-        await new CharacterRepository(this.pool).findByAccountId(accountId);
-      if (
-        existing?.deletionEffectiveAt &&
-        existing.deletionEffectiveAt <= now
-      ) {
-        await this.finalizeCharacter(existing, now);
-      }
-
-      const overdue =
-        await new CharacterRepository(this.pool).findOverdueByNickname(
-          nickname.normalized,
-          now
-        );
-      if (overdue) {
-        await this.finalizeCharacter(overdue, now);
-      }
-
-      const created = await withTransaction(this.pool, async (client) => {
-        await client.query(
-          "SELECT pg_advisory_xact_lock(hashtext($1))",
-          [nickname.normalized]
-        );
-
-        const characters = new CharacterRepository(client);
-        const reservations = new NicknameReservationRepository(client);
-
-        if (await characters.findByAccountId(accountId)) {
-          throw new CharacterLifecycleError(
-            "CHARACTER_ALREADY_EXISTS",
-            409,
-            "This account already owns a character."
-          );
-        }
-
-        await reservations.deleteExpired(nickname.normalized, now);
-        if (await reservations.findActive(nickname.normalized, now)) {
-          throw new CharacterLifecycleError(
-            "NICKNAME_TAKEN",
-            409,
-            "That character nickname is temporarily reserved."
-          );
-        }
-
-        const created = await characters.create({
-          id: randomUUID(),
-          accountId,
-          nickname: nickname.display,
-          nicknameNormalized: nickname.normalized,
-          appearance: input.appearance as AppearanceSelection,
-          locationId: FOREST_SETTLEMENT_01.id,
-          x: FOREST_SETTLEMENT_01.spawn.x,
-          y: FOREST_SETTLEMENT_01.spawn.y
-        });
-
-        const starterContainer = createStarterContainer();
-        await new InventoryRepository(client).replaceAll(created.id, {
-          items: [starterContainer]
-        });
-        await new EquipmentRepository(client).replaceAll(created.id, {
-          items: [{
-            slot: BAG_EQUIPMENT_SLOTS[0],
-            itemInstanceId: starterContainer.instanceId
-          }]
-        });
-
-        return created;
+      return await repository.create({
+        id: randomUUID(),
+        accountId,
+        nickname: nickname.display,
+        nicknameNormalized: nickname.normalized,
+        appearance: input.appearance,
+        locationId: START_LOCATION,
+        x: START_X,
+        y: START_Y
       });
-
-      return toProfile(created);
     } catch (error) {
-      if (error instanceof CharacterLifecycleError) throw error;
       if (hasPgCode(error, "23505")) {
         throw new CharacterLifecycleError(
           "NICKNAME_TAKEN",
@@ -185,145 +120,21 @@ export class CharacterLifecycleService {
     }
   }
 
-  async requestDeletion(
-    accountId: string,
-    password: string,
-    now = new Date()
-  ): Promise<CharacterLifecycleSummary> {
-    const account =
-      await new AccountRepository(this.pool).findById(accountId);
-    if (!account || !(await verifyPassword(account.passwordHash, password))) {
-      throw new CharacterLifecycleError(
-        "INVALID_PASSWORD",
-        401,
-        "Current account password is incorrect."
-      );
+  async saveGameplayState(
+    characterId: string,
+    state: {
+      locationId: string;
+      x: number;
+      y: number;
+      level: number;
+      hp: number;
+      maxHp: number;
+      maxAp: number;
+      initiative: number;
+      severelyInjured: boolean;
+      injuries: InjuryKind[];
     }
-
-    const character =
-      await new CharacterRepository(this.pool).findByAccountId(accountId);
-    if (!character) {
-      throw new CharacterLifecycleError(
-        "CHARACTER_NOT_FOUND",
-        404,
-        "This account has no character."
-      );
-    }
-
-    if (
-      character.deletionEffectiveAt &&
-      character.deletionEffectiveAt <= now
-    ) {
-      await this.finalizeCharacter(character, now);
-      return { state: "none" };
-    }
-
-    if (character.deletionEffectiveAt) {
-      return this.lifecycleFromCharacter(character);
-    }
-
-    const effectiveAt = new Date(
-      now.getTime() + 24 * 60 * 60 * 1000
-    );
-    await new CharacterRepository(this.pool).markDeletionRequested(
-      character.id,
-      now,
-      effectiveAt
-    );
-
-    return {
-      state: "pendingDeletion",
-      characterId: character.id,
-      nickname: character.nickname,
-      deletionEffectiveAt: effectiveAt.toISOString()
-    };
-  }
-
-  async cancelDeletion(
-    accountId: string,
-    now = new Date()
-  ): Promise<CharacterLifecycleSummary> {
-    const character =
-      await new CharacterRepository(this.pool).findByAccountId(accountId);
-    if (!character) return { state: "none" };
-
-    if (
-      character.deletionEffectiveAt &&
-      character.deletionEffectiveAt <= now
-    ) {
-      await this.finalizeCharacter(character, now);
-      return { state: "none" };
-    }
-
-    if (character.deletionEffectiveAt) {
-      await new CharacterRepository(this.pool).cancelDeletion(
-        character.id
-      );
-    }
-
-    return {
-      state: "active",
-      characterId: character.id,
-      nickname: character.nickname
-    };
-  }
-
-  private lifecycleFromCharacter(
-    character: PersistedCharacterRecord
-  ): CharacterLifecycleSummary {
-    if (character.deletionEffectiveAt) {
-      return {
-        state: "pendingDeletion",
-        characterId: character.id,
-        nickname: character.nickname,
-        deletionEffectiveAt:
-          character.deletionEffectiveAt.toISOString()
-      };
-    }
-
-    return {
-      state: "active",
-      characterId: character.id,
-      nickname: character.nickname
-    };
-  }
-
-  private async finalizeCharacter(
-    character: PersistedCharacterRecord,
-    now: Date
   ): Promise<void> {
-    if (
-      !character.deletionEffectiveAt ||
-      character.deletionEffectiveAt > now
-    ) {
-      return;
-    }
-
-    await withTransaction(this.pool, async (client) => {
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext($1))",
-        [character.nicknameNormalized]
-      );
-
-      const characters = new CharacterRepository(client);
-      const current = await characters.findByIdForUpdate(character.id);
-      if (
-        !current?.deletionEffectiveAt ||
-        current.deletionEffectiveAt > now
-      ) {
-        return;
-      }
-
-      await new NicknameReservationRepository(client).reserve({
-        normalized: current.nicknameNormalized,
-        display: current.nickname,
-        formerAccountId: current.accountId,
-        reservedUntil: new Date(
-          current.deletionEffectiveAt.getTime() +
-            7 * 24 * 60 * 60 * 1000
-        )
-      });
-      await characters.deleteById(current.id);
-    });
+    await new CharacterRepository(this.pool).updateGameplayState(characterId, state);
   }
 }

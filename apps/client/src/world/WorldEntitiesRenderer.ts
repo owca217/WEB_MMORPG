@@ -6,37 +6,18 @@ import type {
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
-import {
-  createFacialHairGraphic,
-  createHairGraphic,
-  createMarkingGraphic
-} from "../appearance/AvatarGraphics";
-import { drawCharacterSprite } from "../appearance/drawCharacterSprite";
-import { SPRITE_WIDTH, SPRITE_HEIGHT } from "../appearance/characterSprites";
-import { appearanceVisuals } from "../appearance/appearanceVisuals";
-import { WalkAnimation } from "../appearance/walkAnimation";
-import { drawWalkAtlas, WALK_ATLAS_HEIGHT, WALK_ATLAS_WIDTH, WALK_FRAME_NAMES, WALK_SHEETS } from "../appearance/walkSprites";
 
 interface PlayerView {
   container: Phaser.GameObjects.Container;
   label: Phaser.GameObjects.Text;
   targetX: number;
   targetY: number;
-  walk: WalkAnimation;
-  sprite?: Phaser.GameObjects.Image;
-  equipment?: Phaser.GameObjects.Image;
-  appearanceKey: string;
 }
 
 export class WorldEntitiesRenderer {
   onNpcSelected?: (npcId: string) => void;
   onEncounterSelected?: (encounterId: string) => void;
-  onPlayerContextMenu?: (
-    player: WorldPlayerSnapshot,
-    screen: { x: number; y: number }
-  ) => void;
 
-  private readonly spriteTextures = new Set<string>();
   private readonly playerViews = new Map<PlayerId, PlayerView>();
   private readonly npcViews = new Map<string, Phaser.GameObjects.Container>();
   private readonly encounterViews = new Map<string, Phaser.GameObjects.Container>();
@@ -52,28 +33,11 @@ export class WorldEntitiesRenderer {
     this.renderEncounters(snapshot.encounters);
   }
 
-  update(delta: number, localMovement: { dx: number; dy: number }): void {
+  updateRemotePlayers(): void {
     for (const [id, view] of this.playerViews) {
-      let movement = localMovement;
-      if (id !== this.localPlayerId) {
-        const dx = view.targetX - view.container.x, dy = view.targetY - view.container.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance < 0.5 || distance > 400) {
-          view.container.setPosition(view.targetX, view.targetY);
-          movement = { dx: 0, dy: 0 };
-        } else {
-          const blend = 1 - Math.pow(0.75, Math.max(0, delta) / (1000 / 60));
-          movement = { dx: dx * blend, dy: dy * blend };
-          view.container.x += movement.dx;
-          view.container.y += movement.dy;
-        }
-      }
-      view.walk.update(movement.dx, movement.dy, delta);
-      const frame = view.walk.frameName;
-      if (view.sprite && view.sprite.frame.name !== frame) {
-        view.sprite.setFrame(frame);
-        view.equipment?.setFrame(frame);
-      }
+      if (id === this.localPlayerId) continue;
+      view.container.x = Phaser.Math.Linear(view.container.x, view.targetX, 0.25);
+      view.container.y = Phaser.Math.Linear(view.container.y, view.targetY, 0.25);
     }
   }
 
@@ -89,8 +53,6 @@ export class WorldEntitiesRenderer {
     for (const view of this.playerViews.values()) view.container.destroy(true);
     for (const view of this.npcViews.values()) view.destroy(true);
     for (const view of this.encounterViews.values()) view.destroy(true);
-    for (const key of this.spriteTextures) this.scene.textures.remove(key);
-    this.spriteTextures.clear();
     this.playerViews.clear();
     this.npcViews.clear();
     this.encounterViews.clear();
@@ -113,184 +75,29 @@ export class WorldEntitiesRenderer {
       view.targetX = player.x;
       view.targetY = player.y;
       view.label.setText(player.nickname);
-      if (view.appearanceKey !== JSON.stringify(player.appearance)) {
-        this.applyWalkingSprite(view, player);
-      }
       if (player.id !== this.localPlayerId) continue;
       if (view.container.x === 0 && view.container.y === 0) {
         view.container.setPosition(player.x, player.y);
       }
     }
-    // Walk atlases are larger than static portraits; release them when nobody uses them.
-    const activeTextures = new Set([...this.playerViews.values()].flatMap(view =>
-      [view.sprite?.texture.key, view.equipment?.texture.key]));
-    for (const key of this.spriteTextures) {
-      if (!key.startsWith("character-walk-") || activeTextures.has(key)) continue;
-      this.scene.textures.remove(key);
-      this.spriteTextures.delete(key);
-    }
   }
 
   private createPlayer(player: WorldPlayerSnapshot): PlayerView {
     const local = player.id === this.localPlayerId;
-    const visuals = appearanceVisuals(player.appearance);
-    const skinColor = Phaser.Display.Color.HexStringToColor(visuals.skin).color;
-    const outfitColor = Phaser.Display.Color.HexStringToColor(visuals.outfit).color;
-
     const container = this.scene.add.container(player.x, player.y).setDepth(20);
-    const shadow = this.scene.add.ellipse(0, 22, 34, 12, 0x101713, 0.38);
-    const outfit = this.scene.add
-      .rectangle(0, 13, 30 * visuals.bodyScale, 27, outfitColor)
-      .setStrokeStyle(2, local ? 0xe2c76e : 0x2a3027);
-    const face = this.scene.add
-      .ellipse(
-        0,
-        -9,
-        25 * visuals.bodyScale * visuals.faceScaleX,
-        28 * visuals.bodyScale,
-        skinColor
-      )
-      .setStrokeStyle(2, local ? 0xe2c76e : 0x3f3328);
-    const leftEye = this.scene.add.circle(
-      -visuals.eyeSpacing,
-      -10,
-      visuals.eyeRadius,
-      0x1b1b1b
-    );
-    const rightEye = this.scene.add.circle(
-      visuals.eyeSpacing,
-      -10,
-      visuals.eyeRadius,
-      0x1b1b1b
-    );
-    const hair = createHairGraphic(
-      this.scene,
-      visuals.hairStyle,
-      visuals.hairColor,
-      visuals.bodyScale
-    );
-    const facialHair = createFacialHairGraphic(
-      this.scene,
-      visuals.facialHairStyle,
-      visuals.hairColor,
-      visuals.bodyScale
-    );
-    const marking = createMarkingGraphic(
-      this.scene,
-      visuals.marking,
-      visuals.bodyScale
-    );
-    const facing = this.scene.add.triangle(
-      0,
-      28,
-      -5,
-      0,
-      5,
-      0,
-      0,
-      8,
-      local ? 0xe9d27c : 0xbcae92
-    );
-    const label = this.scene.add
-      .text(0, -43, player.nickname, {
-        fontFamily: "sans-serif",
-        fontSize: "13px",
-        color: local ? "#fff4b8" : "#ffffff",
-        backgroundColor: "#101611bb",
-        padding: { x: 4, y: 2 }
-      })
-      .setOrigin(0.5);
-
-    container.add([
-      shadow,
-      outfit,
-      face,
-      leftEye,
-      rightEye,
-      hair,
-      facialHair,
-      marking,
-      facing,
-      label
-    ]);
-
-    // Use the same layered renderer as the creator, including saved eye expressions.
-    if (!WALK_SHEETS.every(sheet => this.scene.textures.exists(sheet.key)) && this.scene.textures.exists("character-base-atlas")) {
-      const key = `character-sprite:${JSON.stringify(player.appearance)}`;
-      if (!this.scene.textures.exists(key)) {
-        const texture = this.scene.textures.createCanvas(key, SPRITE_WIDTH, SPRITE_HEIGHT);
-        if (texture) {
-          drawCharacterSprite(texture.getContext(), this.scene.textures.get("character-base-atlas").getSourceImage() as HTMLImageElement, player.appearance);
-          texture.refresh();
-          texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
-          this.spriteTextures.add(key);
-        }
-      }
-      if (this.scene.textures.exists(key)) {
-        for (const object of [outfit, face, leftEye, rightEye, hair, facialHair, marking]) {
-          container.remove(object, true);
-        }
-        const sprite = this.scene.add.image(0, 24, key).setOrigin(0.5, 1).setScale(0.6);
-        container.addAt(sprite, 1);
-        label.setY(-52);
-      }
-    }
-
-    if (!local) {
-      container.setSize(54, 72).setInteractive({ useHandCursor: true });
-      container.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-        if (!pointer.rightButtonDown()) return;
-        this.onPlayerContextMenu?.(player, {
-          x: pointer.x,
-          y: pointer.y
-        });
-      });
-    }
-
-    const view: PlayerView = {
-      container, label, targetX: player.x, targetY: player.y,
-      walk: new WalkAnimation(), appearanceKey: JSON.stringify(player.appearance)
-    };
-    if (this.applyWalkingSprite(view, player)) {
-      // Replace the legacy avatar while retaining its label, shadow and interaction target.
-      for (const object of [...container.list]) {
-        if ([shadow, facing, label, view.sprite, view.equipment].some(retained => retained === object)) continue;
-        container.remove(object, true);
-      }
-    }
-    return view;
-  }
-
-  private applyWalkingSprite(view: PlayerView, player: WorldPlayerSnapshot): boolean {
-    if (!WALK_SHEETS.every(sheet => this.scene.textures.exists(sheet.key))) return false;
-    const appearanceKey = JSON.stringify(player.appearance);
-    const bodyKey = `character-walk-body:${appearanceKey}`, outfitKey = `character-walk-outfit:${appearanceKey}`;
-    if (!this.scene.textures.exists(bodyKey)) {
-      const body = this.scene.textures.createCanvas(bodyKey, WALK_ATLAS_WIDTH, WALK_ATLAS_HEIGHT);
-      const outfit = this.scene.textures.createCanvas(outfitKey, WALK_ATLAS_WIDTH, WALK_ATLAS_HEIGHT);
-      if (!body || !outfit) return false;
-      const sources = WALK_SHEETS.map(sheet => this.scene.textures.get(sheet.key).getSourceImage() as HTMLImageElement);
-      drawWalkAtlas(body.getContext(), outfit.getContext(), sources, player.appearance);
-      for (const texture of [body, outfit]) {
-        WALK_FRAME_NAMES.forEach((name, index) => texture.add(name, 0,
-          (index % 3) * SPRITE_WIDTH, Math.floor(index / 3) * SPRITE_HEIGHT, SPRITE_WIDTH, SPRITE_HEIGHT));
-        texture.refresh();
-        texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
-        this.spriteTextures.add(texture.key);
-      }
-    }
-    if (view.sprite && view.equipment) {
-      view.sprite.setTexture(bodyKey, view.walk.frameName);
-      view.equipment.setTexture(outfitKey, view.walk.frameName);
-    } else {
-      view.sprite = this.scene.add.image(0, 24, bodyKey, view.walk.frameName).setOrigin(0.5, 1).setScale(0.6);
-      view.equipment = this.scene.add.image(0, 24, outfitKey, view.walk.frameName).setOrigin(0.5, 1).setScale(0.6);
-      view.container.addAt(view.sprite, 1);
-      view.container.addAt(view.equipment, 2);
-    }
-    view.label.setY(-52);
-    view.appearanceKey = appearanceKey;
-    return true;
+    const shadow = this.scene.add.ellipse(0, 19, 32, 12, 0x101713, 0.38);
+    const body = this.scene.add.rectangle(0, 3, 20, 28, local ? 0x5f8d62 : 0x796c5c).setStrokeStyle(2, 0x2a3027);
+    const head = this.scene.add.circle(0, -17, 9, local ? 0xd9b37a : 0xc39a6b).setStrokeStyle(2, 0x3f3328);
+    const facing = this.scene.add.triangle(0, 20, -5, 0, 5, 0, 0, 8, local ? 0xe9d27c : 0xbcae92);
+    const label = this.scene.add.text(0, -39, player.nickname, {
+      fontFamily: "sans-serif",
+      fontSize: "13px",
+      color: local ? "#fff4b8" : "#ffffff",
+      backgroundColor: "#101611bb",
+      padding: { x: 4, y: 2 }
+    }).setOrigin(0.5);
+    container.add([shadow, body, head, facing, label]);
+    return { container, label, targetX: player.x, targetY: player.y };
   }
 
   private renderNpcs(npcs: NpcSnapshot[]): void {
@@ -310,22 +117,15 @@ export class WorldEntitiesRenderer {
   private createNpc(npc: NpcSnapshot): Phaser.GameObjects.Container {
     const container = this.scene.add.container(npc.x, npc.y).setDepth(18);
     const shadow = this.scene.add.ellipse(0, 18, 34, 12, 0x101713, 0.34);
-    const accent = npc.kind === "healer"
-      ? 0x9b594e
-      : npc.kind === "quartermaster" ? 0x94623e : 0x6f7f9e;
+    const accent = npc.kind === "healer" ? 0x9b594e : 0x6f7f9e;
     const body = this.scene.add.rectangle(0, 2, 22, 30, accent).setStrokeStyle(2, 0x302b26);
     const head = this.scene.add.circle(0, -18, 9, 0xcfa06d).setStrokeStyle(2, 0x3f3328);
-    const symbol = this.scene.add.text(
-      0,
-      4,
-      npc.kind === "healer" ? "+" : npc.kind === "quartermaster" ? "B" : "!",
-      {
+    const symbol = this.scene.add.text(0, 4, npc.kind === "healer" ? "+" : "!", {
       fontFamily: "sans-serif",
       fontSize: "15px",
       color: "#fff5cf",
       fontStyle: "bold"
-      }
-    ).setOrigin(0.5);
+    }).setOrigin(0.5);
     const label = this.scene.add.text(0, -42, npc.name, {
       fontFamily: "sans-serif",
       fontSize: "13px",

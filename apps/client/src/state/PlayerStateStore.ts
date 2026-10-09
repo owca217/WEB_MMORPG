@@ -10,9 +10,6 @@ function cloneState(state: PlayerStateSnapshot): PlayerStateSnapshot {
     },
     inventory: {
       items: state.inventory.items.map((item) => ({ ...item }))
-    },
-    equipment: {
-      items: state.equipment.items.map((item) => ({ ...item }))
     }
   };
 }

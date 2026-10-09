@@ -17,7 +17,6 @@ import {
   generateSessionToken,
   hashOpaqueSecret
 } from "./secrets";
-import { withTransaction } from "../db/transaction";
 import {
   AccountRepository,
   type AccountRecord
@@ -34,14 +33,12 @@ export class AuthError extends Error {
     message: string
   ) {
     super(message);
+    this.name = "AuthError";
   }
 }
 
 export interface CharacterLifecycleReader {
-  getLifecycle(
-    accountId: string,
-    now: Date
-  ): Promise<CharacterLifecycleSummary>;
+  getLifecycle(accountId: string, now: Date): Promise<CharacterLifecycleSummary>;
 }
 
 export interface LoginServiceResult {
@@ -98,14 +95,15 @@ export class AuthService {
     }
 
     const recoveryCode = generateRecoveryCode();
-
     try {
       await this.accounts.create({
         id: randomUUID(),
         username: usernameInput.trim(),
         usernameNormalized: username.normalized,
         passwordHash: await hashPassword(password),
-        recoveryCodeHash: hashOpaqueSecret(recoveryCode)
+        recoveryCodeHash: hashOpaqueSecret(recoveryCode),
+        role: "PLAYER",
+        status: "active"
       });
     } catch (error) {
       if (hasPgCode(error, "23505")) {
@@ -132,20 +130,23 @@ export class AuthService {
     }
 
     const token = generateSessionToken();
-    const tokenHash = hashOpaqueSecret(token);
-    const expiresAt = new Date(
-      Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000
-    );
-
-    await withTransaction(this.pool, async (client) => {
-      const sessions = new SessionRepository(client);
-      await sessions.replaceActiveSession({
+    const expiresAt = new Date(Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await new SessionRepository(client).replaceActiveSession({
         id: randomUUID(),
         accountId: account.id,
-        tokenHash,
+        tokenHash: hashOpaqueSecret(token),
         expiresAt
       });
-    });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return {
       accountId: account.id,
@@ -154,24 +155,20 @@ export class AuthService {
     };
   }
 
-  async validateToken(
-    token: string,
-    now = new Date()
-  ): Promise<ValidatedAuthSession | null> {
+  async validateToken(token: string, now = new Date()): Promise<ValidatedAuthSession | null> {
     if (!token) return null;
 
     const sessions = new SessionRepository(this.pool);
-    const session = await sessions.findValidByTokenHash(
-      hashOpaqueSecret(token),
-      now
-    );
+    const session = await sessions.findValidByTokenHash(hashOpaqueSecret(token), now);
     if (!session) return null;
 
     const account = await this.accounts.findById(session.accountId);
-    if (!account || account.status !== "active") return null;
+    if (!account) return null;
+    if (account.status !== "active") {
+      throw new AuthError("ACCOUNT_DISABLED", 403, "This account is not active.");
+    }
 
     await sessions.touch(session.id, now);
-
     return {
       account,
       session,
@@ -207,11 +204,7 @@ export class AuthService {
 
     const account = await this.accounts.findByNormalizedUsername(username.normalized);
     const suppliedRecoveryHash = hashOpaqueSecret(recoveryCode.trim().toUpperCase());
-
-    if (
-      !account ||
-      !secureHashEquals(account.recoveryCodeHash, suppliedRecoveryHash)
-    ) {
+    if (!account || !secureHashEquals(account.recoveryCodeHash, suppliedRecoveryHash)) {
       throw new AuthError(
         "INVALID_RECOVERY_CODE",
         401,
@@ -222,18 +215,23 @@ export class AuthService {
     const newRecoveryCode = generateRecoveryCode();
     const newPasswordHash = await hashPassword(newPassword);
     const newRecoveryHash = hashOpaqueSecret(newRecoveryCode);
-
-    await withTransaction(this.pool, async (client) => {
-      await client.query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE", [
-        account.id
-      ]);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE", [account.id]);
       await new AccountRepository(client).updateCredentials(
         account.id,
         newPasswordHash,
         newRecoveryHash
       );
       await new SessionRepository(client).revokeAllForAccount(account.id);
-    });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return {
       accountId: account.id,
@@ -241,10 +239,7 @@ export class AuthService {
     };
   }
 
-  private async createSessionView(
-    account: AccountRecord,
-    now: Date
-  ): Promise<SessionView> {
+  private async createSessionView(account: AccountRecord, now: Date): Promise<SessionView> {
     return {
       accountUsername: account.username,
       accountRole: account.role,

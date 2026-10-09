@@ -1,24 +1,16 @@
 import type {
-  AdminGrantRequest,
-  AdminGrantResult,
-  AdminItemCatalog,
   BattleCommand,
   BattleSnapshot,
-  BagEquipmentSlot,
   CharacterSnapshot,
   ClientToServerEvents,
   InventorySnapshot,
-  LoginResult,
   NpcInteractionPayload,
-  PartyInvitePayload,
-  PartySnapshot,
-  PlayerId,
   PlayerStateSnapshot,
   ServerToClientEvents,
+  SocketAuthResult,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
-import { io, type ManagerOptions, type Socket, type SocketOptions } from "socket.io-client";
-import { authSessionStore } from "../state/AuthSessionStore";
+import { io, type Socket } from "socket.io-client";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -29,32 +21,16 @@ export interface BattleEndedPayload {
   character: CharacterSnapshot;
 }
 
-export function resolveSocketAuth(
-  token: string | null,
-  persistentAccounts: boolean
-): Pick<Partial<ManagerOptions & SocketOptions>, "auth"> | Record<string, never> {
-  if (!persistentAccounts) return {};
-  if (!token) throw new Error("AUTH_TOKEN_REQUIRED");
-  return { auth: { token } };
-}
-
-const persistentAccountsEnabled =
-  import.meta.env.VITE_PERSISTENT_ACCOUNTS === "true";
-
 export class GameSocket {
   private socket: GameClientSocket | null = null;
   private connectionState: ConnectionState = "connecting";
   private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
 
-  connect(token = authSessionStore.getToken()): GameClientSocket {
+  connect(): GameClientSocket {
     if (this.socket) return this.socket;
 
     const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
-    const authOptions = resolveSocketAuth(token, persistentAccountsEnabled);
-    const socket = io(serverUrl, {
-      transports: ["websocket"],
-      ...authOptions
-    });
+    const socket = io(serverUrl, { transports: ["websocket"] });
     this.socket = socket;
 
     socket.on("connect", () => this.setConnectionState("connected"));
@@ -62,27 +38,18 @@ export class GameSocket {
     socket.on("connect_error", () => this.setConnectionState("disconnected"));
     socket.io.on("reconnect_attempt", () => this.setConnectionState("connecting"));
     socket.io.on("reconnect_failed", () => this.setConnectionState("disconnected"));
-    socket.on("sessionReplaced", () => {
-      authSessionStore.clear();
-      socket.disconnect();
-      if (this.socket === socket) this.socket = null;
-      this.setConnectionState("disconnected");
-      if (typeof window !== "undefined") window.location.reload();
-    });
 
     return socket;
   }
 
-  disconnect(): void {
-    const socket = this.socket;
-    this.socket = null;
-    socket?.disconnect();
-    this.setConnectionState("disconnected");
+  authenticate(sessionToken: string): Promise<SocketAuthResult> {
+    return this.connect().emitWithAck("authenticate", { sessionToken });
   }
 
-  async login(nickname: string): Promise<LoginResult> {
-    const socket = this.connect();
-    return socket.emitWithAck("login", { nickname });
+  disconnect(): void {
+    this.socket?.disconnect();
+    this.socket = null;
+    this.setConnectionState("disconnected");
   }
 
   sendMoveIntent(position: { x: number; y: number }): void {
@@ -91,22 +58,6 @@ export class GameSocket {
 
   requestPlayerState(): void {
     this.connect().emit("requestPlayerState");
-  }
-
-  requestAdminCatalog(): void {
-    this.connect().emit("requestAdminCatalog");
-  }
-
-  grantAdminItem(payload: AdminGrantRequest): void {
-    this.connect().emit("grantAdminItem", payload);
-  }
-
-  setContainerSlot(slot: BagEquipmentSlot, itemInstanceId: string | null): void {
-    this.connect().emit("setContainerSlot", { slot, itemInstanceId });
-  }
-
-  moveInventoryItem(itemInstanceId: string, containerInstanceId: string | null): void {
-    this.connect().emit("moveInventoryItem", { itemInstanceId, containerInstanceId });
   }
 
   requestWorldState(): void {
@@ -119,30 +70,6 @@ export class GameSocket {
 
   healAtNpc(npcId: string): void {
     this.connect().emit("healAtNpc", { npcId });
-  }
-
-  claimSimpleBag(npcId: string): void {
-    this.connect().emit("claimSimpleBag", { npcId });
-  }
-
-  inviteToParty(targetPlayerId: PlayerId): void {
-    this.connect().emit("inviteToParty", { targetPlayerId });
-  }
-
-  respondPartyInvite(inviteId: string, accept: boolean): void {
-    this.connect().emit("respondPartyInvite", { inviteId, accept });
-  }
-
-  setPartyBattleMode(enabled: boolean): void {
-    this.connect().emit("setPartyBattleMode", { enabled });
-  }
-
-  leaveParty(): void {
-    this.connect().emit("leaveParty");
-  }
-
-  requestPartyState(): void {
-    this.connect().emit("requestPartyState");
   }
 
   startEncounter(encounterId: string): void {
@@ -171,30 +98,6 @@ export class GameSocket {
     return () => socket.off("npcInteraction", handler);
   }
 
-  onPartyInviteReceived(handler: (payload: PartyInvitePayload) => void): () => void {
-    const socket = this.connect();
-    socket.on("partyInviteReceived", handler);
-    return () => socket.off("partyInviteReceived", handler);
-  }
-
-  onPartyInviteResolved(
-    handler: (payload: {
-      targetPlayerId: PlayerId;
-      targetNickname: string;
-      accepted: boolean;
-    }) => void
-  ): () => void {
-    const socket = this.connect();
-    socket.on("partyInviteResolved", handler);
-    return () => socket.off("partyInviteResolved", handler);
-  }
-
-  onPartyState(handler: (snapshot: PartySnapshot | null) => void): () => void {
-    const socket = this.connect();
-    socket.on("partyState", handler);
-    return () => socket.off("partyState", handler);
-  }
-
   onBattleStarted(handler: (snapshot: BattleSnapshot) => void): () => void {
     const socket = this.connect();
     socket.on("battleStarted", handler);
@@ -219,18 +122,6 @@ export class GameSocket {
     const socket = this.connect();
     socket.on("commandRejected", handler);
     return () => socket.off("commandRejected", handler);
-  }
-
-  onAdminCatalog(handler: (catalog: AdminItemCatalog) => void): () => void {
-    const socket = this.connect();
-    socket.on("adminCatalog", handler);
-    return () => socket.off("adminCatalog", handler);
-  }
-
-  onAdminGrantResult(handler: (result: AdminGrantResult) => void): () => void {
-    const socket = this.connect();
-    socket.on("adminGrantResult", handler);
-    return () => socket.off("adminGrantResult", handler);
   }
 
   onConnectionState(handler: (state: ConnectionState) => void): () => void {

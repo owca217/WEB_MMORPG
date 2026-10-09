@@ -1,56 +1,75 @@
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Pool } from "pg";
-import { createPool } from "./pool";
+import { readFile } from "node:fs/promises";
+import type { Pool, PoolClient } from "pg";
 
-export async function runMigrations(pool: Pool, migrationsDir?: string): Promise<void> {
-  const baseDir =
-    migrationsDir ?? join(dirname(fileURLToPath(import.meta.url)), "../../migrations");
+const MIGRATION_LOCK_ID = 184472031;
+const MIGRATIONS = [
+  {
+    name: "001_item_catalog",
+    url: new URL("./migrations/001_item_catalog.sql", import.meta.url)
+  },
+  {
+    name: "002_account_auth",
+    url: new URL("./migrations/002_account_auth.sql", import.meta.url)
+  }
+] as const;
 
-  await pool.query(
-    "CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
-  );
+type MigrationNameColumn = "migration_name" | "name";
 
-  const names = (await readdir(baseDir))
-    .filter((name) => /^\d+.*\.sql$/.test(name))
-    .sort();
+async function resolveMigrationNameColumn(
+  client: PoolClient
+): Promise<MigrationNameColumn> {
+  const columns = await client.query<{ column_name: string }>(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'schema_migrations'
+      AND column_name IN ('migration_name', 'name')
+  `);
+  const names = new Set(columns.rows.map((row) => row.column_name));
+  if (names.has("migration_name")) return "migration_name";
+  if (names.has("name")) return "name";
+  throw new Error("Unsupported schema_migrations table: expected migration_name or name column.");
+}
 
-  for (const name of names) {
-    const applied = await pool.query(
-      "SELECT 1 FROM schema_migrations WHERE name = $1",
-      [name]
-    );
-    if (applied.rowCount) continue;
+export async function runMigrations(pool: Pool): Promise<void> {
+  const client = await pool.connect();
 
-    const sql = await readFile(join(baseDir, name), "utf8");
-    const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        migration_name TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    const migrationNameColumn = await resolveMigrationNameColumn(client);
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
 
-    try {
+    for (const migration of MIGRATIONS) {
+      const applied = await client.query(
+        `SELECT 1 FROM schema_migrations WHERE ${migrationNameColumn} = $1`,
+        [migration.name]
+      );
+      if (applied.rowCount) continue;
+
+      const sql = await readFile(migration.url, "utf8");
       await client.query("BEGIN");
-      await client.query(sql);
-      await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [name]);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      try {
+        await client.query(sql);
+        await client.query(
+          `INSERT INTO schema_migrations (${migrationNameColumn}) VALUES ($1)`,
+          [migration.name]
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    }
+  } finally {
+    try {
+      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
     } finally {
       client.release();
     }
   }
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const pool = createPool(process.env.DATABASE_URL ?? "");
-
-  runMigrations(pool)
-    .then(() => pool.end())
-    .catch(async (error) => {
-      console.error(
-        "Database migration failed:",
-        error instanceof Error ? error.message : error
-      );
-      await pool.end();
-      process.exitCode = 1;
-    });
 }

@@ -6,13 +6,11 @@ export function normalizeUsername(input: string): string {
 
 export function validateUsername(
   input: string
-): { ok: true; normalized: string } | { ok: false; code: string } {
+): { ok: true; normalized: string } | { ok: false; code: "INVALID_USERNAME" } {
   const normalized = normalizeUsername(input);
-
   if (!/^[a-z0-9_-]{3,32}$/.test(normalized)) {
     return { ok: false, code: "INVALID_USERNAME" };
   }
-
   return { ok: true, normalized };
 }
 

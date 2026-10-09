@@ -25,20 +25,17 @@ export function normalizeAnalogIntent(
   offset: { x: number; y: number },
   radius: number
 ): DirectionIntent {
-  const magnitude = Math.hypot(offset.x, offset.y);
-  if (magnitude < 8 || radius <= 0) return { dx: 0, dy: 0 };
+  if (radius <= 0) return { dx: 0, dy: 0 };
 
-  const normalizedMagnitude = Math.min(magnitude / radius, 1);
-  let dx = (offset.x / magnitude) * normalizedMagnitude;
-  let dy = (offset.y / magnitude) * normalizedMagnitude;
-  const outputMagnitude = Math.hypot(dx, dy);
+  const length = Math.hypot(offset.x, offset.y);
+  const deadzone = radius * 0.08;
+  if (length <= deadzone) return { dx: 0, dy: 0 };
 
-  if (outputMagnitude > 1) {
-    dx /= outputMagnitude;
-    dy /= outputMagnitude;
-  }
-
-  return { dx, dy };
+  const magnitude = Math.min(length / radius, 1);
+  return {
+    dx: (offset.x / length) * magnitude,
+    dy: (offset.y / length) * magnitude
+  };
 }
 
 export function moveTowardTarget(

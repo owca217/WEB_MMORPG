@@ -1,10 +1,8 @@
-import type { AppearanceSelection } from "./appearance";
 import type { LocationId, PlayerId } from "./ids";
 
 export interface WorldPlayerSnapshot {
   id: PlayerId;
   nickname: string;
-  appearance: AppearanceSelection;
   x: number;
   y: number;
 }
@@ -16,7 +14,7 @@ export interface EncounterSnapshot {
   label: string;
 }
 
-export type NpcKind = "guide" | "healer" | "quartermaster";
+export type NpcKind = "guide" | "healer";
 
 export interface NpcSnapshot {
   id: string;
@@ -34,8 +32,6 @@ export interface NpcInteractionPayload {
   title: string;
   lines: string[];
   canHeal: boolean;
-  canClaimSimpleBag: boolean;
-  simpleBagRewardClaimed: boolean;
 }
 
 export interface WorldStateSnapshot {

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
     "test": "vitest run",
     "build": "tsc --noEmit",
     "db:migrate": "tsx src/db/runMigrationsCli.ts"

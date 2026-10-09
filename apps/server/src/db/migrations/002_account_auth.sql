@@ -88,10 +88,19 @@ ALTER TABLE item_instances
   ADD COLUMN IF NOT EXISTS character_id UUID REFERENCES characters(id) ON DELETE CASCADE;
 
 ALTER TABLE item_instances
+  ADD COLUMN IF NOT EXISTS container_capacity INTEGER;
+
+ALTER TABLE item_instances
+  ADD COLUMN IF NOT EXISTS container_instance_id UUID;
+
+ALTER TABLE item_instances
   ALTER COLUMN player_id DROP NOT NULL;
 
 CREATE INDEX IF NOT EXISTS item_instances_character_id_idx
   ON item_instances(character_id);
+
+CREATE INDEX IF NOT EXISTS item_instances_container_instance_id_idx
+  ON item_instances(container_instance_id);
 
 ALTER TABLE admin_audit_log
   ADD COLUMN IF NOT EXISTS actor_account_id UUID REFERENCES accounts(id) ON DELETE SET NULL;

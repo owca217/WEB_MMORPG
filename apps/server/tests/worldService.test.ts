@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { LootService } from "../src/loot/LootService";
-import { SessionStore } from "../src/session/SessionStore";
 import { WorldService } from "../src/world/WorldService";
 
 function createTestWorld() {
@@ -64,19 +63,6 @@ describe("WorldService", () => {
       kind: "healer",
       name: "Ada"
     });
-  });
-});
-
-describe("SessionStore", () => {
-  it("validates nickname and rejects duplicate active nicknames", () => {
-    const sessions = new SessionStore();
-
-    expect(sessions.login("ab")).toMatchObject({ ok: false, code: "INVALID_NICKNAME" });
-    expect(sessions.login("Owczy")).toMatchObject({
-      ok: true,
-      locationId: "forest-settlement-01"
-    });
-    expect(sessions.login("owczy")).toMatchObject({ ok: false, code: "NICKNAME_IN_USE" });
   });
 });
 

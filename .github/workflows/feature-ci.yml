@@ -9,6 +9,7 @@ on:
       - fix/admin-creator-production-deploy
       - fix/render-legacy-migration-compatibility
       - fix/render-server-start-script
+      - fix/render-postgres-icon-fallback
       - main
 
 concurrency:

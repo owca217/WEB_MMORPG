@@ -12,7 +12,6 @@ import type {
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
-import { sessionStateStore } from "../state/SessionStateStore";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -49,12 +48,16 @@ export class GameSocket {
   }
 
   /** @deprecated Replaced by REST account login + authenticate(sessionToken). */
-  async login(nickname: string, adminToken?: string): Promise<LoginResult> {
+  login(nickname: string, adminToken?: string): Promise<LoginResult> {
     const socket = this.connect();
     const payload = adminToken === undefined ? { nickname } : { nickname, adminToken };
-    const result = await socket.emitWithAck("login", payload);
-    sessionStateStore.setFromLogin(result);
-    return result;
+    return socket.emitWithAck("login", payload);
+  }
+
+  disconnect(): void {
+    this.socket?.disconnect();
+    this.socket = null;
+    this.setConnectionState("disconnected");
   }
 
   sendMoveIntent(position: { x: number; y: number }): void {

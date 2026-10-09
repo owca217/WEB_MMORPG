@@ -15,6 +15,7 @@ export async function seedItemMetadata(pool: Pool): Promise<void> {
     await seedCategories(client);
     await seedSubcategories(client);
     await seedStarterItems(client);
+    await migrateLegacyCharacterItems(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -22,6 +23,44 @@ export async function seedItemMetadata(pool: Pool): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+async function migrateLegacyCharacterItems(client: PoolClient): Promise<void> {
+  const legacyTable = await client.query<{ table_name: string | null }>(
+    "SELECT to_regclass('public.character_items')::text AS table_name"
+  );
+  if (!legacyTable.rows[0]?.table_name) return;
+
+  const unmapped = await client.query<{ item_id: string }>(`
+    SELECT DISTINCT legacy.item_id
+    FROM character_items AS legacy
+    LEFT JOIN items AS item ON item.item_id = legacy.item_id
+    WHERE item.id IS NULL
+    ORDER BY legacy.item_id
+  `);
+  if (unmapped.rows.length > 0) {
+    throw new Error(
+      `LEGACY_ITEM_DEFINITION_MISSING:${unmapped.rows.map((row) => row.item_id).join(",")}`
+    );
+  }
+
+  await client.query(`
+    INSERT INTO item_instances (
+      id, player_id, character_id, item_id, quantity,
+      container_capacity, container_instance_id
+    )
+    SELECT
+      legacy.instance_id,
+      NULL,
+      legacy.character_id,
+      item.id,
+      legacy.quantity,
+      legacy.container_capacity,
+      legacy.container_instance_id
+    FROM character_items AS legacy
+    JOIN items AS item ON item.item_id = legacy.item_id
+    ON CONFLICT (id) DO NOTHING
+  `);
 }
 
 async function seedStats(client: PoolClient): Promise<void> {

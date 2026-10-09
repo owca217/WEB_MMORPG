@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 const MIGRATION_LOCK_ID = 184472031;
 const MIGRATIONS = [
@@ -13,6 +13,24 @@ const MIGRATIONS = [
   }
 ] as const;
 
+type MigrationNameColumn = "migration_name" | "name";
+
+async function resolveMigrationNameColumn(
+  client: PoolClient
+): Promise<MigrationNameColumn> {
+  const columns = await client.query<{ column_name: string }>(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'schema_migrations'
+      AND column_name IN ('migration_name', 'name')
+  `);
+  const names = new Set(columns.rows.map((row) => row.column_name));
+  if (names.has("migration_name")) return "migration_name";
+  if (names.has("name")) return "name";
+  throw new Error("Unsupported schema_migrations table: expected migration_name or name column.");
+}
+
 export async function runMigrations(pool: Pool): Promise<void> {
   const client = await pool.connect();
 
@@ -23,11 +41,12 @@ export async function runMigrations(pool: Pool): Promise<void> {
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    const migrationNameColumn = await resolveMigrationNameColumn(client);
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
 
     for (const migration of MIGRATIONS) {
       const applied = await client.query(
-        "SELECT 1 FROM schema_migrations WHERE migration_name = $1",
+        `SELECT 1 FROM schema_migrations WHERE ${migrationNameColumn} = $1`,
         [migration.name]
       );
       if (applied.rowCount) continue;
@@ -37,7 +56,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
       try {
         await client.query(sql);
         await client.query(
-          "INSERT INTO schema_migrations (migration_name) VALUES ($1)",
+          `INSERT INTO schema_migrations (${migrationNameColumn}) VALUES ($1)`,
           [migration.name]
         );
         await client.query("COMMIT");

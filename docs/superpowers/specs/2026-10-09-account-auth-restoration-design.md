@@ -1,7 +1,7 @@
 # WEB MMORPG — przywrócenie trwałych kont i integracja ADMIN
 
 **Data:** 2026-10-09  
-**Status:** design zatwierdzony sekcjami przez użytkownika; oczekuje końcowego review specyfikacji  
+**Status:** specyfikacja po self-review, gotowa do końcowego review użytkownika  
 **Gałąź:** `feature/account-auth-restoration`  
 **Baza:** `main`
 
@@ -51,7 +51,8 @@ Na tym etapie nie wdrażamy:
 - CAPTCHA,
 - wielu postaci na jednym koncie,
 - panelu aktywnych urządzeń/sesji,
-- pełnego systemu uprawnień granularnych poza `PLAYER`/`ADMIN`.
+- pełnego systemu uprawnień granularnych poza `PLAYER`/`ADMIN`,
+- nowego lub rozszerzonego systemu usuwania postaci; istniejące historyczne pola lifecycle można zachować technicznie, ale nie są częścią tej funkcji.
 
 Projekt ma pozostawić możliwość dodania tych funkcji później bez przebudowy podstawowego modelu konta.
 
@@ -121,14 +122,15 @@ Postać przechowuje trwałe dane gameplayowe, m.in.:
 - appearance,
 - lokację i pozycję,
 - poziom/HP/AP i pozostały istniejący stan postaci,
-- daty utworzenia/aktualizacji,
-- ewentualny lifecycle usuwania, jeśli istniejący flow zostanie zachowany.
+- daty utworzenia/aktualizacji.
 
 ### 5.4 Inventory i Item Creator
 
 Nie przywracamy starego `character_items`, który duplikował nazwę/opis/kategorię itemu. Aktualny centralny model Item Creatora pozostaje źródłem prawdy.
 
-`item_instances` ma być powiązane z trwałą postacią albo trwałym właścicielem wynikającym z konta, zamiast z losowym ID sesji tworzonym przy każdym wejściu.
+Docelowym trwałym właścicielem `item_instances` jest **`character_id`**. Instancje nie mogą być własnością losowego ID sesji tworzonego przy każdym wejściu.
+
+Jeżeli obecny schemat ma legacy owner/player identifier, migracja dodaje trwałe `character_id` i zachowuje dane nieposiadające bezpiecznego mapowania jako legacy/orphan zamiast zgadywać właściciela.
 
 Migracja nie kasuje ani nie przebudowuje danych:
 
@@ -153,7 +155,7 @@ Reguły pierwszego etapu:
 - hasło: `10–256` znaków,
 - brak jawnego hasła w logach, bazie, audycie i odpowiedziach API.
 
-Recovery code jest losowym sekretem generowanym przez serwer. W bazie przechowujemy wyłącznie jego hash. Pełny recovery code jest ujawniany klientowi tylko po rejestracji lub skutecznym odzyskaniu hasła.
+Recovery code jest losowym sekretem generowanym przez serwer dla zwykłej rejestracji i recovery. W bazie przechowujemy wyłącznie jego hash. Pełny recovery code jest ujawniany klientowi tylko po rejestracji lub skutecznym odzyskaniu hasła.
 
 ## 7. API uwierzytelniania
 
@@ -164,7 +166,7 @@ Planowane endpointy:
 - `POST /api/auth/register`
   - input: `username`, `password`,
   - output: recovery code,
-  - nie loguje automatycznie, chyba że plan implementacyjny zachowa istniejący UX w jednej atomowej operacji; kontrakty mają jasno wybrać jeden wariant i testy mają go utrwalić.
+  - **nie loguje automatycznie**; po zapisaniu recovery code użytkownik wraca do formularza logowania i loguje się jawnie.
 
 - `POST /api/auth/login`
   - input: `username`, `password`,
@@ -213,7 +215,7 @@ Socket przy zestawieniu/rozpoczęciu sesji gameplayowej przekazuje session token
 
 Nie wolno ufać `playerId`, `role`, `accountId` ani nickname przesłanym przez klienta jako dowodowi tożsamości.
 
-Identyfikator aktywnego gracza w warstwie gameplayowej powinien wynikać z trwałej postaci, nie z losowego UUID tworzonego przy każdym połączeniu.
+Identyfikator aktywnego gracza w warstwie gameplayowej wynika z trwałego `character.id`, nie z losowego UUID tworzonego przy każdym połączeniu.
 
 ## 10. Flow klienta
 
@@ -244,7 +246,7 @@ Trzy tryby w jednym spójnym ekranie.
 - powtórz hasło,
 - `Utwórz konto`.
 
-Po sukcesie klient pokazuje modal z recovery code i wymusza świadome zamknięcie/zaakceptowanie komunikatu o zapisaniu kodu.
+Po sukcesie klient pokazuje modal z recovery code i wymusza świadome zamknięcie/zaakceptowanie komunikatu o zapisaniu kodu. Następnie wraca do trybu logowania z uzupełnionym loginem, ale bez hasła.
 
 **Odzyskiwanie**
 
@@ -283,15 +285,18 @@ Klient pokazuje `Panel Admin` tylko gdy `SessionView.accountRole === 'ADMIN'`, a
 Serwer obsługuje jednorazowe zmienne:
 
 - `INITIAL_ADMIN_USERNAME`,
-- `INITIAL_ADMIN_PASSWORD`.
+- `INITIAL_ADMIN_PASSWORD`,
+- `INITIAL_ADMIN_RECOVERY_CODE`.
+
+`INITIAL_ADMIN_RECOVERY_CODE` musi spełniać format recovery secretu i jest dostarczany przez właściciela hostingu tak samo jak hasło; serwer przechowuje wyłącznie jego hash i nigdy nie wypisuje go do logów.
 
 Podczas startu, po migracjach:
 
 1. jeśli istnieje co najmniej jeden aktywny ADMIN — bootstrap nic nie robi,
-2. jeśli nie ma żadnego ADMIN-a i obie zmienne są obecne — tworzy pierwsze konto ADMIN z Argon2id,
+2. jeśli nie ma żadnego ADMIN-a i wszystkie trzy zmienne są obecne — tworzy pierwsze konto ADMIN z Argon2id oraz hashem recovery code,
 3. jeśli wskazany username już istnieje jako konto nie-ADMIN — startup zgłasza jawny błąd bootstrapu zamiast po cichu podnosić rolę,
-4. hasło bootstrapu nie jest logowane,
-5. po utworzeniu ADMIN-a zmienne powinny zostać usunięte z konfiguracji hostingu.
+4. hasło i recovery code bootstrapu nie są logowane,
+5. po utworzeniu ADMIN-a wszystkie `INITIAL_ADMIN_*` powinny zostać usunięte z konfiguracji hostingu.
 
 Bootstrap nie może działać jako stały backdoor do podnoszenia ról.
 
@@ -317,7 +322,9 @@ Zabezpieczenia:
 - konflikt równoczesnych zmian nie może przypadkiem pozostawić systemu bez administratora,
 - każda zmiana roli/statusu trafia do admin audit log z aktorem, celem, poprzednią i nową wartością.
 
-Zmiana roli konta powinna zacząć obowiązywać najpóźniej przy następnym sprawdzeniu sesji/requestcie. Serwer nie ufa roli zapisanej dawno w kliencie.
+Ochrona ostatniego ADMIN-a jest egzekwowana transakcyjnie na backendzie. Próba naruszenia tej reguły zwraca `409`.
+
+Zmiana roli konta zaczyna obowiązywać przy następnym zweryfikowanym requestcie/sesji. Serwer każdorazowo odczytuje aktualną rolę konta i nie ufa roli zapisanej dawno w kliencie.
 
 ## 14. Recovery i bezpieczeństwo sesji
 
@@ -340,7 +347,7 @@ Aktualny `main` ma już `001_item_catalog.sql` i własny runner migracji. Nie ko
 
 Nowe migracje zaczynają się od następnego wolnego numeru w aktualnym katalogu `apps/server/src/db/migrations/` i są addytywne.
 
-Migracja dodaje konta/sesje/postać oraz niezbędne powiązania trwałego właściciela do obecnego inventory.
+Migracja dodaje konta/sesje/postać oraz trwałe `character_id` dla obecnego inventory.
 
 Zasady:
 
@@ -351,7 +358,7 @@ Zasady:
 - produkcyjny startup uruchamia migracje przed startem HTTP/Socket.IO,
 - seed Item Creatora działa po migracjach auth w bezpiecznej kolejności.
 
-Dane anonimowych, tymczasowych sesji nickowych nie są automatycznie przypisywane do kont. Jeśli istnieją osierocone `item_instances` bez trwałego właściciela, migracja musi je zachować lub jawnie sklasyfikować jako legacy/orphan — nie może przypisać ich do konta na podstawie zbieżności nicku.
+Dane anonimowych, tymczasowych sesji nickowych nie są automatycznie przypisywane do kont. Jeśli istnieją osierocone `item_instances` bez trwałego właściciela, migracja zachowuje je jako legacy/orphan — nie przypisuje ich do konta na podstawie zbieżności nicku.
 
 ## 16. Deployment
 
@@ -365,7 +372,7 @@ Kolejność produkcyjna:
 6. test rejestracji/logowania/session resume/admin guard na produkcyjnym backendzie,
 7. deploy klienta,
 8. potwierdzenie pełnego flow w przeglądarce,
-9. usunięcie `INITIAL_ADMIN_*` po udanym bootstrapie,
+9. usunięcie wszystkich `INITIAL_ADMIN_*` po udanym bootstrapie,
 10. usunięcie/wyłączenie starego `ADMIN_ACCESS_TOKEN` i pola tokenu z klienta.
 
 Obecne ograniczenie GitHub Pages dotyczące dozwolonej gałęzi deployu musi zostać uwzględnione w planie wdrożenia; artefakt publikowany jako finalny ma zawsze pochodzić z aktualnego `main`.
@@ -380,7 +387,7 @@ Minimalne mapowanie:
 - `401` — błędne credentials, brak/wygasły/revoked session token, zły recovery code,
 - `403` — banned account lub brak roli ADMIN,
 - `404` — nieistniejący zasób administracyjny,
-- `409` — zajęty username / konflikt biznesowy / ochrona ostatniego ADMIN-a, jeśli taki kod zostanie przyjęty jako kontrakt,
+- `409` — zajęty username, konflikt biznesowy lub ochrona ostatniego ADMIN-a,
 - `500` — zanonimizowany błąd wewnętrzny bez sekretów/SQL w odpowiedzi.
 
 UI nie czyści formularza po błędzie serwera poza polami, które użytkownik jawnie zresetuje.
@@ -411,6 +418,7 @@ UI nie czyści formularza po błędzie serwera poza polami, które użytkownik j
 - trzy tryby AuthScene,
 - client-side validation,
 - recovery code modal,
+- rejestracja wraca do logowania bez auto-loginu,
 - auto-resume z poprawnym tokenem,
 - invalid token -> czyszczenie storage -> login,
 - logout -> czyszczenie storage,
@@ -425,6 +433,7 @@ UI nie czyści formularza po błędzie serwera poza polami, które użytkownik j
 - ADMIN widzi panel i Item Creator,
 - forged role w request body/header nie zmienia uprawnień,
 - bootstrap tworzy ADMIN tylko gdy nie istnieje aktywny ADMIN,
+- bootstrap wymaga jawnego recovery code i nie loguje sekretów,
 - konflikt bootstrap username nie eskaluje istniejącego konta,
 - nie można usunąć ostatniego aktywnego ADMIN-a przez demotion/ban,
 - zmiany ról/statusów są audytowane.
@@ -436,7 +445,7 @@ UI nie czyści formularza po błędzie serwera poza polami, które użytkownik j
 - restart procesu nie usuwa konta/sesji/postaci,
 - Socket.IO odrzuca invalid session token,
 - socket identity pochodzi z serwera, nie z payloadu klienta,
-- inventory należy do trwałej postaci/właściciela,
+- inventory należy do trwałego `character_id`,
 - publikacja nowej wersji item definition nadal aktualizuje bazową definicję istniejącej instancji,
 - stary forest -> battle -> loot -> inventory flow nadal działa.
 
@@ -454,7 +463,7 @@ Scenariusz:
 
 1. rejestracja PLAYER,
 2. zapis recovery code,
-3. login,
+3. jawny login,
 4. utworzenie postaci,
 5. wejście do świata,
 6. reconnect / reload klienta,
@@ -464,7 +473,7 @@ Scenariusz:
 10. dostęp do Admin Panel i Kreatora Przedmiotów,
 11. utworzenie/publikacja itemu,
 12. nadanie drugiemu kontu roli ADMIN,
-13. nowa rola obowiązuje po walidacji sesji,
+13. nowa rola obowiązuje przy kolejnej walidacji requestu/sesji,
 14. recovery hasła unieważnia starą sesję,
 15. pełny `npm test`, migracje i `npm run build` są GREEN.
 
@@ -474,13 +483,14 @@ Feature jest ukończony dopiero gdy:
 
 - ekran logowania nie wymaga `ADMIN_ACCESS_TOKEN`,
 - rejestracja i recovery działają na PostgreSQL,
+- rejestracja nie wykonuje ukrytego auto-loginu,
 - hasła są Argon2id,
 - sesja przeżywa restart procesu i reload klienta,
 - role pochodzą wyłącznie z `accounts.role`,
 - Admin API używa tej samej sesji co reszta aplikacji,
 - konto `PLAYER` nie może wykonać operacji administracyjnej nawet ręcznym requestem,
 - konto `ADMIN` widzi i używa obecnego Item Creatora,
-- pierwszy ADMIN może zostać bezpiecznie utworzony bootstrapem,
+- pierwszy ADMIN może zostać bezpiecznie utworzony bootstrapem z kontrolowanym recovery code,
 - kolejnych adminów można zarządzać z Panelu Admin,
 - nie można przypadkiem pozostawić systemu bez aktywnego ADMIN-a,
 - katalog przedmiotów i jego historia przetrwają migrację,
@@ -498,9 +508,11 @@ Zatwierdzone decyzje:
 4. Rejestracja, login, recovery i auto-resume wracają jako pełny flow.
 5. Recovery code pozostaje mechanizmem odzyskania na tym etapie.
 6. Pierwszy ADMIN powstaje przez jednorazowy bootstrap z env, tylko gdy nie istnieje żaden aktywny ADMIN.
-7. Kolejnymi rolami/statusami zarządza Panel Admin.
-8. Jedno konto ma obecnie maksymalnie jedną postać.
-9. Jedno konto ma obecnie jedną aktywną sesję.
-10. Centralny Item Creator i jego model wersjonowania pozostają bez zmian jako źródło definicji przedmiotów.
-11. Anonimowe stare sesje nie są mapowane do kont na podstawie nicku.
-12. Backend zawsze pozostaje autorytetem dla sesji, roli i ownership.
+7. Bootstrap pierwszego ADMIN-a wymaga kontrolowanego `INITIAL_ADMIN_RECOVERY_CODE`; sekret nie trafia do logów.
+8. Kolejnymi rolami/statusami zarządza Panel Admin.
+9. Jedno konto ma obecnie maksymalnie jedną postać.
+10. Jedno konto ma obecnie jedną aktywną sesję.
+11. `item_instances` należą docelowo do trwałego `character_id`.
+12. Centralny Item Creator i jego model wersjonowania pozostają bez zmian jako źródło definicji przedmiotów.
+13. Anonimowe stare sesje nie są mapowane do kont na podstawie nicku.
+14. Backend zawsze pozostaje autorytetem dla sesji, roli i ownership.

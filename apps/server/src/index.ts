@@ -35,7 +35,7 @@ async function startServer(): Promise<void> {
   );
 
   const httpServer = createServer(app);
-  createGameServer(httpServer, { sessions });
+  createGameServer(httpServer, { sessions, pool });
 
   httpServer.listen(port, host, () => {
     console.log(`WEB MMORPG server listening on http://${host}:${port}`);

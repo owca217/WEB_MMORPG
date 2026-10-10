@@ -127,7 +127,7 @@ describe("AuthPanel", () => {
 
     expect(host.querySelector<HTMLInputElement>("[name='username']")?.value).toBe("Owczy");
     expect(host.querySelector<HTMLInputElement>("[name='password']")?.value).toBe("very-secret-password");
-    expect(host.querySelector("[data-auth-error]")?.textContent).toBe("Nazwa jest zajęta.");
+    expect(host.querySelector("[data-auth-error]")?.textContent).toBe("Serwer odpowiedział błędem (409): Nazwa jest zajęta.");
   });
 
   it("recovers credentials, clears an existing token and shows the rotated recovery code", async () => {
@@ -202,6 +202,57 @@ describe("AuthPanel", () => {
     await flush();
 
     expect(store.getToken()).toBe("new-token");
+  });
+
+  it("distinguishes network failures from server responses", async () => {
+    const networkFetcher = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Promise.reject(new TypeError("Failed to fetch"))
+    );
+    const networkHost = document.createElement("div");
+    new AuthPanel(
+      networkHost,
+      new AuthApi("https://game.example.test", networkFetcher as unknown as typeof fetch),
+      new SessionStateStore(localStorage),
+      vi.fn()
+    ).mount();
+    input(networkHost, "username", "Owczy");
+    input(networkHost, "password", "very-secret-password");
+    submit(networkHost);
+    await flush();
+
+    const networkError = networkHost.querySelector<HTMLElement>("[data-auth-error]");
+    expect(networkError?.dataset.errorKind).toBe("network");
+    expect(networkError?.textContent).toContain("połączenie z internetem");
+
+    const serverFetcher = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        ({
+          ok: false,
+          status: 401,
+          json: async () => ({
+            code: "INVALID_CREDENTIALS",
+            message: "Nieprawidłowe dane logowania."
+          })
+        }) as Response
+    );
+    const serverHost = document.createElement("div");
+    new AuthPanel(
+      serverHost,
+      new AuthApi("https://game.example.test", serverFetcher as unknown as typeof fetch),
+      new SessionStateStore(localStorage),
+      vi.fn()
+    ).mount();
+    input(serverHost, "username", "Owczy");
+    input(serverHost, "password", "very-secret-password");
+    submit(serverHost);
+    await flush();
+
+    const serverError = serverHost.querySelector<HTMLElement>("[data-auth-error]");
+    expect(serverError?.dataset.errorKind).toBe("server");
+    expect(serverError?.textContent).toBe(
+      "Serwer odpowiedział błędem (401): Nieprawidłowe dane logowania."
+    );
   });
 
   it("stores a successful login and delegates lifecycle routing", async () => {

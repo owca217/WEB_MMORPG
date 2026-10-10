@@ -1,6 +1,6 @@
 import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
-import { AuthApi, AuthApiRequestError } from "../net/AuthApi";
+import { AuthApi, AuthApiNetworkError, AuthApiRequestError } from "../net/AuthApi";
 import { resolveGameServerUrl } from "../hosting";
 import { gameSocket } from "../net/GameSocket";
 import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
@@ -10,13 +10,23 @@ type AuthMode = "login" | "register" | "recover";
 type AuthenticatedRoute = (token: string, session: SessionView) => void;
 
 function errorMessage(error: unknown): string {
-  if (error instanceof AuthApiRequestError) return error.message;
-  return "Nie udało się połączyć z serwerem. Spróbuj ponownie.";
+  if (error instanceof AuthApiNetworkError) return error.message;
+  if (error instanceof AuthApiRequestError) {
+    return `Serwer odpowiedział błędem (${error.status}): ${error.message}`;
+  }
+  return "Wystąpił nieoczekiwany błąd. Spróbuj ponownie.";
+}
+
+function errorKind(error: unknown): string {
+  if (error instanceof AuthApiNetworkError) return "network";
+  if (error instanceof AuthApiRequestError) return "server";
+  return "unknown";
 }
 
 export class AuthPanel {
   private mode: AuthMode = "login";
   private recoveryUsername = "";
+  private isSubmitting = false;
 
   constructor(
     private readonly host: HTMLElement,
@@ -37,18 +47,20 @@ export class AuthPanel {
     this.host.innerHTML = `
       <section class="auth-panel login-panel" data-auth-panel data-mode="${this.mode}">
         <header class="auth-panel__header">
+          <p class="auth-panel__eyebrow">Świat czeka</p>
           <h1>WEB MMORPG</h1>
-          <p>Zaloguj się na swoje konto i wróć do świata gry.</p>
+          <p class="auth-panel__intro">Zaloguj się na swoje konto i wróć do gry.</p>
         </header>
         <nav class="auth-panel__modes" aria-label="Tryb konta">
           <button type="button" data-auth-mode="login">Logowanie</button>
           <button type="button" data-auth-mode="register">Rejestracja</button>
           <button type="button" data-auth-mode="recover">Odzyskiwanie</button>
         </nav>
-        <form data-auth-form novalidate>
+        <form class="auth-form" data-auth-form>
           ${this.fields(prefillUsername)}
-          <button type="submit">${this.submitLabel()}</button>
-          <p class="form-error" data-auth-error></p>
+          <button class="auth-submit" type="submit">${this.submitLabel()}</button>
+          <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
+          <p class="form-error" data-auth-error role="alert" aria-live="assertive"></p>
         </form>
         <div class="auth-recovery-modal is-hidden" data-recovery-modal role="dialog" aria-modal="true">
           <div class="auth-recovery-modal__card">
@@ -63,9 +75,10 @@ export class AuthPanel {
 
     for (const button of this.host.querySelectorAll<HTMLButtonElement>("[data-auth-mode]")) {
       button.classList.toggle("is-active", button.dataset.authMode === this.mode);
+      button.setAttribute("aria-pressed", String(button.dataset.authMode === this.mode));
       button.addEventListener("click", () => {
         const next = button.dataset.authMode as AuthMode | undefined;
-        if (!next || next === this.mode) return;
+        if (this.isSubmitting || !next || next === this.mode) return;
         this.mode = next;
         this.render(next === "login" ? prefillUsername : "");
       });
@@ -113,34 +126,58 @@ export class AuthPanel {
   private async submit(): Promise<void> {
     const form = this.host.querySelector<HTMLFormElement>("[data-auth-form]");
     const error = this.host.querySelector<HTMLElement>("[data-auth-error]");
-    if (!form || !error) return;
+    const status = this.host.querySelector<HTMLElement>("[data-auth-status]");
+    const submitButton = form?.querySelector<HTMLButtonElement>("[type='submit']");
+    if (!form || !error || !status || !submitButton || this.isSubmitting) return;
 
+    const mode = this.mode;
     const data = new FormData(form);
     const username = String(data.get("username") ?? "").trim();
+    const password = String(data.get("password") ?? "");
+    const passwordConfirmation = String(data.get("passwordConfirmation") ?? "");
     error.textContent = "";
+    delete error.dataset.errorKind;
+    status.textContent = "";
+    delete status.dataset.state;
+
+    if (!username) {
+      error.textContent = "Wpisz nazwę konta.";
+      error.dataset.errorKind = "validation";
+      return;
+    }
+    if (mode === "login" && !password) {
+      error.textContent = "Wpisz hasło.";
+      error.dataset.errorKind = "validation";
+      return;
+    }
+    if ((mode === "register" || mode === "recover") && password !== passwordConfirmation) {
+      error.textContent = "Podane hasła różnią się od siebie.";
+      error.dataset.errorKind = "validation";
+      return;
+    }
+
+    this.isSubmitting = true;
+    status.textContent = "Łączenie z serwerem…";
+    status.dataset.state = "connecting";
+    submitButton.disabled = true;
+    submitButton.textContent = "Łączenie…";
+    form.dataset.busy = "true";
+    for (const input of form.querySelectorAll<HTMLInputElement>("input")) input.disabled = true;
+    for (const button of this.host.querySelectorAll<HTMLButtonElement>("[data-auth-mode]")) {
+      button.disabled = true;
+    }
 
     try {
-      if (this.mode === "register") {
-        const password = String(data.get("password") ?? "");
-        const passwordConfirmation = String(data.get("passwordConfirmation") ?? "");
-        if (password !== passwordConfirmation) {
-          error.textContent = "Podane hasła różnią się od siebie.";
-          return;
-        }
+      if (mode === "register") {
         const result = await this.api.register(username, password, passwordConfirmation);
         this.recoveryUsername = username;
         this.showRecoveryCode(result.recoveryCode);
         return;
       }
 
-      if (this.mode === "recover") {
+      if (mode === "recover") {
         const recoveryCode = String(data.get("recoveryCode") ?? "").trim();
         const newPassword = String(data.get("newPassword") ?? "");
-        const passwordConfirmation = String(data.get("passwordConfirmation") ?? "");
-        if (newPassword !== passwordConfirmation) {
-          error.textContent = "Podane hasła różnią się od siebie.";
-          return;
-        }
         const result = await this.api.recover(
           username,
           recoveryCode,
@@ -153,12 +190,23 @@ export class AuthPanel {
         return;
       }
 
-      const password = String(data.get("password") ?? "");
       const result = await this.api.login(username, password);
       this.store.setAuthenticated(result.token, result.session);
       this.onAuthenticated(result.token, result.session);
     } catch (requestError) {
+      error.dataset.errorKind = errorKind(requestError);
       error.textContent = errorMessage(requestError);
+    } finally {
+      this.isSubmitting = false;
+      status.textContent = "";
+      delete status.dataset.state;
+      delete form.dataset.busy;
+      submitButton.disabled = false;
+      submitButton.textContent = this.submitLabel();
+      for (const input of form.querySelectorAll<HTMLInputElement>("input")) input.disabled = false;
+      for (const button of this.host.querySelectorAll<HTMLButtonElement>("[data-auth-mode]")) {
+        button.disabled = false;
+      }
     }
   }
 
@@ -239,7 +287,10 @@ export class AuthScene extends Phaser.Scene {
       this.scene.start("WorldScene", { playerId: socketResult.characterId });
     } catch (error) {
       const errorElement = this.host?.querySelector<HTMLElement>("[data-auth-error]");
-      if (errorElement) errorElement.textContent = errorMessage(error);
+      if (errorElement) {
+        errorElement.dataset.errorKind = errorKind(error);
+        errorElement.textContent = errorMessage(error);
+      }
     }
   }
 

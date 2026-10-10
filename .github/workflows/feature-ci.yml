@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/mvp-vertical-slice
+      - feature/restore-special-item-fields
       - fix/auth-login-panel-connection-state
       - feature/item-creator-design
       - feature/account-auth-restoration

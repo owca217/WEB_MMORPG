@@ -48,13 +48,15 @@ export class AdminApiRequestError extends Error {
 
 export class AdminApi {
   private readonly baseUrl: string;
+  private readonly fetcher: typeof fetch;
 
   constructor(
     baseUrl: string,
     private readonly getSessionToken: () => string | null,
-    private readonly fetcher: typeof fetch = fetch
+    fetcher: typeof fetch = fetch
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.fetcher = fetcher.bind(globalThis);
   }
 
   listAccounts(query: AdminAccountQuery = {}): Promise<AdminAccountPage> {

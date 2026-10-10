@@ -495,7 +495,7 @@ export class ItemMetadataRepository {
 
   private normalizedSpecialFieldCodes(fieldCodes: readonly string[]): string[] {
     for (const code of fieldCodes) {
-      if (!ENGINE_SPECIAL_FIELDS[code]) {
+      if (!Object.hasOwn(ENGINE_SPECIAL_FIELDS, code)) {
         throw new Error(`UNKNOWN_SPECIAL_FIELD_CODE:${code}`);
       }
     }

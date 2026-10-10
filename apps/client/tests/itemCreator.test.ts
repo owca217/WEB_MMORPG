@@ -12,12 +12,12 @@ import { ItemCreatorView } from "../src/ui/admin/ItemCreatorView";
 
 const metadata: ItemCreatorMetadata = {
   categories: [
-    { id: "weapon", name: "Broń", system: true, allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE", "WEIGHT"] },
-    { id: "material", name: "Materiały", system: true, allowedStatCodes: ["WEIGHT"] }
+    { id: "weapon", name: "Broń", system: true, allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE", "WEIGHT"], allowedSpecialFieldCodes: ["weaponFamily", "durability", "maxDurability", "socketCount"] },
+    { id: "material", name: "Materiały", system: true, allowedStatCodes: ["WEIGHT"], allowedSpecialFieldCodes: ["quality", "tier", "materialType", "craftingTags"] }
   ],
   subcategories: [
-    { id: "sword", categoryId: "weapon", name: "Miecze", system: true, allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE", "WEIGHT"] },
-    { id: "monster-part", categoryId: "material", name: "Części potworów", system: true, allowedStatCodes: ["WEIGHT"] }
+    { id: "sword", categoryId: "weapon", name: "Miecze", system: true, allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE", "WEIGHT"], allowedSpecialFieldCodes: ["weaponFamily", "durability", "maxDurability", "socketCount"] },
+    { id: "monster-part", categoryId: "material", name: "Części potworów", system: true, allowedStatCodes: ["WEIGHT"], allowedSpecialFieldCodes: ["quality", "tier", "materialType", "craftingTags"] }
   ],
   stats: [
     { code: "PHYSICAL_DAMAGE", label: "Obrażenia fizyczne", modifierTypes: ["flat", "percent"], minimum: -1000, maximum: 1000 },
@@ -31,6 +31,16 @@ const metadata: ItemCreatorMetadata = {
   effects: [
     { code: "DIRECT_DAMAGE", label: "Bezpośrednie obrażenia" },
     { code: "HEAL", label: "Leczenie" }
+  ],
+  specialFields: [
+    { code: "weaponFamily", label: "Rodzina broni", type: "select", options: [{ value: "sword", label: "Miecz" }, { value: "axe", label: "Topór" }] },
+    { code: "durability", label: "Trwałość", type: "number", minimum: 0, maximum: 1000 },
+    { code: "maxDurability", label: "Maksymalna trwałość", type: "number", minimum: 0, maximum: 1000 },
+    { code: "socketCount", label: "Liczba gniazd", type: "number", minimum: 0, maximum: 12, integer: true },
+    { code: "quality", label: "Jakość", type: "number", minimum: 0, maximum: 100, integer: true },
+    { code: "tier", label: "Tier", type: "number", minimum: 1, maximum: 10, integer: true },
+    { code: "materialType", label: "Typ materiału", type: "select", options: [{ value: "ore", label: "Ruda" }] },
+    { code: "craftingTags", label: "Tagi craftingu", type: "text-list" }
   ]
 };
 
@@ -165,7 +175,22 @@ describe("ItemCreatorView navigation and metadata constraints", () => {
     expect(statOptions).not.toContain("PHYSICAL_DAMAGE");
   });
 
-  it("supports modifier variants, negatives, effect proc fields and specialist JSON", async () => {
+  it("renders only typed specialist fields enabled for the selected category", async () => {
+    const host = document.createElement("div");
+    const view = new ItemCreatorView(host, createApi());
+    await view.loadMetadata();
+
+    click(host, "[data-step-target='specialist']");
+    expect(host.querySelector("[data-special-field='weaponFamily']")).not.toBeNull();
+    expect(host.querySelector("textarea[data-field='specialData']")).toBeNull();
+
+    select(host, "[data-field='categoryId']", "material");
+    click(host, "[data-step-target='specialist']");
+    expect(host.querySelector("[data-special-field='quality']")).not.toBeNull();
+    expect(host.querySelector("[data-special-field='weaponFamily']")).toBeNull();
+  });
+
+  it("supports modifier variants, negatives, effect proc fields and typed specialist fields", async () => {
     const host = document.createElement("div");
     const view = new ItemCreatorView(host, createApi());
     await view.loadMetadata();
@@ -188,7 +213,11 @@ describe("ItemCreatorView navigation and metadata constraints", () => {
     select(host, "[data-effect-cooldown]", "5000");
 
     click(host, "[data-step-target='specialist']");
-    select(host, "[data-field='specialData']", '{"durabilityLoss":2,"socketCount":1}');
+    select(host, "[data-special-field='weaponFamily']", "sword");
+    select(host, "[data-special-field='durability']", "20");
+    select(host, "[data-special-field='maxDurability']", "80");
+    select(host, "[data-special-field='socketCount']", "1");
+    expect(host.querySelector("[data-field='specialData']")).toBeNull();
 
     expect(view.getDraftSnapshot()).toMatchObject({
       stats: [{ statCode: "PHYSICAL_DAMAGE", modifierType: "percent", value: -12.5 }],
@@ -200,7 +229,7 @@ describe("ItemCreatorView navigation and metadata constraints", () => {
         durationMs: 3000,
         cooldownMs: 5000
       }],
-      specialData: { durabilityLoss: 2, socketCount: 1 }
+      specialData: { weaponFamily: "sword", durability: 20, maxDurability: 80, socketCount: 1 }
     });
   });
 });

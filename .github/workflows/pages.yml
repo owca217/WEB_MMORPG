@@ -2,7 +2,7 @@ name: Deploy client to GitHub Pages
 
 # Temporary deployment bridge: the github-pages environment currently allows
 # this historical branch. The workflow itself always builds current `main`.
-# Bridge refreshed for main commit a2a795469b3f7d3be8e315ad09941310252ddf4a.
+# Bridge refreshed for main commit 47e911114ab6006a47544b0d2a0bf04568368390.
 on:
   push:
     branches:

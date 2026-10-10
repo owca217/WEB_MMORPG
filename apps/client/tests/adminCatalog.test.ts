@@ -16,7 +16,8 @@ const metadata: ItemCreatorMetadata = {
       id: "weapon",
       name: "Broń",
       system: true,
-      allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE"]
+      allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE"],
+      allowedSpecialFieldCodes: []
     }
   ],
   subcategories: [
@@ -25,7 +26,8 @@ const metadata: ItemCreatorMetadata = {
       categoryId: "weapon",
       name: "Miecze",
       system: true,
-      allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE"]
+      allowedStatCodes: ["PHYSICAL_DAMAGE", "CRIT_DAMAGE"],
+      allowedSpecialFieldCodes: []
     }
   ],
   stats: [
@@ -36,7 +38,8 @@ const metadata: ItemCreatorMetadata = {
     }
   ],
   triggers: [],
-  effects: []
+  effects: [],
+  specialFields: []
 };
 
 function catalogItem(overrides: Partial<ItemDefinition> = {}): ItemDefinition {

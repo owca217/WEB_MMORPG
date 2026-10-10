@@ -69,3 +69,5 @@ export async function storeValidatedIcon(
 ): Promise<StoredIcon> {
   return storage.putIcon(validateIconUpload(input));
 }
+
+export { createIconStorageFromEnv } from "./createIconStorage";

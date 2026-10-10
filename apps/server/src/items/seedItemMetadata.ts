@@ -99,23 +99,56 @@ async function seedCategories(client: PoolClient): Promise<void> {
       [category.id, category.name]
     );
 
-    const isSystem = await client.query<{ system: boolean }>(
-      "SELECT system FROM item_categories WHERE id = $1",
+    const state = await client.query<{
+      system: boolean;
+      allowed_stats_seeded: boolean;
+      allowed_special_fields_seeded: boolean;
+    }>(
+      `SELECT system, allowed_stats_seeded, allowed_special_fields_seeded
+       FROM item_categories WHERE id = $1`,
       [category.id]
     );
-    if (isSystem.rows[0]?.system !== true) continue;
+    const row = state.rows[0];
+    if (row?.system !== true) continue;
 
-    await client.query(
-      `DELETE FROM category_allowed_stats
-       WHERE category_id = $1 AND subcategory_id IS NULL`,
-      [category.id]
-    );
-
-    for (const code of [...new Set(category.allowedStatCodes)].sort()) {
+    if (!row.allowed_stats_seeded) {
+      const existing = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM category_allowed_stats
+         WHERE category_id = $1 AND subcategory_id IS NULL`,
+        [category.id]
+      );
+      if (Number(existing.rows[0]?.count ?? 0) === 0) {
+        for (const code of [...new Set(category.allowedStatCodes)].sort()) {
+          await client.query(
+            `INSERT INTO category_allowed_stats (category_id, subcategory_id, stat_code)
+             VALUES ($1, NULL, $2)`,
+            [category.id, code]
+          );
+        }
+      }
       await client.query(
-        `INSERT INTO category_allowed_stats (category_id, subcategory_id, stat_code)
-         VALUES ($1, NULL, $2)`,
-        [category.id, code]
+        "UPDATE item_categories SET allowed_stats_seeded = TRUE WHERE id = $1",
+        [category.id]
+      );
+    }
+
+    if (!row.allowed_special_fields_seeded) {
+      const existing = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM category_allowed_special_fields
+         WHERE category_id = $1 AND subcategory_id IS NULL`,
+        [category.id]
+      );
+      if (Number(existing.rows[0]?.count ?? 0) === 0) {
+        await replaceAllowedSpecialFields(
+          client,
+          category.id,
+          null,
+          category.allowedSpecialFieldCodes
+        );
+      }
+      await client.query(
+        "UPDATE item_categories SET allowed_special_fields_seeded = TRUE WHERE id = $1",
+        [category.id]
       );
     }
   }
@@ -140,29 +173,92 @@ async function seedSubcategories(client: PoolClient): Promise<void> {
       [subcategory.id, subcategory.categoryId, subcategory.name]
     );
 
-    const isSystem = await client.query<{ system: boolean; category_id: string }>(
-      "SELECT system, category_id FROM item_subcategories WHERE id = $1",
+    const state = await client.query<{
+      system: boolean;
+      category_id: string;
+      allowed_stats_seeded: boolean;
+      allowed_special_fields_seeded: boolean;
+    }>(
+      `SELECT system, category_id, allowed_stats_seeded, allowed_special_fields_seeded
+       FROM item_subcategories WHERE id = $1`,
       [subcategory.id]
     );
-    if (
-      isSystem.rows[0]?.system !== true ||
-      isSystem.rows[0]?.category_id !== subcategory.categoryId
-    ) {
-      continue;
-    }
+    const row = state.rows[0];
+    if (row?.system !== true || row.category_id !== subcategory.categoryId) continue;
 
-    await client.query(
-      `DELETE FROM category_allowed_stats
-       WHERE category_id = $1 AND subcategory_id = $2`,
-      [subcategory.categoryId, subcategory.id]
-    );
-
-    for (const code of [...new Set(subcategory.allowedStatCodes)].sort()) {
+    if (!row.allowed_stats_seeded) {
+      const existing = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM category_allowed_stats
+         WHERE category_id = $1 AND subcategory_id = $2`,
+        [subcategory.categoryId, subcategory.id]
+      );
+      if (Number(existing.rows[0]?.count ?? 0) === 0) {
+        for (const code of [...new Set(subcategory.allowedStatCodes)].sort()) {
+          await client.query(
+            `INSERT INTO category_allowed_stats (category_id, subcategory_id, stat_code)
+             VALUES ($1, $2, $3)`,
+            [subcategory.categoryId, subcategory.id, code]
+          );
+        }
+      }
       await client.query(
-        `INSERT INTO category_allowed_stats (category_id, subcategory_id, stat_code)
-         VALUES ($1, $2, $3)`,
-        [subcategory.categoryId, subcategory.id, code]
+        "UPDATE item_subcategories SET allowed_stats_seeded = TRUE WHERE category_id = $1 AND id = $2",
+        [subcategory.categoryId, subcategory.id]
       );
     }
+
+    if (!row.allowed_special_fields_seeded) {
+      const existing = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM category_allowed_special_fields
+         WHERE category_id = $1 AND subcategory_id = $2`,
+        [subcategory.categoryId, subcategory.id]
+      );
+      if (Number(existing.rows[0]?.count ?? 0) === 0) {
+        const inheritedFields =
+          subcategory.allowedSpecialFieldCodes ??
+          SYSTEM_CATEGORIES.find((entry) => entry.id === subcategory.categoryId)
+            ?.allowedSpecialFieldCodes ??
+          [];
+        await replaceAllowedSpecialFields(
+          client,
+          subcategory.categoryId,
+          subcategory.id,
+          inheritedFields
+        );
+      }
+      await client.query(
+        "UPDATE item_subcategories SET allowed_special_fields_seeded = TRUE WHERE category_id = $1 AND id = $2",
+        [subcategory.categoryId, subcategory.id]
+      );
+    }
+  }
+}
+
+async function replaceAllowedSpecialFields(
+  client: PoolClient,
+  categoryId: string,
+  subcategoryId: string | null,
+  fieldCodes: readonly string[]
+): Promise<void> {
+  if (subcategoryId === null) {
+    await client.query(
+      `DELETE FROM category_allowed_special_fields
+       WHERE category_id = $1 AND subcategory_id IS NULL`,
+      [categoryId]
+    );
+  } else {
+    await client.query(
+      `DELETE FROM category_allowed_special_fields
+       WHERE category_id = $1 AND subcategory_id = $2`,
+      [categoryId, subcategoryId]
+    );
+  }
+
+  for (const code of [...new Set(fieldCodes)].sort()) {
+    await client.query(
+      `INSERT INTO category_allowed_special_fields (category_id, subcategory_id, field_code)
+       VALUES ($1, $2, $3)`,
+      [categoryId, subcategoryId, code]
+    );
   }
 }

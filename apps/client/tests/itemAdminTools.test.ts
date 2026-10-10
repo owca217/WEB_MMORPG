@@ -16,13 +16,15 @@ const metadata: ItemCreatorMetadata = {
       id: "weapon",
       name: "Broń",
       system: true,
-      allowedStatCodes: ["PHYSICAL_DAMAGE", "WEIGHT"]
+      allowedStatCodes: ["PHYSICAL_DAMAGE", "WEIGHT"],
+      allowedSpecialFieldCodes: ["weaponFamily", "durability"]
     },
     {
       id: "custom-relic",
       name: "Relikty",
       system: false,
-      allowedStatCodes: ["WEIGHT"]
+      allowedStatCodes: ["WEIGHT"],
+      allowedSpecialFieldCodes: []
     }
   ],
   subcategories: [
@@ -31,7 +33,8 @@ const metadata: ItemCreatorMetadata = {
       categoryId: "weapon",
       name: "Miecze",
       system: true,
-      allowedStatCodes: ["PHYSICAL_DAMAGE", "WEIGHT"]
+      allowedStatCodes: ["PHYSICAL_DAMAGE", "WEIGHT"],
+      allowedSpecialFieldCodes: ["weaponFamily", "durability"]
     }
   ],
   stats: [
@@ -51,7 +54,11 @@ const metadata: ItemCreatorMetadata = {
     }
   ],
   triggers: [],
-  effects: []
+  effects: [],
+  specialFields: [
+    { code: "weaponFamily", label: "Rodzina broni", type: "select", options: [{ value: "sword", label: "Miecz" }] },
+    { code: "durability", label: "Trwałość", type: "number", minimum: 0, maximum: 1000 }
+  ]
 };
 
 const versions: ItemVersionSummary[] = [
@@ -130,11 +137,11 @@ function historyApi() {
 function categoryApi() {
   return {
     getMetadata: vi.fn(async () => metadata),
-    createCategory: vi.fn(async (input: { id: string; name: string; allowedStatCodes: string[] }) => ({
+    createCategory: vi.fn(async (input: { id: string; name: string; allowedStatCodes: string[]; allowedSpecialFieldCodes: string[] }) => ({
       ...input,
       system: false
     })),
-    createSubcategory: vi.fn(async (input: { id: string; categoryId: string; name: string; allowedStatCodes: string[] }) => ({
+    createSubcategory: vi.fn(async (input: { id: string; categoryId: string; name: string; allowedStatCodes: string[]; allowedSpecialFieldCodes: string[] }) => ({
       ...input,
       system: false
     })),
@@ -142,7 +149,23 @@ function categoryApi() {
       id: categoryId,
       name: categoryId === "weapon" ? "Broń" : "Relikty",
       system: categoryId === "weapon",
-      allowedStatCodes
+      allowedStatCodes,
+      allowedSpecialFieldCodes: ["weaponFamily", "durability"]
+    })),
+    updateCategoryAllowedSpecialFields: vi.fn(async (categoryId: string, allowedSpecialFieldCodes: string[]) => ({
+      id: categoryId,
+      name: categoryId === "weapon" ? "Broń" : "Relikty",
+      system: categoryId === "weapon",
+      allowedStatCodes: ["WEIGHT"],
+      allowedSpecialFieldCodes
+    })),
+    updateSubcategoryAllowedSpecialFields: vi.fn(async (categoryId: string, subcategoryId: string, allowedSpecialFieldCodes: string[]) => ({
+      id: subcategoryId,
+      categoryId,
+      name: "Miecze",
+      system: true,
+      allowedStatCodes: ["WEIGHT"],
+      allowedSpecialFieldCodes
     }))
   } as unknown as AdminApi;
 }
@@ -234,8 +257,41 @@ describe("CategoryManagerView", () => {
     expect(api.createCategory).toHaveBeenCalledWith({
       id: "alchemy",
       name: "Alchemia",
-      allowedStatCodes: ["WEIGHT"]
+      allowedStatCodes: ["WEIGHT"],
+      allowedSpecialFieldCodes: []
     });
+  });
+
+  it("maps specialist fields for categories and subcategories using known engine fields", async () => {
+    const host = document.createElement("div");
+    const api = categoryApi();
+    const view = new CategoryManagerView(host, api);
+    await view.show();
+
+    const durability = host.querySelector<HTMLInputElement>(
+      "[data-category-special-field='weapon'][value='durability']"
+    );
+    if (!durability) throw new Error("Missing category specialist field");
+    durability.checked = false;
+    click(host, "[data-save-category-special-fields='weapon']");
+    await flush();
+    expect(api.updateCategoryAllowedSpecialFields).toHaveBeenCalledWith(
+      "weapon",
+      ["weaponFamily"]
+    );
+
+    const swordFamily = host.querySelector<HTMLInputElement>(
+      "[data-subcategory-special-field='weapon:sword'][value='weaponFamily']"
+    );
+    if (!swordFamily) throw new Error("Missing subcategory specialist field");
+    swordFamily.checked = false;
+    click(host, "[data-save-subcategory-special-fields='sword']");
+    await flush();
+    expect(api.updateSubcategoryAllowedSpecialFields).toHaveBeenCalledWith(
+      "weapon",
+      "sword",
+      ["durability"]
+    );
   });
 
   it("edits allowed stats from known checkboxes and offers no hard-delete action for system categories", async () => {

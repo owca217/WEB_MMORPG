@@ -44,7 +44,6 @@ export class ItemCreatorView {
   private persistedItemId: string | null = null;
   private revision: number | null = null;
   private dirty = false;
-  private specialDataRaw = "{}";
   private readonly stepHost: HTMLDivElement;
   private readonly statusHost: HTMLDivElement;
   private readonly preview: ItemTooltipPreview;
@@ -102,7 +101,6 @@ export class ItemCreatorView {
       this.revision = null;
     }
 
-    this.specialDataRaw = JSON.stringify(this.draft.specialData, null, 2);
     this.currentStep = "category";
     this.dirty = false;
     this.renderNavigation();
@@ -132,7 +130,6 @@ export class ItemCreatorView {
       }
       this.revision = saved.revision;
       this.draft = cloneDraft(saved);
-      this.specialDataRaw = JSON.stringify(this.draft.specialData, null, 2);
       this.dirty = false;
       this.setStatus(`Szkic zapisany • rewizja ${saved.revision}`);
       this.renderStep();
@@ -381,11 +378,17 @@ export class ItemCreatorView {
   }
 
   private renderSpecialistStep(): void {
+    const fields = this.allowedSpecialFields();
+    const controls = fields
+      .map((field) => specialFieldControl(field, this.draft.specialData[field.code]))
+      .join("");
     this.stepHost.innerHTML = `
       <section class="creator-step">
         <h3>Dane specjalistyczne</h3>
-        <p>JSON dla danych zależnych od typu przedmiotu. Silnik nadal waliduje znaczenie tych pól po stronie serwera.</p>
-        <label>specialData<textarea data-field="specialData" rows="12">${escapeHtml(this.specialDataRaw)}</textarea></label>
+        <p>Pola i dozwolone wartości pochodzą z konfiguracji kategorii. Serwer sprawdza ich typ, zakres i zgodność przed zapisem.</p>
+        ${fields.length === 0
+          ? "<p>Ta kategoria nie ma przypisanych pól specjalistycznych.</p>"
+          : `<div class="creator-special-fields">${controls}</div>`}
       </section>
     `;
   }
@@ -503,6 +506,11 @@ export class ItemCreatorView {
       return;
     }
 
+    if (element.dataset.specialField) {
+      this.updateSpecialField(element);
+      return;
+    }
+
     const fieldName = element.dataset.field;
     if (fieldName) {
       this.updateSimpleField(fieldName, element);
@@ -531,27 +539,74 @@ export class ItemCreatorView {
     this.removeFieldError(fieldName);
     switch (fieldName) {
       case "categoryId": {
+        const previousCategoryId = this.draft.categoryId;
+        const previousSubcategoryId = this.draft.subcategoryId;
         this.draft.categoryId = element.value;
         const validSubcategories = this.metadata!.subcategories.filter(
           (entry) => entry.categoryId === element.value
         );
-        if (!validSubcategories.some((entry) => entry.id === this.draft.subcategoryId)) {
-          const first = validSubcategories[0];
-          if (first) this.draft.subcategoryId = first.id;
+        const selectedSubcategory = validSubcategories.some(
+          (entry) => entry.id === previousSubcategoryId
+        )
+          ? previousSubcategoryId
+          : validSubcategories[0]?.id;
+        if (selectedSubcategory) this.draft.subcategoryId = selectedSubcategory;
+        else delete this.draft.subcategoryId;
+
+        const allowedStats = new Set(this.allowedStats().map((entry) => entry.code));
+        const allowedFields = new Set(this.allowedSpecialFields().map((entry) => entry.code));
+        const removedStats = this.draft.stats.filter((stat) => !allowedStats.has(stat.statCode));
+        const removedFields = Object.keys(this.draft.specialData).filter(
+          (code) => !allowedFields.has(code)
+        );
+        if (
+          (removedStats.length > 0 || removedFields.length > 0) &&
+          !window.confirm(
+            `Zmiana kategorii usunie nieobsługiwane dane: ${[
+              ...removedStats.map((stat) => stat.statCode),
+              ...removedFields
+            ].join(", ")}. Kontynuować?`
+          )
+        ) {
+          this.draft.categoryId = previousCategoryId;
+          if (previousSubcategoryId) this.draft.subcategoryId = previousSubcategoryId;
           else delete this.draft.subcategoryId;
+          (element as HTMLSelectElement).value = previousCategoryId;
+          return;
         }
-        const allowed = new Set(this.allowedStats().map((entry) => entry.code));
-        this.draft.stats = this.draft.stats.filter((stat) => allowed.has(stat.statCode));
+        this.draft.stats = this.draft.stats.filter((stat) => allowedStats.has(stat.statCode));
+        for (const code of removedFields) delete this.draft.specialData[code];
         this.dirty = true;
         this.renderStep();
         this.renderPreview();
         return;
       }
       case "subcategoryId": {
+        const previousSubcategoryId = this.draft.subcategoryId;
         if (element.value) this.draft.subcategoryId = element.value;
         else delete this.draft.subcategoryId;
-        const allowed = new Set(this.allowedStats().map((entry) => entry.code));
-        this.draft.stats = this.draft.stats.filter((stat) => allowed.has(stat.statCode));
+        const allowedStats = new Set(this.allowedStats().map((entry) => entry.code));
+        const allowedFields = new Set(this.allowedSpecialFields().map((entry) => entry.code));
+        const removedStats = this.draft.stats.filter((stat) => !allowedStats.has(stat.statCode));
+        const removedFields = Object.keys(this.draft.specialData).filter(
+          (code) => !allowedFields.has(code)
+        );
+        if (
+          (removedStats.length > 0 || removedFields.length > 0) &&
+          !window.confirm(
+            `Zmiana podkategorii usunie nieobsługiwane dane: ${[
+              ...removedStats.map((stat) => stat.statCode),
+              ...removedFields
+            ].join(", ")}. Kontynuować?`
+          )
+        ) {
+          if (previousSubcategoryId) this.draft.subcategoryId = previousSubcategoryId;
+          else delete this.draft.subcategoryId;
+          (element as HTMLSelectElement).value = previousSubcategoryId ?? "";
+          return;
+        }
+        this.draft.stats = this.draft.stats.filter((stat) => allowedStats.has(stat.statCode));
+        for (const code of removedFields) delete this.draft.specialData[code];
         break;
       }
       case "itemId":
@@ -594,20 +649,6 @@ export class ItemCreatorView {
         break;
       case "tags":
         this.draft.tags = [...new Set(element.value.split(",").map((value) => value.trim()).filter(Boolean))];
-        break;
-      case "specialData":
-        this.specialDataRaw = element.value;
-        try {
-          const parsed = JSON.parse(element.value) as unknown;
-          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-            this.draft.specialData = parsed as Record<string, unknown>;
-            this.removeFieldError("specialData");
-          } else {
-            this.showLocalFieldError("specialData", "specialData musi być obiektem JSON.");
-          }
-        } catch {
-          this.showLocalFieldError("specialData", "Nieprawidłowy JSON.");
-        }
         break;
     }
     this.dirty = true;
@@ -684,6 +725,65 @@ export class ItemCreatorView {
     this.renderPreview();
   }
 
+  private updateSpecialField(
+    element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+  ): void {
+    const code = element.dataset.specialField;
+    const definition = this.metadata?.specialFields.find((entry) => entry.code === code);
+    if (!code || !definition) return;
+    this.removeFieldError(`specialData.${code}`);
+
+    switch (definition.type) {
+      case "boolean":
+        this.draft.specialData[code] = (element as HTMLInputElement).checked;
+        break;
+      case "number":
+        if (!element.value.trim()) delete this.draft.specialData[code];
+        else {
+          const value = Number(element.value);
+          if (Number.isFinite(value)) this.draft.specialData[code] = value;
+        }
+        break;
+      case "select":
+        if (element.value) this.draft.specialData[code] = element.value;
+        else delete this.draft.specialData[code];
+        break;
+      case "text":
+        if (element.value.trim()) this.draft.specialData[code] = element.value.trim();
+        else delete this.draft.specialData[code];
+        break;
+      case "text-list":
+        this.draft.specialData[code] = element.value
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        if ((this.draft.specialData[code] as string[]).length === 0) {
+          delete this.draft.specialData[code];
+        }
+        break;
+    }
+    this.dirty = true;
+    this.renderPreview();
+  }
+
+  private allowedSpecialFields() {
+    if (!this.metadata) return [];
+    const category = this.metadata.categories.find(
+      (entry) => entry.id === this.draft.categoryId
+    );
+    const subcategory = this.metadata.subcategories.find(
+      (entry) =>
+        entry.categoryId === this.draft.categoryId &&
+        entry.id === this.draft.subcategoryId
+    );
+    const allowedCodes = new Set(
+      subcategory
+        ? subcategory.allowedSpecialFieldCodes
+        : category?.allowedSpecialFieldCodes ?? []
+    );
+    return this.metadata.specialFields.filter((entry) => allowedCodes.has(entry.code));
+  }
+
   private allowedStats() {
     if (!this.metadata) return [];
     const category = this.metadata.categories.find((entry) => entry.id === this.draft.categoryId);
@@ -734,23 +834,32 @@ export class ItemCreatorView {
   }
 
   private showLocalFieldError(name: string, message: string): void {
-    const element = this.host.querySelector<HTMLElement>(`[data-field='${cssEscape(name)}']`);
+    const specialCode = name.startsWith("specialData.") ? name.slice("specialData.".length) : null;
+    const element = specialCode
+      ? this.host.querySelector<HTMLElement>(`[data-special-field='${cssEscape(specialCode)}']`)
+      : this.host.querySelector<HTMLElement>(`[data-field='${cssEscape(name)}']`);
     if (!element) return;
     element.classList.add("has-error");
-    const existing = this.host.querySelector<HTMLElement>(`[data-error-for='${cssEscape(name)}']`);
+    const errorKey = specialCode ?? name;
+    const existing = this.host.querySelector<HTMLElement>(`[data-error-for='${cssEscape(errorKey)}']`);
     if (existing) existing.textContent = message;
     else {
       const error = document.createElement("small");
       error.className = "creator-field-error";
-      error.dataset.errorFor = name;
+      error.dataset.errorFor = errorKey;
       error.textContent = message;
       element.insertAdjacentElement("afterend", error);
     }
   }
 
   private removeFieldError(name: string): void {
-    this.host.querySelector<HTMLElement>(`[data-field='${cssEscape(name)}']`)?.classList.remove("has-error");
-    this.host.querySelector<HTMLElement>(`[data-error-for='${cssEscape(name)}']`)?.remove();
+    const specialCode = name.startsWith("specialData.") ? name.slice("specialData.".length) : null;
+    const selector = specialCode
+      ? `[data-special-field='${cssEscape(specialCode)}']`
+      : `[data-field='${cssEscape(name)}']`;
+    this.host.querySelector<HTMLElement>(selector)?.classList.remove("has-error");
+    const errorKey = specialCode ?? name;
+    this.host.querySelector<HTMLElement>(`[data-error-for='${cssEscape(errorKey)}']`)?.remove();
   }
 
   private clearFieldErrors(): void {
@@ -812,6 +921,41 @@ function definitionToDraft(item: ItemDetails["item"]): ItemDraftInput {
 
 function cloneDraft(input: ItemDraftInput): ItemDraftInput {
   return JSON.parse(JSON.stringify(input)) as ItemDraftInput;
+}
+
+function specialFieldControl(
+  field: ItemCreatorMetadata["specialFields"][number],
+  value: unknown
+): string {
+  const code = escapeAttribute(field.code);
+  const label = escapeHtml(field.label);
+  const fieldError = `<small data-error-for="${code}" class="creator-field-error"></small>`;
+
+  if (field.type === "boolean") {
+    return `<label class="creator-checkbox"><input data-special-field="${code}" type="checkbox" ${value === true ? "checked" : ""} /> ${label}</label>`;
+  }
+  if (field.type === "select") {
+    const selected = typeof value === "string" ? value : "";
+    const options = [
+      option("", "— wybierz —", selected === ""),
+      ...(field.options ?? []).map((entry) =>
+        option(entry.value, entry.label, entry.value === selected)
+      )
+    ].join("");
+    return `<label>${label}<select data-special-field="${code}">${options}</select>${fieldError}</label>`;
+  }
+  if (field.type === "number") {
+    const numericValue = typeof value === "number" ? String(value) : "";
+    const minimum = field.minimum === undefined ? "" : `min="${field.minimum}"`;
+    const maximum = field.maximum === undefined ? "" : `max="${field.maximum}"`;
+    return `<label>${label}<input data-special-field="${code}" type="number" step="${field.integer ? "1" : "any"}" ${minimum} ${maximum} value="${escapeAttribute(numericValue)}" />${fieldError}</label>`;
+  }
+  const textValue =
+    field.type === "text-list"
+      ? Array.isArray(value) ? value.filter((entry) => typeof entry === "string").join(", ") : ""
+      : typeof value === "string" ? value : "";
+  const placeholder = field.type === "text-list" ? "Oddziel przecinkami" : "";
+  return `<label>${label}<input data-special-field="${code}" type="text" value="${escapeAttribute(textValue)}" placeholder="${placeholder}" />${fieldError}</label>`;
 }
 
 function option(value: string, label: string, selected: boolean): string {

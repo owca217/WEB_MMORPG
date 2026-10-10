@@ -58,6 +58,10 @@ describeDatabase("item creator metadata", () => {
       expect.arrayContaining(["ARMOR", "MAX_HP", "MAGIC_RESIST"])
     );
     expect(material?.allowedStatCodes).not.toContain("CRIT_DAMAGE");
+    expect(material?.allowedSpecialFieldCodes).toEqual(
+      expect.arrayContaining(["quality", "tier", "materialType", "craftingTags"])
+    );
+    expect(material?.allowedSpecialFieldCodes).not.toContain("weaponFamily");
   });
 
   it("is idempotent and preserves the same creator metadata", async () => {
@@ -73,7 +77,8 @@ describeDatabase("item creator metadata", () => {
       {
         id: "firearm",
         name: "Broń palna",
-        allowedStatCodes: ["PHYSICAL_DAMAGE", "ACCURACY", "RELOAD_TIME"]
+        allowedStatCodes: ["PHYSICAL_DAMAGE", "ACCURACY", "RELOAD_TIME"],
+        allowedSpecialFieldCodes: ["ammoDamage", "damageType"]
       },
       "admin-player"
     );
@@ -88,13 +93,15 @@ describeDatabase("item creator metadata", () => {
       "PHYSICAL_DAMAGE",
       "RELOAD_TIME"
     ]);
+    expect(created.allowedSpecialFieldCodes).toEqual(["ammoDamage", "damageType"]);
 
     const subcategory = await repository.createSubcategory(
       {
         id: "rifle",
         categoryId: "firearm",
         name: "Karabin",
-        allowedStatCodes: ["PHYSICAL_DAMAGE", "ACCURACY"]
+        allowedStatCodes: ["PHYSICAL_DAMAGE", "ACCURACY"],
+        allowedSpecialFieldCodes: ["ammoDamage"]
       },
       "admin-player"
     );
@@ -103,8 +110,63 @@ describeDatabase("item creator metadata", () => {
       id: "rifle",
       categoryId: "firearm",
       name: "Karabin",
-      system: false
+      system: false,
+      allowedSpecialFieldCodes: ["ammoDamage"]
     });
+  });
+
+  it("updates category and subcategory specialist field mappings", async () => {
+    const updatedCategory = await repository.updateCategoryAllowedSpecialFields(
+      "weapon",
+      ["weaponFamily", "durability"],
+      "admin-player"
+    );
+    expect(updatedCategory.allowedSpecialFieldCodes).toEqual(["durability", "weaponFamily"]);
+
+    const updatedSubcategory = await repository.updateSubcategoryAllowedSpecialFields(
+      "weapon",
+      "sword",
+      ["weaponFamily"],
+      "admin-player"
+    );
+    expect(updatedSubcategory.allowedSpecialFieldCodes).toEqual(["weaponFamily"]);
+
+    await seedItemMetadata(pool);
+    const afterReseed = await repository.listMetadata();
+    expect(
+      afterReseed.categories.find((entry) => entry.id === "weapon")?.allowedSpecialFieldCodes
+    ).toEqual(["durability", "weaponFamily"]);
+    expect(
+      afterReseed.subcategories.find((entry) => entry.id === "sword")?.allowedSpecialFieldCodes
+    ).toEqual(["weaponFamily"]);
+  });
+
+  it("rejects mappings to unknown engine specialist fields", async () => {
+    await expect(
+      repository.createCategory(
+        {
+          id: "invalid-fields",
+          name: "Niepoprawna",
+          allowedStatCodes: [],
+          allowedSpecialFieldCodes: ["madeUpMechanic"]
+        },
+        "admin-player"
+      )
+    ).rejects.toThrow("UNKNOWN_SPECIAL_FIELD_CODE:madeUpMechanic");
+  });
+
+  it("rejects inherited object keys as specialist fields", async () => {
+    await expect(
+      repository.createCategory(
+        {
+          id: "inherited-field",
+          name: "Niepoprawna",
+          allowedStatCodes: [],
+          allowedSpecialFieldCodes: ["constructor"]
+        },
+        "admin-player"
+      )
+    ).rejects.toThrow("UNKNOWN_SPECIAL_FIELD_CODE:constructor");
   });
 
   it("rejects custom mappings to unknown engine stat codes", async () => {

@@ -122,6 +122,7 @@ export function validateItemDraft(
   if (!category) return { ok: false, code: `CATEGORY_NOT_FOUND:${input.categoryId}` };
 
   let allowedStats = new Set(category.allowedStatCodes);
+  let allowedSpecialFieldCodes = new Set(category.allowedSpecialFieldCodes ?? []);
   if (input.subcategoryId) {
     const subcategory = metadata.subcategories.find(
       (entry) =>
@@ -134,6 +135,7 @@ export function validateItemDraft(
       };
     }
     allowedStats = new Set(subcategory.allowedStatCodes);
+    allowedSpecialFieldCodes = new Set(subcategory.allowedSpecialFieldCodes ?? []);
   }
 
   const statDefinitions = new Map(metadata.stats.map((stat) => [stat.code, stat]));
@@ -179,6 +181,69 @@ export function validateItemDraft(
     return { ok: false, code: "MIN_DAMAGE_EXCEEDS_MAX_DAMAGE" };
   }
 
+  const specialFieldDefinitions = new Map(
+    (metadata.specialFields ?? []).map((field) => [field.code, field])
+  );
+  for (const [code, value] of Object.entries(input.specialData)) {
+    const field = specialFieldDefinitions.get(code);
+    if (!field) {
+      return { ok: false, code: `UNKNOWN_SPECIAL_FIELD_CODE:${code}` };
+    }
+    if (!allowedSpecialFieldCodes.has(code)) {
+      return { ok: false, code: `SPECIAL_FIELD_NOT_ALLOWED:${code}` };
+    }
+    const errorCode = validateSpecialFieldValue(field, value);
+    if (errorCode) {
+      return {
+        ok: false,
+        code: errorCode,
+        fieldErrors: { [`specialData.${code}`]: specialistFieldMessage(errorCode) }
+      };
+    }
+  }
+
+  for (const code of allowedSpecialFieldCodes) {
+    const field = specialFieldDefinitions.get(code);
+    if (field?.required && !(code in input.specialData)) {
+      return {
+        ok: false,
+        code: `REQUIRED_SPECIAL_FIELD_MISSING:${code}`,
+        fieldErrors: { [`specialData.${code}`]: "To pole jest wymagane." }
+      };
+    }
+  }
+
+  const durability = input.specialData.durability;
+  const maxDurability = input.specialData.maxDurability;
+  if (
+    typeof durability === "number" &&
+    typeof maxDurability === "number" &&
+    durability > maxDurability
+  ) {
+    return {
+      ok: false,
+      code: "SPECIAL_FIELD_RANGE_INCONSISTENT:durability:maxDurability",
+      fieldErrors: {
+        "specialData.durability": "Trwałość nie może przekraczać maksimum."
+      }
+    };
+  }
+
+  const rarityOrder = ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"];
+  const minimumRarity = input.specialData.minRarity;
+  const maximumRarity = input.specialData.maxRarity;
+  if (
+    typeof minimumRarity === "string" &&
+    typeof maximumRarity === "string" &&
+    rarityOrder.indexOf(minimumRarity) > rarityOrder.indexOf(maximumRarity)
+  ) {
+    return {
+      ok: false,
+      code: "SPECIAL_FIELD_RANGE_INCONSISTENT:minRarity:maxRarity",
+      fieldErrors: { "specialData.minRarity": "Minimalna rzadkość przekracza maksymalną." }
+    };
+  }
+
   const triggerCodes = new Set(metadata.triggers.map((trigger) => trigger.code));
   const effectCodes = new Set(metadata.effects.map((effect) => effect.code));
   for (const effect of input.effects) {
@@ -191,6 +256,65 @@ export function validateItemDraft(
   }
 
   return { ok: true };
+}
+
+function validateSpecialFieldValue(
+  field: ItemCreatorMetadata["specialFields"][number],
+  value: unknown
+): string | null {
+  switch (field.type) {
+    case "text":
+      if (typeof value !== "string" || value.trim().length === 0 || value.length > 240) {
+        return `SPECIAL_FIELD_VALUE_INVALID:${field.code}`;
+      }
+      if (field.format === "id" && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
+        return `SPECIAL_FIELD_VALUE_INVALID:${field.code}`;
+      }
+      return null;
+    case "number":
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        (field.integer && !Number.isInteger(value))
+      ) {
+        return `SPECIAL_FIELD_VALUE_INVALID:${field.code}`;
+      }
+      if (
+        (field.minimum !== undefined && value < field.minimum) ||
+        (field.maximum !== undefined && value > field.maximum)
+      ) {
+        return `SPECIAL_FIELD_VALUE_OUT_OF_RANGE:${field.code}`;
+      }
+      return null;
+    case "boolean":
+      return typeof value === "boolean"
+        ? null
+        : `SPECIAL_FIELD_VALUE_INVALID:${field.code}`;
+    case "select":
+      return typeof value === "string" &&
+        field.options?.some((option) => option.value === value)
+        ? null
+        : `SPECIAL_FIELD_VALUE_NOT_ALLOWED:${field.code}`;
+    case "text-list":
+      return Array.isArray(value) &&
+        value.length <= 100 &&
+        value.every(
+          (entry) =>
+            typeof entry === "string" &&
+            entry.trim().length > 0 &&
+            entry.length <= 120 &&
+            (field.format !== "id" || /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry))
+        )
+        ? null
+        : `SPECIAL_FIELD_VALUE_INVALID:${field.code}`;
+  }
+}
+
+function specialistFieldMessage(code: string): string {
+  if (code.includes("OUT_OF_RANGE")) return "Wartość jest poza dozwolonym zakresem.";
+  if (code.includes("NOT_ALLOWED")) return "Wybierz wartość z dostępnej listy.";
+  if (code.includes("INVALID")) return "Wartość ma niepoprawny format.";
+  return "Niepoprawna wartość pola.";
 }
 
 export function assertValidItemDraft(

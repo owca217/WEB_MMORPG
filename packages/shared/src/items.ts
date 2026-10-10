@@ -40,11 +40,31 @@ export interface ItemEffect {
   condition?: Record<string, unknown>;
 }
 
+export type ItemSpecialFieldType = "text" | "number" | "boolean" | "select" | "text-list";
+
+export interface ItemSpecialFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface ItemSpecialFieldDefinition {
+  code: string;
+  label: string;
+  type: ItemSpecialFieldType;
+  required?: boolean;
+  minimum?: number;
+  maximum?: number;
+  integer?: boolean;
+  format?: "id";
+  options?: ItemSpecialFieldOption[];
+}
+
 export interface ItemCategoryDefinition {
   id: string;
   name: string;
   system: boolean;
   allowedStatCodes: StatCode[];
+  allowedSpecialFieldCodes: string[];
 }
 
 export interface ItemSubcategoryDefinition {
@@ -53,6 +73,7 @@ export interface ItemSubcategoryDefinition {
   name: string;
   system: boolean;
   allowedStatCodes: StatCode[];
+  allowedSpecialFieldCodes: string[];
 }
 
 export interface ItemDraftInput {
@@ -117,6 +138,7 @@ export interface ItemCreatorMetadata {
   }>;
   triggers: Array<{ code: TriggerCode; label: string }>;
   effects: Array<{ code: EffectCode; label: string }>;
+  specialFields: ItemSpecialFieldDefinition[];
 }
 
 export interface ItemDetails {

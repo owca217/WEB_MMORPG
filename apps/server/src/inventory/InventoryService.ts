@@ -373,7 +373,7 @@ export class InventoryService {
       ...(category === "bag" && capacity !== null && capacity !== undefined ? { containerCapacity: Number(capacity) } : {}),
       ...(row.container_instance_id ? { containerInstanceId: row.container_instance_id } : {}),
       ...(row.icon_url ? { iconUrl: row.icon_url } : {}),
-      rarity: row.rarity,
+      ...(row.rarity ? { rarity: row.rarity } : {}),
       ...(row.durability === null ? {} : { durability: Number(row.durability) }),
       ...(row.max_durability === null
         ? {}

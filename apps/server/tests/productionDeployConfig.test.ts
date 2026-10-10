@@ -44,4 +44,10 @@ describe("production account-auth deployment", () => {
       "VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com"
     );
   });
+
+  it("builds the client for the Render web root in CI", () => {
+    expect(featureCi).toContain(
+      "VITE_BASE_PATH=/ VITE_GAME_SERVER_URL='' npm run build -w @web-mmorpg/client"
+    );
+  });
 });

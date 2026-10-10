@@ -184,6 +184,7 @@ describe("ItemCreatorView navigation and metadata constraints", () => {
     expect(host.querySelector("[data-special-field='weaponFamily']")).not.toBeNull();
     expect(host.querySelector("textarea[data-field='specialData']")).toBeNull();
 
+    click(host, "[data-step-target='category']");
     select(host, "[data-field='categoryId']", "material");
     click(host, "[data-step-target='specialist']");
     expect(host.querySelector("[data-special-field='quality']")).not.toBeNull();

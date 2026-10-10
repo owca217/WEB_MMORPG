@@ -16,6 +16,19 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("AuthApi", () => {
+  it("invokes fetch with the browser global as its receiver", async () => {
+    let receiver: unknown;
+    const fetcher = function (this: unknown): Promise<Response> {
+      receiver = this;
+      return Promise.resolve(jsonResponse({ token: "session-token", session }));
+    } as typeof fetch;
+    const api = new AuthApi("https://game.example", fetcher);
+
+    await api.login("Owczy", "secret-password");
+
+    expect(receiver).toBe(globalThis);
+  });
+
   it("uses the auth REST endpoints and Bearer token for authenticated requests", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

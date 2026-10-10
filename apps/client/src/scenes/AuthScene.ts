@@ -133,7 +133,10 @@ export class AuthPanel {
     const mode = this.mode;
     const data = new FormData(form);
     const username = String(data.get("username") ?? "").trim();
-    const password = String(data.get("password") ?? "");
+    const password =
+      mode === "recover"
+        ? String(data.get("newPassword") ?? "")
+        : String(data.get("password") ?? "");
     const passwordConfirmation = String(data.get("passwordConfirmation") ?? "");
     error.textContent = "";
     delete error.dataset.errorKind;

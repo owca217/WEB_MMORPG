@@ -47,7 +47,7 @@ describe("WorldService", () => {
   it("exposes guide, healer and wolf encounter in the forest settlement", () => {
     const snapshot = new WorldService().snapshot("forest-settlement-01");
 
-    expect(snapshot.npcs.map((npc) => npc.kind).sort()).toEqual(["guide", "healer"]);
+    expect(snapshot.npcs.map((npc) => npc.kind).sort()).toEqual(["guide", "healer", "quartermaster"]);
     expect(snapshot.encounters.some((encounter) => encounter.id === "wolf-pack-01")).toBe(true);
   });
 

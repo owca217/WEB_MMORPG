@@ -45,7 +45,7 @@ interface CharacterRow {
 
 const SELECT_COLUMNS = `
   id, account_id, nickname, nickname_normalized, appearance,
-  location_id, x, y, level, hp, max_hp, max_ap, initiative,
+  location_id, x, y, level, experience, hp, max_hp, max_ap, initiative,
   severely_injured, injuries, deletion_requested_at, deletion_effective_at
 `;
 
@@ -60,6 +60,7 @@ function mapCharacter(row: CharacterRow): PersistedCharacterRecord {
     x: Number(row.x),
     y: Number(row.y),
     level: row.level,
+    experience: row.experience,
     hp: row.hp,
     maxHp: row.max_hp,
     maxAp: row.max_ap,

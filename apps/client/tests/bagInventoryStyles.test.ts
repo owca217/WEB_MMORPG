@@ -22,7 +22,7 @@ describe("bag inventory responsive styles", () => {
     });
 
     expect(checkerboardRules).toEqual([
-      ".game-panel--inventory .inventory-list:not(.inventory-list--bag)"
+      'body[data-game-ui-theme="classic-rpg"] .game-panel--inventory .inventory-list:not(.inventory-list--bag)'
     ]);
   });
 });

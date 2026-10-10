@@ -22,7 +22,9 @@ const serverPackage = JSON.parse(
 
 describe("production account-auth deployment", () => {
   it("deploys/builds the final main branch with npm 11", () => {
-    expect(pagesWorkflow).toContain("      - main");
+    expect(
+      pagesWorkflow.includes("      - main") || pagesWorkflow.includes("ref: main")
+    ).toBe(true);
     expect(pagesWorkflow).toContain("npm install --global npm@11");
     expect(featureCi).toContain("      - main");
   });

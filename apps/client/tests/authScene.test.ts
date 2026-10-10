@@ -9,7 +9,7 @@ vi.mock("phaser", () => ({
   }
 }));
 
-import { AuthApiRequestError, type AuthApi } from "../src/net/AuthApi";
+import { AuthApi, AuthApiRequestError } from "../src/net/AuthApi";
 import { AuthPanel } from "../src/scenes/AuthScene";
 import { SessionStateStore } from "../src/state/SessionStateStore";
 
@@ -155,6 +155,53 @@ describe("AuthPanel", () => {
     expect(host.querySelector("[data-recovery-code]")?.textContent).toContain("NEW-RECOVERY-456");
     expect(JSON.stringify(localStorage)).not.toContain("OLD-CODE");
     expect(JSON.stringify(localStorage)).not.toContain("new-secret-password");
+  });
+
+  it("sends login through AuthApi and shows progress while waiting for the server", async () => {
+    let resolveResponse!: (response: Response) => void;
+    const fetcher = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        })
+    );
+    const authApi = new AuthApi(
+      "https://game.example.test",
+      fetcher as unknown as typeof fetch
+    );
+    const host = document.createElement("div");
+    const session: SessionView = {
+      accountUsername: "Owczy",
+      accountRole: "PLAYER",
+      character: { state: "none" }
+    };
+    const store = new SessionStateStore(localStorage);
+    new AuthPanel(host, authApi, store, vi.fn()).mount();
+
+    input(host, "username", "Owczy");
+    input(host, "password", "very-secret-password");
+    submit(host);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, request] = fetcher.mock.calls[0] ?? [];
+    expect(url).toBe("https://game.example.test/api/auth/login");
+    expect(request?.method).toBe("POST");
+    expect(JSON.parse(String(request?.body))).toEqual({
+      username: "Owczy",
+      password: "very-secret-password"
+    });
+    expect(new Headers(request?.headers).get("content-type")).toBe("application/json");
+    expect(host.querySelector("[data-auth-status]")?.textContent).toBe("Łączenie z serwerem…");
+    expect(host.querySelector<HTMLButtonElement>("[type='submit']")?.disabled).toBe(true);
+
+    resolveResponse({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ token: "new-token", session })
+    } as Response);
+    await flush();
+
+    expect(store.getToken()).toBe("new-token");
   });
 
   it("stores a successful login and delegates lifecycle routing", async () => {

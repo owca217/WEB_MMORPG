@@ -70,4 +70,4 @@ export async function storeValidatedIcon(
   return storage.putIcon(validateIconUpload(input));
 }
 
-export { createIconStorageFromEnv } from "./createIconStorage";
+export { createIconStorage as createIconStorageFromEnv } from "./createIconStorage";

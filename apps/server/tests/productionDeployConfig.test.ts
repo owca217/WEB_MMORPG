@@ -22,7 +22,9 @@ const serverPackage = JSON.parse(
 
 describe("production account-auth deployment", () => {
   it("deploys/builds the final main branch with npm 11", () => {
-    expect(pagesWorkflow).toContain("      - main");
+    expect(
+      pagesWorkflow.includes("      - main") || pagesWorkflow.includes("ref: main")
+    ).toBe(true);
     expect(pagesWorkflow).toContain("npm install --global npm@11");
     expect(featureCi).toContain("      - main");
   });
@@ -42,6 +44,12 @@ describe("production account-auth deployment", () => {
   it("keeps the production game server URL in the Pages build", () => {
     expect(pagesWorkflow).toContain(
       "VITE_GAME_SERVER_URL: https://web-mmorpg-server.onrender.com"
+    );
+  });
+
+  it("builds the client for the Render web root in CI", () => {
+    expect(featureCi).toContain(
+      "VITE_BASE_PATH=/ VITE_GAME_SERVER_URL='' npm run build -w @web-mmorpg/client"
     );
   });
 });

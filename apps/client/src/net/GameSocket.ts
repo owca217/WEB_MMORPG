@@ -11,6 +11,7 @@ import type {
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
+import { resolveGameServerUrl } from "../hosting";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -29,7 +30,10 @@ export class GameSocket {
   connect(): GameClientSocket {
     if (this.socket) return this.socket;
 
-    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    const serverUrl = resolveGameServerUrl(
+      import.meta.env.VITE_GAME_SERVER_URL,
+      import.meta.env.DEV
+    );
     const socket = io(serverUrl, { transports: ["websocket"] });
     this.socket = socket;
 

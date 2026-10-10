@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import cors from "cors";
-import express from "express";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AccountAdminService } from "./admin/AccountAdminService";
 import { createAdminRouter } from "./admin/createAdminRouter";
 import { createIconStorage } from "./admin/createIconStorage";
@@ -12,6 +12,7 @@ import { createPool } from "./db/createPool";
 import { runMigrations } from "./db/migrate";
 import { createAuthRouter } from "./http/createAuthRouter";
 import { createItemIconRouter } from "./http/createItemIconRouter";
+import { createHttpApp } from "./http/createHttpApp";
 import { ItemCatalogService } from "./items/ItemCatalogService";
 import { ItemMetadataRepository } from "./items/ItemMetadataRepository";
 import { seedItemMetadata } from "./items/seedItemMetadata";
@@ -47,29 +48,26 @@ async function startServer(): Promise<void> {
   const accountAdmin = new AccountAdminService(pool, audit, connections);
   const iconStorage = createIconStorage(pool, resolvePublicServerBaseUrl());
 
-  const app = express();
-  app.use(cors({ origin: true, credentials: false }));
-  app.use(express.json({ limit: "1mb" }));
-  app.use("/api/item-icons", createItemIconRouter(pool));
-  app.use(
-    "/api",
-    createAuthRouter({
+  const app = createHttpApp({
+    itemIconRouter: createItemIconRouter(pool),
+    apiRouter: createAuthRouter({
       authService,
       characterService: characters,
       connections
-    })
-  );
-  app.use(
-    "/api/admin",
-    createAdminRouter({
+    }),
+    adminRouter: createAdminRouter({
       authService,
       accountAdmin,
       metadata,
       catalog,
       audit,
       iconStorage
-    })
-  );
+    }),
+    clientDistDirectory: resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../client/dist"
+    )
+  });
 
   const httpServer = createServer(app);
   createGameServer(httpServer, {

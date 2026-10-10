@@ -53,12 +53,11 @@ export class AuthApiRequestError extends Error {
 
 export class AuthApi {
   private readonly baseUrl: string;
+  private readonly fetcher: typeof fetch;
 
-  constructor(
-    baseUrl: string,
-    private readonly fetcher: typeof fetch = fetch
-  ) {
+  constructor(baseUrl: string, fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.fetcher = fetcher.bind(globalThis);
   }
 
   register(

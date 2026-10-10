@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { IconStorage, IconUploadInput } from "../src/admin/IconStorage";
 import {
+  IconStorageUnavailableError,
   IconUploadValidationError,
   storeValidatedIcon
 } from "../src/admin/IconStorage";
+import {
+  createIconStorageFromEnv,
+  UnavailableIconStorage
+} from "../src/admin/createIconStorage";
 import { S3IconStorage } from "../src/admin/S3IconStorage";
 
 class FakeStorage implements IconStorage {
@@ -128,5 +133,28 @@ describe("S3IconStorage", () => {
 
   it("fails clearly when required environment configuration is missing", () => {
     expect(() => S3IconStorage.fromEnv({})).toThrow("ITEM_ASSET_S3_BUCKET");
+  });
+});
+
+describe("createIconStorageFromEnv", () => {
+  it("keeps server startup alive when S3 is not configured", async () => {
+    const storage = createIconStorageFromEnv({});
+    expect(storage).toBeInstanceOf(UnavailableIconStorage);
+    await expect(
+      storage.putIcon({
+        bytes: Buffer.from("png"),
+        mimeType: "image/png",
+        originalName: "item.png"
+      })
+    ).rejects.toBeInstanceOf(IconStorageUnavailableError);
+  });
+
+  it("uses S3 when complete configuration is present", () => {
+    const storage = createIconStorageFromEnv({
+      ITEM_ASSET_S3_BUCKET: "bucket",
+      ITEM_ASSET_S3_REGION: "eu-central-1",
+      ITEM_ASSET_PUBLIC_BASE_URL: "https://assets.example.test"
+    });
+    expect(storage).toBeInstanceOf(S3IconStorage);
   });
 });

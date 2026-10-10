@@ -11,6 +11,7 @@ on:
       - fix/render-server-start-script
       - fix/render-postgres-icon-fallback
       - fix/pin-aws-sdk-version
+      - fix/render-optional-icon-storage
       - main
 
 concurrency:

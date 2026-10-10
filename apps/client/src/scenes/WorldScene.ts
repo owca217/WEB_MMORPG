@@ -1,5 +1,6 @@
 import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { VirtualJoystick } from "../input/VirtualJoystick";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
 import { AuthApi } from "../net/AuthApi";
@@ -9,8 +10,11 @@ import { sessionStateStore } from "../state/SessionStateStore";
 import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
+import { StatisticsPanel } from "../ui/StatisticsPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { InventoryPanel } from "../ui/InventoryPanel";
+import { PartyPanel } from "../ui/PartyPanel";
+import { ProfessionsPanel } from "../ui/ProfessionsPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
@@ -24,7 +28,25 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
   ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do wilków.",
   NPC_OUT_OF_RANGE: "Podejdź bliżej do tej postaci.",
   NPC_NOT_FOUND: "Nie znaleziono tej postaci.",
-  HEAL_REJECTED: "Leczenie nie jest teraz dostępne."
+  HEAL_REJECTED: "Leczenie nie jest teraz dostępne.",
+  PARTY_SELF_INVITE: "Nie możesz zaprosić samego siebie.",
+  PARTY_ONLY_LEADER_CAN_INVITE: "Tylko lider drużyny może zapraszać graczy.",
+  PARTY_TARGET_ALREADY_IN_PARTY: "Ten gracz jest już w drużynie.",
+  PARTY_FULL: "Drużyna jest pełna.",
+  PARTY_INVITE_NOT_FOUND: "To zaproszenie nie jest już aktywne.",
+  PARTY_INVITE_EXPIRED: "Zaproszenie do drużyny wygasło.",
+  PARTY_PLAYER_NOT_FOUND: "Ten gracz nie jest już dostępny.",
+  PARTY_TARGET_BUSY: "Ten gracz jest teraz zajęty walką.",
+  PARTY_ONLY_LEADER_CAN_START_BATTLE:
+    "Tylko lider drużyny może rozpocząć wspólną walkę.",
+  PARTY_ONLY_LEADER_CAN_TOGGLE_BATTLE:
+    "Tylko lider drużyny może zmieniać tryb walk drużynowych.",
+  PARTY_INVALID_BATTLE_MODE: "Nieprawidłowy tryb walk drużynowych.",
+  PLAYER_ALREADY_IN_BATTLE: "Ta postać jest już w walce.",
+  INVALID_CONTAINER_SLOT: "Nieprawidłowy slot pojemnika.",
+  CONTAINER_ITEM_NOT_FOUND: "Nie znaleziono tego pojemnika.",
+  ITEM_IS_NOT_CONTAINER: "Ten przedmiot nie jest pojemnikiem.",
+  CONTAINER_SLOT_REJECTED: "Nie można założyć tego przedmiotu w slocie pojemnika."
 };
 
 export class WorldScene extends Phaser.Scene {
@@ -41,7 +63,11 @@ export class WorldScene extends Phaser.Scene {
   private hud: WorldHud | undefined;
   private inventoryPanel: InventoryPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
+  private statisticsPanel: StatisticsPanel | undefined;
+  private professionsPanel: ProfessionsPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
+  private partyPanel: PartyPanel | undefined;
+  private joystick: VirtualJoystick | undefined;
   private adminPanel: AdminPanel | undefined;
   private readonly cleanups: Array<() => void> = [];
 
@@ -84,12 +110,12 @@ export class WorldScene extends Phaser.Scene {
       this.pointerTarget = null;
       gameSocket.startEncounter(encounterId);
     };
+    this.entitiesRenderer.onPlayerContextMenu = (player, screen) => {
+      this.pointerTarget = null;
+      this.partyPanel?.showPlayerMenu(player, screen.x, screen.y);
+    };
 
-    this.inventoryPanel = new InventoryPanel();
-    this.characterPanel = new CharacterPanel();
-    this.dialoguePanel = new DialoguePanel({
-      onHeal: (npcId) => gameSocket.healAtNpc(npcId)
-    });
+    this.input.mouse?.disableContextMenu();
 
     const session = sessionStateStore.getSession();
     const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
@@ -99,9 +125,40 @@ export class WorldScene extends Phaser.Scene {
       );
     }
 
+    this.inventoryPanel = new InventoryPanel({
+      onEquipContainer: (slot, itemInstanceId) =>
+        gameSocket.setContainerSlot(slot, itemInstanceId),
+      onUnequipContainer: (slot) => gameSocket.setContainerSlot(slot, null),
+      onMoveItem: (itemInstanceId, containerInstanceId) =>
+        gameSocket.moveInventoryItem(itemInstanceId, containerInstanceId)
+    });
+    this.characterPanel = new CharacterPanel();
+    this.statisticsPanel = new StatisticsPanel();
+    this.professionsPanel = new ProfessionsPanel();
+    this.dialoguePanel = new DialoguePanel({
+      onHeal: (npcId) => gameSocket.healAtNpc(npcId),
+      onClaimBag: (npcId) => gameSocket.claimSimpleBag(npcId)
+    });
+    this.partyPanel = new PartyPanel(this.playerId, {
+      onInvite: (targetPlayerId) => gameSocket.inviteToParty(targetPlayerId),
+      onRespond: (inviteId, accept) =>
+        gameSocket.respondPartyInvite(inviteId, accept),
+      onBattleModeChange: (enabled) =>
+        gameSocket.setPartyBattleMode(enabled),
+      onLeave: () => gameSocket.leaveParty()
+    });
     this.hud = new WorldHud({
-      onInventory: () => this.inventoryPanel?.toggle(),
+      onInventory: () => this.inventoryPanel?.openGeneralInventory(),
+      onOpenBagStorage: (containerInstanceId) =>
+        this.inventoryPanel?.openBagStorage(containerInstanceId),
+      onContainerSlotChange: (slot, itemInstanceId) =>
+        gameSocket.setContainerSlot(slot, itemInstanceId),
+      onMoveItem: (itemInstanceId, containerInstanceId) =>
+        gameSocket.moveInventoryItem(itemInstanceId, containerInstanceId),
       onCharacter: () => this.characterPanel?.toggle(),
+      onStatistics: () => this.statisticsPanel?.toggle(),
+      onProfessions: () => this.professionsPanel?.toggle(),
+      onParty: () => this.partyPanel?.toggle(),
       onAdmin: () => {
         if (this.adminPanel) void this.adminPanel.showCatalog();
       },
@@ -110,6 +167,7 @@ export class WorldScene extends Phaser.Scene {
       }
     });
     this.hud.updateSession(session?.accountRole ?? "PLAYER");
+    this.joystick = new VirtualJoystick();
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -120,6 +178,8 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) return;
+      this.partyPanel?.hidePlayerMenu();
       this.pointerTarget = {
         x: Phaser.Math.Clamp(pointer.worldX, 0, FOREST_SETTLEMENT_LAYOUT.width),
         y: Phaser.Math.Clamp(pointer.worldY, 0, FOREST_SETTLEMENT_LAYOUT.height)
@@ -132,9 +192,19 @@ export class WorldScene extends Phaser.Scene {
         playerStateStore.set(state);
         this.hud?.update(state);
         this.inventoryPanel?.update(state.inventory);
-        this.characterPanel?.update(state.character);
+        this.characterPanel?.update(state);
+        this.statisticsPanel?.update(state.character);
       }),
       gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
+      gameSocket.onPartyInviteReceived((payload) => this.partyPanel?.showInvite(payload)),
+      gameSocket.onPartyInviteResolved((payload) => {
+        this.showToast(
+          payload.accepted
+            ? `${payload.targetNickname} dołączył(a) do drużyny.`
+            : `${payload.targetNickname} odrzucił(a) zaproszenie.`
+        );
+      }),
+      gameSocket.onPartyState((snapshot) => this.partyPanel?.update(snapshot)),
       gameSocket.onConnectionState((state) => this.hud?.setConnectionState(state)),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.showToast(WORLD_ERROR_LABELS[code] ?? message);
@@ -146,32 +216,36 @@ export class WorldScene extends Phaser.Scene {
 
     gameSocket.requestWorldState();
     gameSocket.requestPlayerState();
+    gameSocket.requestPartyState();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
   }
 
   update(_time: number, delta: number): void {
+    const previousPosition = this.localPosition;
     const keyboardIntent = resolveKeyboardIntent({
       left: Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
       right: Boolean(this.cursors?.right.isDown || this.wasd?.D.isDown),
       up: Boolean(this.cursors?.up.isDown || this.wasd?.W.isDown),
       down: Boolean(this.cursors?.down.isDown || this.wasd?.S.isDown)
     });
-
+    const analogIntent = this.joystick?.getIntent() ?? { dx: 0, dy: 0 };
     const hasKeyboardIntent = keyboardIntent.dx !== 0 || keyboardIntent.dy !== 0;
+    const directionalIntent = hasKeyboardIntent ? keyboardIntent : analogIntent;
+    const hasDirectionalIntent = directionalIntent.dx !== 0 || directionalIntent.dy !== 0;
     const speed = 220;
     const travel = (speed * delta) / 1000;
 
-    if (hasKeyboardIntent) {
+    if (hasDirectionalIntent) {
       this.pointerTarget = null;
       this.localPosition = {
         x: Phaser.Math.Clamp(
-          this.localPosition.x + keyboardIntent.dx * travel,
+          this.localPosition.x + directionalIntent.dx * travel,
           0,
           FOREST_SETTLEMENT_LAYOUT.width
         ),
         y: Phaser.Math.Clamp(
-          this.localPosition.y + keyboardIntent.dy * travel,
+          this.localPosition.y + directionalIntent.dy * travel,
           0,
           FOREST_SETTLEMENT_LAYOUT.height
         )
@@ -195,6 +269,11 @@ export class WorldScene extends Phaser.Scene {
       };
     }
 
+    // Animate player-driven motion, not reconciliation drift from the server.
+    const movement = hasDirectionalIntent || this.pointerTarget
+      ? { dx: this.localPosition.x - previousPosition.x, dy: this.localPosition.y - previousPosition.y }
+      : { dx: 0, dy: 0 };
+
     if (this.authoritativePosition) {
       const correctionDistance = Phaser.Math.Distance.Between(
         this.localPosition.x,
@@ -211,23 +290,12 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x, this.localPosition.y);
-    this.entitiesRenderer?.updateRemotePlayers();
+    this.entitiesRenderer?.update(delta, movement);
 
-    if ((hasKeyboardIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
+    if ((hasDirectionalIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
       gameSocket.sendMoveIntent(this.localPosition);
     }
-  }
-
-  private async logout(serverUrl: string): Promise<void> {
-    const authApi = new AuthApi(serverUrl);
-    await logoutSession({
-      token: sessionStateStore.getToken(),
-      logout: (token) => authApi.logout(token),
-      disconnect: () => gameSocket.disconnect(),
-      reset: () => sessionStateStore.reset(),
-      onFinished: () => this.scene.start("AuthScene")
-    });
   }
 
   private renderWorld(snapshot: WorldStateSnapshot): void {
@@ -250,6 +318,17 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private async logout(serverUrl: string): Promise<void> {
+    const authApi = new AuthApi(serverUrl);
+    await logoutSession({
+      token: sessionStateStore.getToken(),
+      logout: (token) => authApi.logout(token),
+      disconnect: () => gameSocket.disconnect(),
+      reset: () => sessionStateStore.reset(),
+      onFinished: () => this.scene.start("AuthScene")
+    });
+  }
+
   private showToast(message: string): void {
     const toast = this.add.text(this.cameras.main.centerX, 92, message, {
       fontFamily: "sans-serif",
@@ -264,19 +343,28 @@ export class WorldScene extends Phaser.Scene {
 
   private cleanup(): void {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
+    this.joystick?.destroy();
     this.adminPanel?.destroy();
     this.hud?.destroy();
     this.inventoryPanel?.destroy();
     this.characterPanel?.destroy();
+    this.statisticsPanel?.destroy();
+    this.professionsPanel?.destroy();
     this.dialoguePanel?.destroy();
+    this.partyPanel?.destroy();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
+    this.joystick = undefined;
     this.adminPanel = undefined;
     this.hud = undefined;
     this.inventoryPanel = undefined;
     this.characterPanel = undefined;
+    this.statisticsPanel = undefined;
+    this.professionsPanel = undefined;
     this.dialoguePanel = undefined;
+    this.partyPanel = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;
   }
 }
+

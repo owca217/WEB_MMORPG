@@ -1,7 +1,10 @@
 import type { NpcInteractionPayload } from "@web-mmorpg/shared";
+import { InterfaceWindowControls } from "./InterfaceWindowControls";
+import { getDialogueActions } from "./dialogueViewModel";
 
 interface DialoguePanelHandlers {
   onHeal: (npcId: string) => void;
+  onClaimBag: (npcId: string) => void;
 }
 
 export class DialoguePanel {
@@ -10,6 +13,9 @@ export class DialoguePanel {
   private readonly title: HTMLElement;
   private readonly lines: HTMLDivElement;
   private readonly healButton: HTMLButtonElement;
+  private readonly claimBagButton: HTMLButtonElement;
+  private readonly rewardState: HTMLElement;
+  private readonly windowControls: InterfaceWindowControls;
   private currentNpcId: string | null = null;
 
   constructor(handlers: DialoguePanelHandlers) {
@@ -17,15 +23,19 @@ export class DialoguePanel {
     this.root.className = "dialogue-panel is-hidden";
     this.root.innerHTML = `
       <div class="dialogue-panel__header">
-        <div>
+        <h2>Rozmowa</h2>
+      </div>
+      <div class="dialogue-panel__paper">
+        <div class="dialogue-panel__speaker">
           <strong data-name>NPC</strong>
           <span data-title></span>
         </div>
-        <button type="button" data-close aria-label="Zamknij">×</button>
+        <div class="dialogue-panel__lines" data-lines></div>
+        <p class="dialogue-panel__reward-state" data-reward-state hidden></p>
       </div>
-      <div class="dialogue-panel__lines" data-lines></div>
       <div class="dialogue-panel__actions">
         <button type="button" data-heal>Opatrz rany</button>
+        <button type="button" data-claim-bag>Odbierz Zwykły worek</button>
       </div>
     `;
     document.body.appendChild(this.root);
@@ -34,10 +44,19 @@ export class DialoguePanel {
     this.title = this.require("[data-title]");
     this.lines = this.require<HTMLDivElement>("[data-lines]");
     this.healButton = this.require<HTMLButtonElement>("[data-heal]");
+    this.claimBagButton = this.require<HTMLButtonElement>("[data-claim-bag]");
+    this.rewardState = this.require<HTMLElement>("[data-reward-state]");
 
-    this.require<HTMLButtonElement>("[data-close]").addEventListener("click", () => this.hide());
+    this.windowControls = new InterfaceWindowControls({
+      root: this.root,
+      header: this.require<HTMLElement>(".dialogue-panel__header"),
+      onClose: () => this.hide()
+    });
     this.healButton.addEventListener("click", () => {
       if (this.currentNpcId) handlers.onHeal(this.currentNpcId);
+    });
+    this.claimBagButton.addEventListener("click", () => {
+      if (this.currentNpcId) handlers.onClaimBag(this.currentNpcId);
     });
   }
 
@@ -53,7 +72,13 @@ export class DialoguePanel {
       this.lines.appendChild(paragraph);
     }
 
-    this.healButton.hidden = !payload.canHeal;
+    const actions = getDialogueActions(payload);
+    this.healButton.hidden = !actions.showHeal;
+    this.claimBagButton.hidden = !actions.showBagClaim;
+    this.rewardState.hidden = !payload.simpleBagRewardClaimed;
+    this.rewardState.textContent = payload.simpleBagRewardClaimed
+      ? "Odebrałeś już swój Zwykły worek."
+      : "";
     this.root.classList.remove("is-hidden");
   }
 
@@ -63,6 +88,7 @@ export class DialoguePanel {
   }
 
   destroy(): void {
+    this.windowControls.destroy();
     this.root.remove();
   }
 

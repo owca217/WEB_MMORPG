@@ -1,16 +1,18 @@
-import type { CharacterSnapshot, PlayerId } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE, experienceRequiredForLevelUp, normalizeAppearanceSelection, type AppearanceSelection, type CharacterSnapshot, type PlayerId } from "@web-mmorpg/shared";
 
 export class CharacterService {
   private readonly characters = new Map<PlayerId, CharacterSnapshot>();
 
-  createPlayer(playerId: PlayerId, nickname: string): CharacterSnapshot {
+  createPlayer(playerId: PlayerId, nickname: string, appearance: AppearanceSelection = DEFAULT_APPEARANCE): CharacterSnapshot {
     const existing = this.characters.get(playerId);
     if (existing) return this.clone(existing);
 
     const character: CharacterSnapshot = {
       playerId,
       nickname,
+      appearance: { ...appearance },
       level: 1,
+      experience: 0,
       hp: 100,
       maxHp: 100,
       maxAp: 5,
@@ -45,6 +47,20 @@ export class CharacterService {
     return this.clone(character);
   }
 
+  addExperience(playerId: PlayerId, amount: number): CharacterSnapshot {
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new RangeError("Experience gain must be a positive safe integer.");
+    const character = this.require(playerId);
+    let remaining = (character.experience ?? 0) + amount;
+    while (remaining >= experienceRequiredForLevelUp(character.level)) {
+      remaining -= experienceRequiredForLevelUp(character.level);
+      character.level += 1;
+      character.maxHp += 5;
+      character.hp = Math.min(character.maxHp, character.hp + 5);
+    }
+    character.experience = remaining;
+    return this.clone(character);
+  }
+
   recoverAfterDefeat(playerId: PlayerId): CharacterSnapshot {
     const character = this.require(playerId);
     character.hp = Math.max(1, Math.ceil(character.maxHp * 0.25));
@@ -70,6 +86,8 @@ export class CharacterService {
   private clone(character: CharacterSnapshot): CharacterSnapshot {
     return {
       ...character,
+      appearance: normalizeAppearanceSelection(character.appearance),
+      experience: character.experience ?? 0,
       injuries: [...character.injuries]
     };
   }

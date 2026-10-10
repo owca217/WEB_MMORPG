@@ -1,4 +1,5 @@
 import type { Server as HttpServer } from "node:http";
+import { normalizeAppearanceSelection } from "@web-mmorpg/shared";
 import type {
   ClientToServerEvents,
   LocationId,
@@ -50,7 +51,8 @@ export function createGameServer(
       if (!character) return;
       socket.emit("playerState", {
         character,
-        inventory: await inventory.getSnapshot(targetCharacterId)
+        inventory: await inventory.getSnapshot(targetCharacterId),
+        equipment: { items: [] }
       });
     };
 
@@ -72,6 +74,7 @@ export function createGameServer(
         x: player.x,
         y: player.y,
         level: character.level,
+        experience: character.experience ?? 0,
         hp: character.hp,
         maxHp: character.maxHp,
         maxAp: character.maxAp,
@@ -155,7 +158,9 @@ export function createGameServer(
         characters.hydrate({
           playerId: persisted.id,
           nickname: persisted.nickname,
+          appearance: normalizeAppearanceSelection(persisted.appearance),
           level: persisted.level,
+          experience: persisted.experience,
           hp: persisted.hp,
           maxHp: persisted.maxHp,
           maxAp: persisted.maxAp,
@@ -166,6 +171,7 @@ export function createGameServer(
         world.addPlayer({
           id: persisted.id,
           nickname: persisted.nickname,
+          appearance: normalizeAppearanceSelection(persisted.appearance),
           locationId: persisted.locationId,
           x: persisted.x,
           y: persisted.y

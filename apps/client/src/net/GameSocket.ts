@@ -1,10 +1,14 @@
 import type {
   BattleCommand,
   BattleSnapshot,
+  BagEquipmentSlot,
   CharacterSnapshot,
   ClientToServerEvents,
   InventorySnapshot,
   NpcInteractionPayload,
+  PartyInvitePayload,
+  PartySnapshot,
+  PlayerId,
   PlayerStateSnapshot,
   ServerToClientEvents,
   SocketAuthResult,
@@ -118,6 +122,60 @@ export class GameSocket {
     const socket = this.connect();
     socket.on("battleEnded", handler);
     return () => socket.off("battleEnded", handler);
+  }
+
+  setContainerSlot(slot: BagEquipmentSlot, itemInstanceId: string | null): void {
+    this.connect().emit("setContainerSlot", { slot, itemInstanceId });
+  }
+
+  moveInventoryItem(itemInstanceId: string, containerInstanceId: string | null): void {
+    this.connect().emit("moveInventoryItem", { itemInstanceId, containerInstanceId });
+  }
+
+  claimSimpleBag(npcId: string): void {
+    this.connect().emit("claimSimpleBag", { npcId });
+  }
+
+  inviteToParty(targetPlayerId: PlayerId): void {
+    this.connect().emit("inviteToParty", { targetPlayerId });
+  }
+
+  respondPartyInvite(inviteId: string, accept: boolean): void {
+    this.connect().emit("respondPartyInvite", { inviteId, accept });
+  }
+
+  setPartyBattleMode(enabled: boolean): void {
+    this.connect().emit("setPartyBattleMode", { enabled });
+  }
+
+  leaveParty(): void {
+    this.connect().emit("leaveParty");
+  }
+
+  requestPartyState(): void {
+    this.connect().emit("requestPartyState");
+  }
+
+  onPartyInviteReceived(handler: (payload: PartyInvitePayload) => void): () => void {
+    const socket = this.connect();
+    socket.on("partyInviteReceived", handler);
+    return () => socket.off("partyInviteReceived", handler);
+  }
+
+  onPartyInviteResolved(handler: (payload: {
+    targetPlayerId: PlayerId;
+    targetNickname: string;
+    accepted: boolean;
+  }) => void): () => void {
+    const socket = this.connect();
+    socket.on("partyInviteResolved", handler);
+    return () => socket.off("partyInviteResolved", handler);
+  }
+
+  onPartyState(handler: (snapshot: PartySnapshot | null) => void): () => void {
+    const socket = this.connect();
+    socket.on("partyState", handler);
+    return () => socket.off("partyState", handler);
   }
 
   onCommandRejected(

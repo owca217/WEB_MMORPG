@@ -166,11 +166,14 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       id?: string;
       name?: string;
       allowedStatCodes?: string[];
+      allowedSpecialFieldCodes?: string[];
     };
     if (
       typeof input.id !== "string" ||
       typeof input.name !== "string" ||
-      !Array.isArray(input.allowedStatCodes)
+      !Array.isArray(input.allowedStatCodes) ||
+      (input.allowedSpecialFieldCodes !== undefined &&
+        !Array.isArray(input.allowedSpecialFieldCodes))
     ) {
       throw new ItemValidationError("INVALID_CATEGORY_INPUT");
     }
@@ -178,7 +181,8 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       {
         id: input.id,
         name: input.name,
-        allowedStatCodes: input.allowedStatCodes
+        allowedStatCodes: input.allowedStatCodes,
+        allowedSpecialFieldCodes: input.allowedSpecialFieldCodes ?? []
       },
       session(res).accountId
     );
@@ -191,12 +195,15 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       categoryId?: string;
       name?: string;
       allowedStatCodes?: string[];
+      allowedSpecialFieldCodes?: string[];
     };
     if (
       typeof input.id !== "string" ||
       typeof input.categoryId !== "string" ||
       typeof input.name !== "string" ||
-      !Array.isArray(input.allowedStatCodes)
+      !Array.isArray(input.allowedStatCodes) ||
+      (input.allowedSpecialFieldCodes !== undefined &&
+        !Array.isArray(input.allowedSpecialFieldCodes))
     ) {
       throw new ItemValidationError("INVALID_SUBCATEGORY_INPUT");
     }
@@ -205,7 +212,8 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
         id: input.id,
         categoryId: input.categoryId,
         name: input.name,
-        allowedStatCodes: input.allowedStatCodes
+        allowedStatCodes: input.allowedStatCodes,
+        allowedSpecialFieldCodes: input.allowedSpecialFieldCodes ?? []
       },
       session(res).accountId
     );
@@ -225,6 +233,42 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
       )
     );
   });
+
+  router.put("/categories/:categoryId/allowed-special-fields", async (req, res) => {
+    const { allowedSpecialFieldCodes } = req.body as {
+      allowedSpecialFieldCodes?: string[];
+    };
+    if (!Array.isArray(allowedSpecialFieldCodes)) {
+      throw new ItemValidationError("ALLOWED_SPECIAL_FIELD_CODES_REQUIRED");
+    }
+    res.json(
+      await deps.metadata.updateCategoryAllowedSpecialFields(
+        req.params.categoryId,
+        allowedSpecialFieldCodes,
+        session(res).accountId
+      )
+    );
+  });
+
+  router.put(
+    "/categories/:categoryId/subcategories/:subcategoryId/allowed-special-fields",
+    async (req, res) => {
+      const { allowedSpecialFieldCodes } = req.body as {
+        allowedSpecialFieldCodes?: string[];
+      };
+      if (!Array.isArray(allowedSpecialFieldCodes)) {
+        throw new ItemValidationError("ALLOWED_SPECIAL_FIELD_CODES_REQUIRED");
+      }
+      res.json(
+        await deps.metadata.updateSubcategoryAllowedSpecialFields(
+          req.params.categoryId,
+          req.params.subcategoryId,
+          allowedSpecialFieldCodes,
+          session(res).accountId
+        )
+      );
+    }
+  );
 
   router.post("/icons", upload.single("icon"), async (req, res) => {
     if (!req.file) throw new ItemValidationError("ICON_FILE_REQUIRED");
@@ -377,7 +421,11 @@ function sendAdminError(error: unknown, res: Response): void {
     res.status(404).json({ code: "METADATA_NOT_FOUND", message });
     return;
   }
-  if (message.startsWith("UNKNOWN_STAT_CODE:") || message.startsWith("INVALID_METADATA_")) {
+  if (
+    message.startsWith("UNKNOWN_STAT_CODE:") ||
+    message.startsWith("UNKNOWN_SPECIAL_FIELD_CODE:") ||
+    message.startsWith("INVALID_METADATA_")
+  ) {
     res.status(400).json({ code: "INVALID_METADATA", message });
     return;
   }

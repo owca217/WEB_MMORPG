@@ -1,4 +1,4 @@
-import type { ItemDefinition, ItemDraftInput } from "@web-mmorpg/shared";
+import { BAG_DEFINITIONS, type ItemDefinition, type ItemDraftInput } from "@web-mmorpg/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPool } from "../src/db/createPool";
 import { runMigrations } from "../src/db/migrate";
@@ -183,6 +183,18 @@ describeDatabase("persistent catalog-backed inventory", () => {
     expect(bags.every((item) => item.category === "bag")).toBe(true);
     expect(bags.every((item) => item.containerCapacity === 8)).toBe(true);
     expect(bags.every((item) => item.quantity === 1)).toBe(true);
+  });
+
+  it("publishes all four catalog bag capacities", async () => {
+    const inventory = new InventoryService(pool);
+    const itemIds = Object.keys(BAG_DEFINITIONS);
+    await inventory.addItems(characterId, itemIds.map((itemId) => ({ itemId, quantity: 1 })));
+
+    const bags = (await inventory.getSnapshot(characterId)).items
+      .filter((item) => item.category === "bag");
+    expect(bags.map((item) => item.itemId).sort()).toEqual([...itemIds].sort());
+    expect(bags.map((item) => item.containerCapacity).sort((a, b) => (a ?? 0) - (b ?? 0)))
+      .toEqual([8, 20, 40, 60]);
   });
 
   it("claims the quartermaster bag once and equips it when a slot is free", async () => {

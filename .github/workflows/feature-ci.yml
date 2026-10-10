@@ -11,6 +11,7 @@ on:
       - fix/render-server-start-script
       - fix/render-postgres-icon-fallback
       - fix/pin-aws-sdk-version
+      - fix/render-same-origin
       - main
 
 concurrency:
@@ -42,8 +43,44 @@ jobs:
         with:
           node-version: 22
       - run: npm install --global npm@11
-      - run: npm install
+      - name: Install dependencies and run the Render postinstall build
+        run: RENDER=true npm install
+      - name: Verify npm install generated Render-root assets
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const html = readFileSync("apps/client/dist/index.html", "utf8");
+          if (!html.includes('src="/assets/') || !html.includes('href="/assets/')) {
+            throw new Error("Render npm install must produce root-based client assets.");
+          }
+          NODE
       - name: Verify empty-database migrations
         run: npm run db:migrate --workspace @web-mmorpg/server
       - run: npm test
       - run: npm run build
+      - name: Verify GitHub Pages client asset paths
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const html = readFileSync("apps/client/dist/index.html", "utf8");
+          if (
+            !html.includes('src="/WEB_MMORPG/assets/') ||
+            !html.includes('href="/WEB_MMORPG/assets/')
+          ) {
+            throw new Error("GitHub Pages client assets must use /WEB_MMORPG/.");
+          }
+          NODE
+      - name: Build the client for Render
+        run: VITE_BASE_PATH=/ VITE_GAME_SERVER_URL='' npm run build -w @web-mmorpg/client
+      - name: Verify Render client asset paths
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const html = readFileSync("apps/client/dist/index.html", "utf8");
+          if (
+            !html.includes('src="/assets/') ||
+            !html.includes('href="/assets/')
+          ) {
+            throw new Error("Render client assets must use the web root.");
+          }
+          NODE

@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { Pool } from "pg";
+import { createIconStorageFromEnv } from "../src/admin/IconStorage";
+import { PostgresIconStorage } from "../src/admin/PostgresIconStorage";
 import type { IconStorage, IconUploadInput } from "../src/admin/IconStorage";
 import {
   IconUploadValidationError,
@@ -82,6 +85,18 @@ describe("item icon upload validation", () => {
       expect(storage.writes).toHaveLength(0);
     }
   );
+});
+
+describe("icon storage factory compatibility", () => {
+  it("exports the environment-backed compatibility factory", () => {
+    const storage = createIconStorageFromEnv(
+      {} as Pool,
+      "https://assets.example.test",
+      {}
+    );
+
+    expect(storage).toBeInstanceOf(PostgresIconStorage);
+  });
 });
 
 describe("S3IconStorage", () => {

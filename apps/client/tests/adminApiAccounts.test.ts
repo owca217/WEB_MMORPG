@@ -2,6 +2,28 @@ import { describe, expect, it, vi } from "vitest";
 import { AdminApi } from "../src/net/AdminApi";
 
 describe("AdminApi account administration", () => {
+  it("calls fetch with the global receiver", async () => {
+    let receiver: unknown;
+    const fetcher = vi.fn(function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ accounts: [], total: 0, page: 1, pageSize: 25 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    });
+    const api = new AdminApi(
+      "https://game.example.test",
+      () => "admin-session",
+      fetcher as unknown as typeof fetch
+    );
+
+    await api.listAccounts();
+
+    expect(receiver).toBe(globalThis);
+  });
+
   it("lists accounts with search/pagination under the current bearer token", async () => {
     const fetcher = vi.fn().mockResolvedValue(
       new Response(

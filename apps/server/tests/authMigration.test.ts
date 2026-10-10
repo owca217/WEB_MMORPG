@@ -72,7 +72,8 @@ describeDatabase("additive account auth migration", () => {
     expect(migrations.rows).toEqual([
       { migration_name: "001_item_catalog" },
       { migration_name: "002_account_auth" },
-      { migration_name: "003_item_icon_assets" }
+      { migration_name: "003_item_icon_assets" },
+      { migration_name: "004_item_special_fields" }
     ]);
   });
 

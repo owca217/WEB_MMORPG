@@ -160,6 +160,7 @@ export class AdminApi {
     id: string;
     name: string;
     allowedStatCodes: string[];
+    allowedSpecialFieldCodes: string[];
   }): Promise<ItemCategoryDefinition> {
     return this.request<ItemCategoryDefinition>("/categories", {
       method: "POST",
@@ -172,6 +173,7 @@ export class AdminApi {
     categoryId: string;
     name: string;
     allowedStatCodes: string[];
+    allowedSpecialFieldCodes: string[];
   }): Promise<ItemSubcategoryDefinition> {
     return this.request<ItemSubcategoryDefinition>("/subcategories", {
       method: "POST",
@@ -188,6 +190,33 @@ export class AdminApi {
       {
         method: "PUT",
         body: JSON.stringify({ allowedStatCodes })
+      }
+    );
+  }
+
+  updateCategoryAllowedSpecialFields(
+    categoryId: string,
+    allowedSpecialFieldCodes: string[]
+  ): Promise<ItemCategoryDefinition> {
+    return this.request<ItemCategoryDefinition>(
+      `/categories/${encodeURIComponent(categoryId)}/allowed-special-fields`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ allowedSpecialFieldCodes })
+      }
+    );
+  }
+
+  updateSubcategoryAllowedSpecialFields(
+    categoryId: string,
+    subcategoryId: string,
+    allowedSpecialFieldCodes: string[]
+  ): Promise<ItemSubcategoryDefinition> {
+    return this.request<ItemSubcategoryDefinition>(
+      `/categories/${encodeURIComponent(categoryId)}/subcategories/${encodeURIComponent(subcategoryId)}/allowed-special-fields`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ allowedSpecialFieldCodes })
       }
     );
   }

@@ -1,4 +1,8 @@
-import type { ModifierType, StatCode } from "@web-mmorpg/shared";
+import type {
+  ItemSpecialFieldDefinition,
+  ModifierType,
+  StatCode
+} from "@web-mmorpg/shared";
 
 export type StatFormattingKind =
   | "number"
@@ -170,10 +174,151 @@ export const ENGINE_EFFECTS = {
   SUMMON: { code: "SUMMON", label: "Przywołaj jednostkę" }
 } as const;
 
+export const ENGINE_SPECIAL_FIELDS: Readonly<Record<string, ItemSpecialFieldDefinition>> = {
+  weaponFamily: {
+    code: "weaponFamily", label: "Rodzina broni", type: "select",
+    options: [
+      { value: "sword", label: "Miecz" }, { value: "axe", label: "Topór" },
+      { value: "hammer", label: "Młot" }, { value: "dagger", label: "Sztylet" },
+      { value: "spear", label: "Włócznia" }, { value: "bow", label: "Łuk" },
+      { value: "crossbow", label: "Kusza" }, { value: "staff", label: "Kostur" },
+      { value: "wand", label: "Różdżka" }
+    ]
+  },
+  armorSlot: {
+    code: "armorSlot", label: "Miejsce pancerza", type: "select",
+    options: [
+      { value: "helmet", label: "Hełm" },
+      { value: "chest", label: "Napierśnik" },
+      { value: "gloves", label: "Rękawice" },
+      { value: "boots", label: "Buty" },
+      { value: "pants", label: "Spodnie" },
+      { value: "cloak", label: "Płaszcz" },
+      { value: "shield", label: "Tarcza" }
+    ]
+  },
+  jewelrySlot: {
+    code: "jewelrySlot", label: "Miejsce biżuterii", type: "select",
+    options: [
+      { value: "ring", label: "Pierścień" },
+      { value: "amulet", label: "Amulet" },
+      { value: "talisman", label: "Talizman" },
+      { value: "bracelet", label: "Bransoleta" }
+    ]
+  },
+  durability: { code: "durability", label: "Trwałość", type: "number", minimum: 0, maximum: 100000 },
+  maxDurability: { code: "maxDurability", label: "Maksymalna trwałość", type: "number", minimum: 0, maximum: 100000 },
+  socketCount: { code: "socketCount", label: "Liczba gniazd", type: "number", minimum: 0, maximum: 12, integer: true },
+  quality: { code: "quality", label: "Jakość", type: "number", minimum: 0, maximum: 100, integer: true },
+  tier: { code: "tier", label: "Tier", type: "number", minimum: 1, maximum: 10, integer: true },
+  materialType: {
+    code: "materialType", label: "Typ materiału", type: "select",
+    options: [
+      { value: "ore", label: "Ruda" }, { value: "wood", label: "Drewno" },
+      { value: "hide", label: "Skóra" }, { value: "cloth", label: "Tkanina" },
+      { value: "stone", label: "Kamień" }, { value: "herb", label: "Zioło" },
+      { value: "crystal", label: "Kryształ" },
+      { value: "monster-part", label: "Część potwora" },
+      { value: "magic-material", label: "Materiał magiczny" },
+      { value: "other", label: "Inny" }
+    ]
+  },
+  craftingTags: { code: "craftingTags", label: "Tagi craftingu", type: "text-list", format: "id" },
+  toolType: {
+    code: "toolType", label: "Typ narzędzia", type: "select",
+    options: [
+      { value: "pickaxe", label: "Kilof" }, { value: "axe", label: "Siekiera" },
+      { value: "sickle", label: "Sierp" }, { value: "fishing-rod", label: "Wędka" },
+      { value: "skinning-knife", label: "Nóż do skórowania" },
+      { value: "hammer", label: "Młot" }
+    ]
+  },
+  toolPower: { code: "toolPower", label: "Siła narzędzia", type: "number", minimum: 0, maximum: 100000 },
+  gatheringSpeed: { code: "gatheringSpeed", label: "Szybkość zbierania", type: "number", minimum: 0, maximum: 1000 },
+  gatheringBonus: { code: "gatheringBonus", label: "Bonus do zbierania (%)", type: "number", minimum: -100, maximum: 1000 },
+  extraResourceChance: { code: "extraResourceChance", label: "Szansa dodatkowego surowca", type: "number", minimum: 0, maximum: 1 },
+  recipeId: { code: "recipeId", label: "ID receptury", type: "text", format: "id" },
+  professionId: {
+    code: "professionId", label: "Profesja", type: "select",
+    options: ["alchemy", "blacksmithing", "carpentry", "leatherworking", "tailoring", "jewelcrafting", "engineering"]
+      .map((value) => ({ value, label: value }))
+  },
+  professionLevel: { code: "professionLevel", label: "Wymagany poziom profesji", type: "number", minimum: 0, maximum: 1000, integer: true },
+  singleUse: { code: "singleUse", label: "Jednorazowe użycie", type: "boolean" },
+  questId: { code: "questId", label: "ID questa", type: "text", format: "id" },
+  questStage: { code: "questStage", label: "Etap questa", type: "number", minimum: 0, maximum: 10000, integer: true },
+  keyId: { code: "keyId", label: "ID klucza", type: "text", format: "id" },
+  targetObjectId: { code: "targetObjectId", label: "ID otwieranego obiektu", type: "text", format: "id" },
+  uses: { code: "uses", label: "Liczba użyć", type: "number", minimum: 1, maximum: 100000, integer: true },
+  consumeOnUse: { code: "consumeOnUse", label: "Zużyj po użyciu", type: "boolean" },
+  capacity: { code: "capacity", label: "Pojemność kontenera", type: "number", minimum: 1, maximum: 10000, integer: true },
+  lootTableId: { code: "lootTableId", label: "ID tabeli łupów", type: "text", format: "id" },
+  rollCount: { code: "rollCount", label: "Liczba losowań", type: "number", minimum: 1, maximum: 1000, integer: true },
+  minRarity: {
+    code: "minRarity", label: "Minimalna rzadkość", type: "select",
+    options: ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"].map((value) => ({ value, label: value }))
+  },
+  maxRarity: {
+    code: "maxRarity", label: "Maksymalna rzadkość", type: "select",
+    options: ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"].map((value) => ({ value, label: value }))
+  },
+  consumeOnOpen: { code: "consumeOnOpen", label: "Zużyj po otwarciu", type: "boolean" },
+  additionalSlots: { code: "additionalSlots", label: "Dodatkowe sloty", type: "number", minimum: 1, maximum: 1000, integer: true },
+  maxWeight: { code: "maxWeight", label: "Maksymalna waga plecaka", type: "number", minimum: 0, maximum: 1000000 },
+  weightReduction: { code: "weightReduction", label: "Redukcja ciężaru", type: "number", minimum: 0, maximum: 1 },
+  damageType: {
+    code: "damageType", label: "Typ obrażeń", type: "select",
+    options: [
+      { value: "physical", label: "Fizyczne" }, { value: "magic", label: "Magiczne" },
+      { value: "fire", label: "Ogień" }, { value: "frost", label: "Lód" },
+      { value: "poison", label: "Trucizna" }, { value: "lightning", label: "Błyskawice" }
+    ]
+  },
+  compatibleWeapons: { code: "compatibleWeapons", label: "Kompatybilne bronie", type: "text-list", format: "id" },
+  ammoDamage: { code: "ammoDamage", label: "Obrażenia amunicji", type: "number", minimum: 0, maximum: 100000 },
+  armorPenetration: { code: "armorPenetration", label: "Penetracja pancerza", type: "number", minimum: -100, maximum: 1000 },
+  upgradeType: {
+    code: "upgradeType", label: "Typ ulepszenia", type: "select",
+    options: ["weapon", "armor", "jewelry", "tool", "backpack"].map((value) => ({ value, label: value }))
+  },
+  upgradeBonus: { code: "upgradeBonus", label: "Wartość bonusu", type: "number", minimum: -100000, maximum: 100000 },
+  maxTier: { code: "maxTier", label: "Maksymalny tier", type: "number", minimum: 1, maximum: 100, integer: true },
+  successChance: { code: "successChance", label: "Szansa powodzenia", type: "number", minimum: 0, maximum: 1 },
+  destroyChance: { code: "destroyChance", label: "Szansa zniszczenia", type: "number", minimum: 0, maximum: 1 },
+  socketType: {
+    code: "socketType", label: "Typ gniazda", type: "select",
+    options: ["weapon", "armor", "jewelry", "universal"].map((value) => ({ value, label: value }))
+  },
+  gemLevel: { code: "gemLevel", label: "Poziom klejnotu", type: "number", minimum: 1, maximum: 100, integer: true },
+  useCooldownMs: { code: "useCooldownMs", label: "Cooldown użycia (ms)", type: "number", minimum: 0, maximum: 86400000, integer: true },
+  useTimeMs: { code: "useTimeMs", label: "Czas użycia (ms)", type: "number", minimum: 0, maximum: 86400000, integer: true },
+  effectDurationMs: { code: "effectDurationMs", label: "Czas działania efektu (ms)", type: "number", minimum: 0, maximum: 86400000, integer: true },
+  eventId: { code: "eventId", label: "ID wydarzenia", type: "text", format: "id" }
+};
+
+const SPECIAL_FIELDS_BY_CATEGORY: Readonly<Record<string, readonly string[]>> = {
+  weapon: ["weaponFamily", "durability", "maxDurability", "socketCount"],
+  armor: ["armorSlot", "durability", "maxDurability", "socketCount"],
+  jewelry: ["jewelrySlot", "socketCount"],
+  consumable: ["uses", "useCooldownMs", "useTimeMs", "effectDurationMs", "consumeOnUse"],
+  material: ["quality", "tier", "materialType", "craftingTags"],
+  tool: ["toolType", "toolPower", "gatheringSpeed", "tier", "durability", "maxDurability", "gatheringBonus", "extraResourceChance"],
+  "crafting-item": ["recipeId", "professionId", "professionLevel", "singleUse"],
+  quest: ["questId", "questStage"],
+  key: ["keyId", "targetObjectId", "uses", "consumeOnUse"],
+  container: ["capacity", "lootTableId", "rollCount", "minRarity", "maxRarity", "consumeOnOpen"],
+  backpack: ["additionalSlots", "maxWeight", "weightReduction", "gatheringBonus"],
+  ammunition: ["ammoDamage", "armorPenetration", "damageType", "compatibleWeapons"],
+  "upgrade-item": ["upgradeType", "upgradeBonus", "maxTier", "successChance", "destroyChance"],
+  "rune-gem": ["socketType", "gemLevel", "upgradeBonus"],
+  special: Object.keys(ENGINE_SPECIAL_FIELDS)
+};
+
 export interface SystemCategorySeed {
   id: string;
   name: string;
   allowedStatCodes: readonly string[];
+  allowedSpecialFieldCodes: readonly string[];
 }
 
 export interface SystemSubcategorySeed {
@@ -181,6 +326,7 @@ export interface SystemSubcategorySeed {
   categoryId: string;
   name: string;
   allowedStatCodes: readonly string[];
+  allowedSpecialFieldCodes?: readonly string[];
 }
 
 const WEAPON_STATS = [
@@ -297,32 +443,35 @@ const AMMO_STATS = [
 ] as const;
 
 export const SYSTEM_CATEGORIES: readonly SystemCategorySeed[] = [
-  { id: "weapon", name: "Broń", allowedStatCodes: WEAPON_STATS },
-  { id: "armor", name: "Pancerz", allowedStatCodes: ARMOR_STATS },
-  { id: "jewelry", name: "Biżuteria", allowedStatCodes: JEWELRY_STATS },
-  { id: "consumable", name: "Konsumpcyjne", allowedStatCodes: CONSUMABLE_STATS },
-  { id: "material", name: "Materiały", allowedStatCodes: [] },
-  { id: "tool", name: "Narzędzia", allowedStatCodes: TOOL_STATS },
-  { id: "crafting-item", name: "Przedmioty craftingowe", allowedStatCodes: [] },
-  { id: "quest", name: "Questowe", allowedStatCodes: [] },
-  { id: "key", name: "Klucze", allowedStatCodes: [] },
-  { id: "container", name: "Kontenery", allowedStatCodes: [] },
-  { id: "backpack", name: "Plecaki", allowedStatCodes: BACKPACK_STATS },
-  { id: "ammunition", name: "Amunicja", allowedStatCodes: AMMO_STATS },
+  { id: "weapon", name: "Broń", allowedStatCodes: WEAPON_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.weapon },
+  { id: "armor", name: "Pancerz", allowedStatCodes: ARMOR_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.armor },
+  { id: "jewelry", name: "Biżuteria", allowedStatCodes: JEWELRY_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.jewelry },
+  { id: "consumable", name: "Konsumpcyjne", allowedStatCodes: CONSUMABLE_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.consumable },
+  { id: "material", name: "Materiały", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.material },
+  { id: "tool", name: "Narzędzia", allowedStatCodes: TOOL_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.tool },
+  { id: "crafting-item", name: "Przedmioty craftingowe", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY["crafting-item"] },
+  { id: "quest", name: "Questowe", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.quest },
+  { id: "key", name: "Klucze", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.key },
+  { id: "container", name: "Kontenery", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.container },
+  { id: "backpack", name: "Plecaki", allowedStatCodes: BACKPACK_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.backpack },
+  { id: "ammunition", name: "Amunicja", allowedStatCodes: AMMO_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.ammunition },
   {
     id: "upgrade-item",
     name: "Przedmioty do ulepszania",
-    allowedStatCodes: ["UPGRADE_BONUS", "UPGRADE_SUCCESS_CHANCE", "UPGRADE_DESTROY_CHANCE"]
+    allowedStatCodes: ["UPGRADE_BONUS", "UPGRADE_SUCCESS_CHANCE", "UPGRADE_DESTROY_CHANCE"],
+    allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY["upgrade-item"]
   },
   {
     id: "rune-gem",
     name: "Runy i klejnoty",
-    allowedStatCodes: Object.keys(ENGINE_STATS)
+    allowedStatCodes: Object.keys(ENGINE_STATS),
+    allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY["rune-gem"]
   },
   {
     id: "special",
     name: "Przedmioty specjalne",
-    allowedStatCodes: Object.keys(ENGINE_STATS)
+    allowedStatCodes: Object.keys(ENGINE_STATS),
+    allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.special
   }
 ];
 

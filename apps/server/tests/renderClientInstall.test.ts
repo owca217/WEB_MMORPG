@@ -27,7 +27,7 @@ describe("Render client install build", () => {
     );
   });
 
-  it("builds with root asset paths on Render and skips other installs", () => {
+  it("builds with root asset paths and the public server URL on Render, and skips other installs", () => {
     const temp = mkdtempSync(resolve(tmpdir(), "render-client-build-"));
     const bin = resolve(temp, "bin");
     const npmShim = resolve(bin, "npm");
@@ -70,7 +70,7 @@ describe("Render client install build", () => {
       expect(JSON.parse(readFileSync(capture, "utf8"))).toEqual({
         args: ["run", "build", "-w", "@web-mmorpg/client"],
         base: "/",
-        server: "",
+        server: "https://web-mmorpg-server.onrender.com",
       });
 
       rmSync(capture, { force: true });

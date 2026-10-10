@@ -12,7 +12,7 @@ export function buildClientForRender(env = process.env, spawn = spawnSync) {
       env: {
         ...env,
         VITE_BASE_PATH: "/",
-        VITE_GAME_SERVER_URL: "",
+        VITE_GAME_SERVER_URL: "https://web-mmorpg-server.onrender.com",
       },
       stdio: "inherit",
     }

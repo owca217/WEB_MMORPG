@@ -1,6 +1,7 @@
 import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { AuthApi, AuthApiRequestError } from "../net/AuthApi";
+import { resolveGameServerUrl } from "../hosting";
 import { gameSocket } from "../net/GameSocket";
 import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
 
@@ -202,7 +203,10 @@ export class AuthScene extends Phaser.Scene {
     document.body.appendChild(host);
     this.host = host;
 
-    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    const serverUrl = resolveGameServerUrl(
+      import.meta.env.VITE_GAME_SERVER_URL,
+      import.meta.env.DEV
+    );
     this.panel = new AuthPanel(
       host,
       new AuthApi(serverUrl),

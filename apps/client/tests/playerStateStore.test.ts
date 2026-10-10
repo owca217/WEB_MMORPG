@@ -1,4 +1,4 @@
-import type { PlayerStateSnapshot } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE, type PlayerStateSnapshot } from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { PlayerStateStore } from "../src/state/PlayerStateStore";
 
@@ -6,6 +6,7 @@ const snapshot: PlayerStateSnapshot = {
   character: {
     playerId: "p1",
     nickname: "Owczy",
+    appearance: { ...DEFAULT_APPEARANCE },
     level: 1,
     hp: 100,
     maxHp: 100,
@@ -14,7 +15,8 @@ const snapshot: PlayerStateSnapshot = {
     severelyInjured: false,
     injuries: []
   },
-  inventory: { items: [] }
+  inventory: { items: [] },
+  equipment: { items: [] }
 };
 
 describe("PlayerStateStore", () => {

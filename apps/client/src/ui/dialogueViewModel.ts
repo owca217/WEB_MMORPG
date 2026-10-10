@@ -7,9 +7,9 @@ export interface DialogueActions {
 
 export function getDialogueActions(payload: NpcInteractionPayload): DialogueActions {
   return {
-    showHeal: payload.kind === "healer" && payload.canHeal,
+    showHeal: payload.kind === "healer" && (payload.canHeal ?? false),
     showBagClaim: payload.kind === "quartermaster"
-      && payload.canClaimSimpleBag
+      && (payload.canClaimSimpleBag ?? false)
       && !payload.simpleBagRewardClaimed
   };
 }

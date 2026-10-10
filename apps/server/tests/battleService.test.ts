@@ -38,6 +38,21 @@ describe("BattleService character state and NPC turns", () => {
     });
   });
 
+  it("supports a full five-player group battle", () => {
+    const service = new BattleService();
+    const party = Array.from({ length: 5 }, (_, index) => ({
+      ...character,
+      playerId: `player-${index + 1}`,
+      nickname: `Hero ${index + 1}`
+    }));
+
+    const snapshot = service.startPartyBattle(party, "encounter:wolf-pack");
+
+    expect(service.getPlayerIds("player-1")).toHaveLength(5);
+    expect(snapshot.combatants.filter((combatant) => combatant.ownerPlayerId)).toHaveLength(5);
+    expect(snapshot.combatants.filter((combatant) => combatant.ownerPlayerId === undefined)).toHaveLength(5);
+  });
+
   it("runs the wolf turn automatically and returns control to the player", () => {
     const service = new BattleService();
     const startBattle = service.startBattle as unknown as (

@@ -91,8 +91,14 @@ describe("WorldHud ADMIN entry", () => {
     const onAdmin = vi.fn();
     const hud = new WorldHud({
       onInventory: vi.fn(),
+      onOpenBagStorage: vi.fn(),
+      onContainerSlotChange: vi.fn(),
+      onMoveItem: vi.fn(),
       onCharacter: vi.fn(),
-      onAdmin
+      onStatistics: vi.fn(),
+      onProfessions: vi.fn(),
+      onAdmin,
+      onLogout: vi.fn()
     });
     const button = document.querySelector<HTMLButtonElement>("[data-admin]");
     expect(button).not.toBeNull();

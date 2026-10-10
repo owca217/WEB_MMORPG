@@ -431,7 +431,7 @@ export class InventoryPanel {
     title.textContent = item.name;
 
     const category = document.createElement("span");
-    category.textContent = CATEGORY_LABELS[item.category];
+    category.textContent = CATEGORY_LABELS[item.category as keyof typeof CATEGORY_LABELS] ?? item.category;
 
     header.append(title, category);
 

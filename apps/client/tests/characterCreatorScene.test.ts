@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import type { SessionView } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE, type SessionView } from "@web-mmorpg/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({
@@ -61,7 +61,7 @@ describe("CharacterCreatorPanel", () => {
     const created = {
       id: "character-1",
       nickname: "OwczyHero",
-      appearance: { bodyType: "balanced", hairStyle: "short", hairColor: "brown" }
+      appearance: { ...DEFAULT_APPEARANCE, bodyType: "body-02", hair: "hair-02", hairColor: "hair-color-01" }
     };
     const refreshed: SessionView = {
       accountUsername: "Owczy",
@@ -81,15 +81,15 @@ describe("CharacterCreatorPanel", () => {
     ).mount();
 
     input(host, "nickname", "OwczyHero");
-    input(host, "bodyType", "balanced");
-    input(host, "hairStyle", "short");
-    input(host, "hairColor", "brown");
+    input(host, "bodyType", "body-02");
+    input(host, "hair", "hair-02");
+    input(host, "hairColor", "hair-color-01");
     submit(host);
     await flush();
 
     expect(createCharacter).toHaveBeenCalledWith("character-token", {
       nickname: "OwczyHero",
-      appearance: { bodyType: "balanced", hairStyle: "short", hairColor: "brown" }
+      appearance: { ...DEFAULT_APPEARANCE, bodyType: "body-02", hair: "hair-02", hairColor: "hair-color-01" }
     });
     expect(getSession).toHaveBeenCalledWith("character-token");
     expect(store.getSession()).toEqual(refreshed);
@@ -113,12 +113,12 @@ describe("CharacterCreatorPanel", () => {
     new CharacterCreatorPanel(host, api({ createCharacter }), store, enterWorld).mount();
 
     input(host, "nickname", "OwczyHero");
-    input(host, "hairColor", "black");
+    input(host, "hairColor", "hair-color-02");
     submit(host);
     await flush();
 
     expect(host.querySelector<HTMLInputElement>("[name='nickname']")?.value).toBe("OwczyHero");
-    expect(host.querySelector<HTMLSelectElement>("[name='hairColor']")?.value).toBe("black");
+    expect(host.querySelector<HTMLSelectElement>("[name='hairColor']")?.value).toBe("hair-color-02");
     expect(host.querySelector("[data-character-error]")?.textContent).toBe("Ten nick jest już zajęty.");
     expect(enterWorld).not.toHaveBeenCalled();
   });

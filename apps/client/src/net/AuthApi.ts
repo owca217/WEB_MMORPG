@@ -1,4 +1,5 @@
 import type {
+  AppearanceSelection,
   InjuryKind,
   LoginResponse,
   RecoverResponse,
@@ -109,7 +110,7 @@ export class AuthApi {
 
   createCharacter(
     token: string,
-    input: { nickname: string; appearance: Record<string, unknown> }
+    input: { nickname: string; appearance: AppearanceSelection }
   ): Promise<CharacterRecordView> {
     return this.request<CharacterRecordView>(
       "/api/character",

@@ -127,6 +127,7 @@ export class CharacterLifecycleService {
       x: number;
       y: number;
       level: number;
+      experience: number;
       hp: number;
       maxHp: number;
       maxAp: number;

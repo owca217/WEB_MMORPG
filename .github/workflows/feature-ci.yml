@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/mvp-vertical-slice
+      - restore/approved-rpg-ui-gameplay
       - fix/auth-login-panel-connection-state
       - feature/item-creator-design
       - feature/account-auth-restoration

@@ -1,4 +1,4 @@
-import type { SessionView } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE, type SessionView } from "@web-mmorpg/shared";
 import { describe, expect, it, vi } from "vitest";
 import { AuthApi, AuthApiRequestError } from "../src/net/AuthApi";
 
@@ -86,7 +86,7 @@ describe("AuthApi", () => {
     await api.recover("Owczy", "old-code", "new-password", "new-password");
     await expect(api.getCharacter("token-1")).resolves.toMatchObject({ id: "character-1" });
     await expect(
-      api.createCharacter("token-1", { nickname: "Owczy", appearance: { hair: "short" } })
+      api.createCharacter("token-1", { nickname: "Owczy", appearance: { ...DEFAULT_APPEARANCE, hair: "hair-03" } })
     ).resolves.toMatchObject({ nickname: "Owczy" });
 
     expect(JSON.parse(String((fetcher.mock.calls[0]![1] as RequestInit).body))).toEqual({

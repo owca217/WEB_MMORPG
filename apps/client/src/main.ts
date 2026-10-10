@@ -1,4 +1,5 @@
 import "./style.css";
+import "./theme/classic-rpg.css";
 import { GameApp } from "./game/GameApp";
 import { getGitHubPagesRedirectUrl } from "./hosting";
 

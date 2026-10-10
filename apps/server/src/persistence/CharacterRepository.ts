@@ -11,6 +11,7 @@ export interface PersistedCharacterRecord {
   x: number;
   y: number;
   level: number;
+  experience: number;
   hp: number;
   maxHp: number;
   maxAp: number;
@@ -31,6 +32,7 @@ interface CharacterRow {
   x: number | string;
   y: number | string;
   level: number;
+  experience: number;
   hp: number;
   max_hp: number;
   max_ap: number;
@@ -43,7 +45,7 @@ interface CharacterRow {
 
 const SELECT_COLUMNS = `
   id, account_id, nickname, nickname_normalized, appearance,
-  location_id, x, y, level, hp, max_hp, max_ap, initiative,
+  location_id, x, y, level, experience, hp, max_hp, max_ap, initiative,
   severely_injured, injuries, deletion_requested_at, deletion_effective_at
 `;
 
@@ -58,6 +60,7 @@ function mapCharacter(row: CharacterRow): PersistedCharacterRecord {
     x: Number(row.x),
     y: Number(row.y),
     level: row.level,
+    experience: row.experience,
     hp: row.hp,
     maxHp: row.max_hp,
     maxAp: row.max_ap,
@@ -124,6 +127,7 @@ export class CharacterRepository {
       x: number;
       y: number;
       level: number;
+      experience: number;
       hp: number;
       maxHp: number;
       maxAp: number;
@@ -138,12 +142,13 @@ export class CharacterRepository {
            x = $3,
            y = $4,
            level = $5,
-           hp = $6,
-           max_hp = $7,
-           max_ap = $8,
-           initiative = $9,
-           severely_injured = $10,
-           injuries = $11::jsonb,
+           experience = $6,
+           hp = $7,
+           max_hp = $8,
+           max_ap = $9,
+           initiative = $10,
+           severely_injured = $11,
+           injuries = $12::jsonb,
            updated_at = NOW()
        WHERE id = $1`,
       [
@@ -152,6 +157,7 @@ export class CharacterRepository {
         state.x,
         state.y,
         state.level,
+        state.experience,
         state.hp,
         state.maxHp,
         state.maxAp,

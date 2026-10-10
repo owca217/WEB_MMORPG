@@ -1,5 +1,7 @@
 import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { CHARACTER_ATLAS_URL } from "../appearance/characterSprites";
+import { WALK_SHEETS } from "../appearance/walkSprites";
 import { AuthApi, AuthApiRequestError } from "../net/AuthApi";
 import { gameSocket } from "../net/GameSocket";
 import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
@@ -35,6 +37,15 @@ export async function resolveBootDestination(
 export class BootScene extends Phaser.Scene {
   constructor() {
     super("BootScene");
+  }
+
+  preload(): void {
+    for (const sheet of WALK_SHEETS) {
+      if (!this.textures.exists(sheet.key)) this.load.image(sheet.key, sheet.url);
+    }
+    if (!this.textures.exists("character-base-atlas")) {
+      this.load.image("character-base-atlas", CHARACTER_ATLAS_URL);
+    }
   }
 
   create(): void {

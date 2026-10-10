@@ -67,6 +67,46 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
     ]
   },
   {
+    itemUuid: "10000000-0000-4000-8000-000000000005",
+    versionUuid: "10000000-0000-4000-8000-000000000015",
+    itemId: "traditional-backpack",
+    name: "Tradycyjny plecak",
+    categoryId: "backpack",
+    subcategoryId: null,
+    description: "Pojemny plecak mieszczący dwadzieścia przedmiotów.",
+    stackable: false,
+    maxStack: 1,
+    weight: 0,
+    stats: [
+      {
+        id: "10000000-0000-4000-8000-000000000105",
+        statCode: "EXTRA_SLOTS",
+        modifierType: "flat",
+        value: 20
+      }
+    ]
+  },
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000006",
+    versionUuid: "10000000-0000-4000-8000-000000000016",
+    itemId: "travel-backpack",
+    name: "Plecak podróżny",
+    categoryId: "backpack",
+    subcategoryId: null,
+    description: "Plecak podróżny mieszczący czterdzieści przedmiotów.",
+    stackable: false,
+    maxStack: 1,
+    weight: 0,
+    stats: [
+      {
+        id: "10000000-0000-4000-8000-000000000106",
+        statCode: "EXTRA_SLOTS",
+        modifierType: "flat",
+        value: 40
+      }
+    ]
+  },
+  {
     itemUuid: "10000000-0000-4000-8000-000000000004",
     versionUuid: "10000000-0000-4000-8000-000000000014",
     itemId: "expedition-backpack",

@@ -1,10 +1,11 @@
-import type { BattleSnapshot, CharacterSnapshot } from "@web-mmorpg/shared";
+import { DEFAULT_APPEARANCE, type BattleSnapshot, type CharacterSnapshot } from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { BattleService } from "../src/battle/BattleService";
 
 const character: CharacterSnapshot = {
   playerId: "player-1",
   nickname: "Hero",
+  appearance: { ...DEFAULT_APPEARANCE },
   level: 1,
   hp: 37,
   maxHp: 100,
@@ -36,6 +37,21 @@ describe("BattleService character state and NPC turns", () => {
       severelyInjured: true,
       injuries: ["legTrauma"]
     });
+  });
+
+  it("supports a full five-player group battle", () => {
+    const service = new BattleService();
+    const party = Array.from({ length: 5 }, (_, index) => ({
+      ...character,
+      playerId: `player-${index + 1}`,
+      nickname: `Hero ${index + 1}`
+    }));
+
+    const snapshot = service.startPartyBattle(party, "encounter:wolf-pack");
+
+    expect(service.getPlayerIds("player-1")).toHaveLength(5);
+    expect(snapshot.combatants.filter((combatant) => combatant.ownerPlayerId)).toHaveLength(5);
+    expect(snapshot.combatants.filter((combatant) => combatant.ownerPlayerId === undefined)).toHaveLength(5);
   });
 
   it("runs the wolf turn automatically and returns control to the player", () => {

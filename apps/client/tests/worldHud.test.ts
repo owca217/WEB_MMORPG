@@ -12,7 +12,12 @@ describe("WorldHud session controls", () => {
   it("derives ADMIN button visibility from the current SessionView role", () => {
     const hud = new WorldHud({
       onInventory: vi.fn(),
+      onOpenBagStorage: vi.fn(),
+      onContainerSlotChange: vi.fn(),
+      onMoveItem: vi.fn(),
       onCharacter: vi.fn(),
+      onStatistics: vi.fn(),
+      onProfessions: vi.fn(),
       onAdmin: vi.fn(),
       onLogout: vi.fn()
     });
@@ -30,7 +35,12 @@ describe("WorldHud session controls", () => {
     const onLogout = vi.fn();
     const hud = new WorldHud({
       onInventory: vi.fn(),
+      onOpenBagStorage: vi.fn(),
+      onContainerSlotChange: vi.fn(),
+      onMoveItem: vi.fn(),
       onCharacter: vi.fn(),
+      onStatistics: vi.fn(),
+      onProfessions: vi.fn(),
       onAdmin: vi.fn(),
       onLogout
     });

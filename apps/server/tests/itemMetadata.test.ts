@@ -155,6 +155,20 @@ describeDatabase("item creator metadata", () => {
     ).rejects.toThrow("UNKNOWN_SPECIAL_FIELD_CODE:madeUpMechanic");
   });
 
+  it("rejects inherited object keys as specialist fields", async () => {
+    await expect(
+      repository.createCategory(
+        {
+          id: "inherited-field",
+          name: "Niepoprawna",
+          allowedStatCodes: [],
+          allowedSpecialFieldCodes: ["constructor"]
+        },
+        "admin-player"
+      )
+    ).rejects.toThrow("UNKNOWN_SPECIAL_FIELD_CODE:constructor");
+  });
+
   it("rejects custom mappings to unknown engine stat codes", async () => {
     await expect(
       repository.createCategory(

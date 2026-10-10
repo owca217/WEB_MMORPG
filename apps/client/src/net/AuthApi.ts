@@ -31,6 +31,13 @@ export interface CharacterRecordView {
   deletionEffectiveAt: string | null;
 }
 
+export class AuthApiNetworkError extends Error {
+  constructor() {
+    super("Nie udało się nawiązać połączenia z serwerem. Sprawdź połączenie z internetem i spróbuj ponownie.");
+    this.name = "AuthApiNetworkError";
+  }
+}
+
 export class AuthApiRequestError extends Error {
   constructor(
     public readonly status: number,
@@ -126,11 +133,16 @@ export class AuthApi {
       headers.set("Content-Type", "application/json");
     }
 
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      ...init,
-      method: init.method ?? "GET",
-      headers
-    });
+    let response: Response;
+    try {
+      response = await this.fetcher(`${this.baseUrl}${path}`, {
+        ...init,
+        method: init.method ?? "GET",
+        headers
+      });
+    } catch {
+      throw new AuthApiNetworkError();
+    }
 
     if (!response.ok) throw await this.toRequestError(response);
     if (response.status === 204) return undefined as T;

@@ -14,6 +14,8 @@ describe("arena generation", () => {
       [...arena.blockedCells, ...arena.coverCells].map((cell) => `${cell.q},${cell.r}`)
     );
 
+    expect(arena.playerStartCells).toHaveLength(9);
+    expect(arena.enemyStartCells).toHaveLength(9);
     expect(
       arena.playerStartCells.some((cell) => occupied.has(`${cell.q},${cell.r}`))
     ).toBe(false);

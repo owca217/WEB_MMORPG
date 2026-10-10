@@ -44,10 +44,10 @@ export function generateArena(
   }
 
   const playerStartCells = cells.filter(
-    (cell) => cell.q <= -profile.radius + 1
+    (cell) => cell.q <= -profile.radius + 2
   );
   const enemyStartCells = cells.filter(
-    (cell) => cell.q >= profile.radius - 1
+    (cell) => cell.q >= profile.radius - 2
   );
 
   const reserved = new Set(

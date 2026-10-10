@@ -14,6 +14,7 @@ import { BattleService } from "../battle/BattleService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
 import { InventoryService } from "../inventory/InventoryService";
+import { PartyService } from "../party/PartyService";
 import { LootService } from "../loot/LootService";
 import { WorldService } from "../world/WorldService";
 import { ActiveConnectionRegistry } from "./ActiveConnectionRegistry";
@@ -33,6 +34,7 @@ export function createGameServer(
   const inventory = new InventoryService(options.pool);
   const loot = new LootService();
   const battles = new BattleService();
+  const parties = new PartyService();
   const characters = new CharacterService();
   const connections = options.connections ?? new ActiveConnectionRegistry();
 
@@ -49,11 +51,28 @@ export function createGameServer(
     const emitPlayerState = async (targetCharacterId: PlayerId): Promise<void> => {
       const character = characters.getSnapshot(targetCharacterId);
       if (!character) return;
+      const [inventorySnapshot, equipment] = await Promise.all([
+        inventory.getSnapshot(targetCharacterId),
+        inventory.getEquipmentSnapshot(targetCharacterId)
+      ]);
       socket.emit("playerState", {
         character,
-        inventory: await inventory.getSnapshot(targetCharacterId),
-        equipment: { items: [] }
+        inventory: inventorySnapshot,
+        equipment
       });
+    };
+
+    const emitPartyState = (targetCharacterId: PlayerId): void => {
+      io.to(`player:${targetCharacterId}`).emit(
+        "partyState",
+        parties.getSnapshot(targetCharacterId)
+      );
+    };
+
+    const emitPartyStates = (targetCharacterIds: PlayerId[]): void => {
+      for (const targetCharacterId of new Set(targetCharacterIds)) {
+        emitPartyState(targetCharacterId);
+      }
     };
 
     const reject = (error: unknown, fallbackCode: string, message: string): void => {
@@ -84,7 +103,17 @@ export function createGameServer(
       });
     };
 
-    const npcPayload = (npcId: string): NpcInteractionPayload => {
+    const npcPayload = async (
+      npcId: string,
+      targetCharacterId: PlayerId,
+      claimedOverride?: boolean
+    ): Promise<NpcInteractionPayload> => {
+      const simpleBagRewardClaimed = npcId === "quartermaster-runa"
+        ? claimedOverride ?? await inventory.hasRewardClaim(
+            targetCharacterId,
+            "quartermaster-simple-bag"
+          )
+        : false;
       if (npcId === "guide-boran") {
         return {
           npcId: "guide-boran",
@@ -95,20 +124,42 @@ export function createGameServer(
             "Wilki kręcą się przy wschodniej ścieżce.",
             "Trzymaj się drogi i nie lekceważ ran."
           ],
-          canHeal: false
+          canHeal: false,
+          canClaimSimpleBag: false,
+          simpleBagRewardClaimed: false
+        };
+      }
+
+      if (npcId === "healer-ada") {
+        return {
+          npcId: "healer-ada",
+          npcName: "Ada",
+          kind: "healer",
+          title: "Lecznica Ady",
+          lines: [
+            "Mogę opatrzyć cię i przywrócić siły.",
+            "Ciężkie urazy pozostaną do czasu pełnego systemu leczenia."
+          ],
+          canHeal: true,
+          canClaimSimpleBag: false,
+          simpleBagRewardClaimed: false
         };
       }
 
       return {
-        npcId: "healer-ada",
-        npcName: "Ada",
-        kind: "healer",
-        title: "Lecznica Ady",
-        lines: [
-          "Mogę opatrzyć cię i przywrócić siły.",
-          "Ciężkie urazy pozostaną do czasu pełnego systemu leczenia."
-        ],
-        canHeal: true
+        npcId: "quartermaster-runa",
+        npcName: "Runa",
+        kind: "quartermaster",
+        title: "Zaopatrzenie przed drogą",
+        lines: simpleBagRewardClaimed
+          ? ["Odebrałeś już swój Zwykły worek. Niech dobrze ci służy."]
+          : [
+              "Każdy wyruszający z osady powinien mieć gdzie schować zapasy.",
+              "Możesz odebrać ode mnie jeden Zwykły worek."
+            ],
+        canHeal: false,
+        canClaimSimpleBag: !simpleBagRewardClaimed,
+        simpleBagRewardClaimed
       };
     };
 
@@ -137,6 +188,8 @@ export function createGameServer(
         if (characterId) {
           await persistGameplayState(characterId);
           battles.removeBattleForPlayer(characterId);
+          emitPartyStates(parties.removePlayer(characterId));
+          socket.leave(`player:${characterId}`);
           world.removePlayer(characterId);
           characters.removePlayer(characterId);
         }
@@ -178,12 +231,14 @@ export function createGameServer(
         });
 
         socket.join(`location:${persisted.locationId}`);
+        socket.join(`player:${persisted.id}`);
         ack({
           ok: true,
           characterId: persisted.id,
           locationId: persisted.locationId
         });
         await emitPlayerState(persisted.id);
+        emitPartyState(persisted.id);
         io.to(`location:${persisted.locationId}`).emit(
           "worldState",
           world.snapshot(persisted.locationId)
@@ -202,6 +257,96 @@ export function createGameServer(
       void emitPlayerState(characterId).catch((error) =>
         reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
       );
+    });
+
+    socket.on("setContainerSlot", async ({ slot, itemInstanceId }) => {
+      if (!characterId) return;
+      try {
+        await inventory.setContainerSlot(characterId, slot, itemInstanceId);
+        await emitPlayerState(characterId);
+      } catch (error) {
+        reject(error, "CONTAINER_SLOT_REJECTED", "Nie można założyć tego przedmiotu w slocie pojemnika.");
+      }
+    });
+
+    socket.on("moveInventoryItem", async ({ itemInstanceId, containerInstanceId }) => {
+      if (!characterId) return;
+      try {
+        await inventory.moveInventoryItem(characterId, itemInstanceId, containerInstanceId);
+        await emitPlayerState(characterId);
+      } catch (error) {
+        reject(error, "INVENTORY_MOVE_REJECTED", "Nie można przenieść tego przedmiotu do wybranej torby.");
+      }
+    });
+
+    socket.on("claimSimpleBag", async ({ npcId }) => {
+      if (!characterId) return;
+      const targetCharacterId = characterId;
+      try {
+        const npc = world.interactNpc(targetCharacterId, npcId);
+        if (npc.kind !== "quartermaster") throw new Error("NPC_NOT_QUARTERMASTER");
+        const result = await inventory.claimSimpleBag(targetCharacterId);
+        await emitPlayerState(targetCharacterId);
+        socket.emit("npcInteraction", await npcPayload(npc.id, targetCharacterId, true));
+        if (!result.claimed) return;
+      } catch (error) {
+        reject(error, "NPC_REWARD_REJECTED", "Nie udało się odebrać worka.");
+      }
+    });
+
+    socket.on("requestPartyState", () => {
+      if (characterId) emitPartyState(characterId);
+    });
+
+    socket.on("inviteToParty", ({ targetPlayerId }) => {
+      if (!characterId) return;
+      try {
+        if (battles.hasBattle(targetPlayerId)) throw new Error("PARTY_TARGET_BUSY");
+        const currentLocationId = world.getPlayerLocationId(characterId);
+        const inviter = world.getPlayer(characterId);
+        const target = world.getPlayer(targetPlayerId);
+        const targetVisible = Boolean(
+          currentLocationId
+          && world.snapshot(currentLocationId).players.some((candidate) => candidate.id === targetPlayerId)
+        );
+        if (!inviter || !target || !targetVisible) throw new Error("PARTY_PLAYER_NOT_FOUND");
+        const invite = parties.createInvite(
+          { playerId: inviter.id, nickname: inviter.nickname },
+          { playerId: target.id, nickname: target.nickname }
+        );
+        io.to(`player:${targetPlayerId}`).emit("partyInviteReceived", invite);
+      } catch (error) {
+        reject(error, "PARTY_INVITE_REJECTED", "Nie udało się wysłać zaproszenia do drużyny.");
+      }
+    });
+
+    socket.on("respondPartyInvite", ({ inviteId, accept }) => {
+      if (!characterId) return;
+      try {
+        const result = parties.respondToInvite(inviteId, characterId, accept);
+        io.to(`player:${result.inviterPlayerId}`).emit("partyInviteResolved", {
+          targetPlayerId: characterId,
+          targetNickname: result.targetNickname,
+          accepted: result.accepted
+        });
+        if (result.accepted) emitPartyStates(result.affectedPlayerIds);
+      } catch (error) {
+        reject(error, "PARTY_INVITE_RESPONSE_REJECTED", "Nie udało się odpowiedzieć na zaproszenie.");
+      }
+    });
+
+    socket.on("setPartyBattleMode", ({ enabled }) => {
+      if (!characterId) return;
+      try {
+        if (typeof enabled !== "boolean") throw new Error("PARTY_INVALID_BATTLE_MODE");
+        emitPartyStates(parties.setPartyBattleEnabled(characterId, enabled));
+      } catch (error) {
+        reject(error, "PARTY_BATTLE_MODE_REJECTED", "Nie udało się zmienić trybu walk drużynowych.");
+      }
+    });
+
+    socket.on("leaveParty", () => {
+      if (characterId) emitPartyStates(parties.leave(characterId));
     });
 
     socket.on("requestWorldState", () => {
@@ -229,12 +374,12 @@ export function createGameServer(
       }
     });
 
-    socket.on("interactNpc", ({ npcId }) => {
+    socket.on("interactNpc", async ({ npcId }) => {
       if (!characterId) return;
-
+      const targetCharacterId = characterId;
       try {
-        const npc = world.interactNpc(characterId, npcId);
-        socket.emit("npcInteraction", npcPayload(npc.id));
+        const npc = world.interactNpc(targetCharacterId, npcId);
+        socket.emit("npcInteraction", await npcPayload(npc.id, targetCharacterId));
       } catch (error) {
         reject(error, "NPC_INTERACTION_REJECTED", "Nie możesz teraz porozmawiać z tą postacią.");
       }
@@ -259,18 +404,47 @@ export function createGameServer(
       }
     });
 
-    socket.on("startEncounter", ({ encounterId }) => {
+    socket.on("startEncounter", async ({ encounterId }) => {
       if (!characterId) return;
-      const currentCharacterId = characterId;
-      const currentLocationId = locationId;
-      const character = characters.getSnapshot(currentCharacterId);
-      if (!currentLocationId || !character) return;
+      const leaderPlayerId = characterId;
+      const battleLocationId = world.getPlayerLocationId(leaderPlayerId);
+      if (!battleLocationId || !characters.getSnapshot(leaderPlayerId)) return;
 
       try {
-        world.startEncounter(currentCharacterId, encounterId);
-        const snapshot = battles.startBattle(character, encounterId);
-        socket.leave(`location:${currentLocationId}`);
-        socket.emit("battleStarted", snapshot);
+        if (battles.hasBattle(leaderPlayerId)) throw new Error("PLAYER_ALREADY_IN_BATTLE");
+        world.startEncounter(leaderPlayerId, encounterId);
+
+        const party = parties.getSnapshot(leaderPlayerId);
+        if (party && party.leaderPlayerId !== leaderPlayerId) {
+          throw new Error("PARTY_ONLY_LEADER_CAN_START_BATTLE");
+        }
+        const candidateIds = party?.partyBattleEnabled
+          ? party.members.map((member) => member.playerId)
+          : [leaderPlayerId];
+        const participantIds: PlayerId[] = [];
+        const participantCharacters = [];
+
+        for (const candidateId of candidateIds) {
+          if (battles.hasBattle(candidateId)) continue;
+          const position = world.getPersistenceState(candidateId);
+          const candidateCharacter = characters.getSnapshot(candidateId);
+          if (!position || position.locationId !== battleLocationId || !candidateCharacter) continue;
+          if (
+            candidateId !== leaderPlayerId &&
+            !world.isWithinPartyBattleVision(leaderPlayerId, candidateId)
+          ) continue;
+          participantIds.push(candidateId);
+          participantCharacters.push(candidateCharacter);
+        }
+
+        if (!participantIds.includes(leaderPlayerId)) throw new Error("ENCOUNTER_OUT_OF_RANGE");
+        const snapshot = battles.startPartyBattle(participantCharacters, encounterId);
+        await Promise.all(participantIds.map((participantId) => persistGameplayState(participantId)));
+
+        for (const participantId of participantIds) {
+          io.in(`player:${participantId}`).socketsLeave(`location:${battleLocationId}`);
+          io.to(`player:${participantId}`).emit("battleStarted", snapshot);
+        }
       } catch (error) {
         reject(error, "ENCOUNTER_REJECTED", "Encounter could not be started.");
       }
@@ -278,9 +452,7 @@ export function createGameServer(
 
     socket.on("battleCommand", async (command) => {
       if (!characterId) return;
-
-      const currentCharacterId = characterId;
-      const applied = battles.applyCommand(currentCharacterId, command);
+      const applied = battles.applyCommand(characterId, command);
       if (!applied.result.ok) {
         socket.emit("commandRejected", {
           code: applied.result.code,
@@ -288,45 +460,58 @@ export function createGameServer(
         });
         return;
       }
-
       if (!applied.snapshot) return;
-      socket.emit("battleState", applied.snapshot);
 
+      for (const participantId of applied.playerIds) {
+        io.to(`player:${participantId}`).emit("battleState", applied.snapshot);
+      }
       if (!applied.finished) return;
 
       try {
-        if (applied.playerOutcome) {
-          characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
+        const affectedLocations = new Set<LocationId>();
+        for (const participantId of applied.playerIds) {
+          let participantCharacter = characters.getSnapshot(participantId);
+          if (!participantCharacter) continue;
+          const outcome = applied.playerOutcomes?.find((entry) => entry.playerId === participantId);
+          if (outcome) participantCharacter = characters.applyBattleResult(participantId, outcome);
+
+          if (applied.victory && applied.encounterId && applied.seed !== undefined) {
+            if (participantCharacter.hp <= 0) {
+              participantCharacter = characters.recoverAfterDefeat(participantId);
+            }
+            participantCharacter = characters.addExperience(participantId, 25);
+            const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
+            await inventory.addItems(participantId, reward);
+          } else {
+            participantCharacter = characters.recoverAfterDefeat(participantId);
+            world.resetPlayerToSpawn(participantId);
+          }
+
+          await persistGameplayState(participantId);
+          const currentLocationId = world.getPlayerLocationId(participantId);
+          const [inventorySnapshot, finalCharacter] = await Promise.all([
+            inventory.getSnapshot(participantId),
+            Promise.resolve(characters.getSnapshot(participantId))
+          ]);
+          if (!finalCharacter) continue;
+          io.to(`player:${participantId}`).emit("battleEnded", {
+            outcome: applied.victory ? "victory" : "defeat",
+            inventory: inventorySnapshot,
+            character: finalCharacter
+          });
+          if (currentLocationId) {
+            affectedLocations.add(currentLocationId);
+            io.in(`player:${participantId}`).socketsJoin(`location:${currentLocationId}`);
+          }
         }
 
-        if (applied.victory && applied.encounterId && applied.seed !== undefined) {
-          const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
-          await inventory.addItems(currentCharacterId, reward);
-        } else {
-          characters.recoverAfterDefeat(currentCharacterId);
-          world.resetPlayerToSpawn(currentCharacterId);
-          locationId = world.getPlayerLocationId(currentCharacterId) ?? locationId;
+        battles.finishBattle(characterId);
+        for (const affectedLocationId of affectedLocations) {
+          io.to(`location:${affectedLocationId}`).emit(
+            "worldState",
+            world.snapshot(affectedLocationId)
+          );
         }
-
-        await persistGameplayState(currentCharacterId);
-        const character = characters.getSnapshot(currentCharacterId);
-        const currentLocationId = locationId;
-        if (!character || !currentLocationId) return;
-
-        const inventorySnapshot = await inventory.getSnapshot(currentCharacterId);
-        await emitPlayerState(currentCharacterId);
-        socket.emit("battleEnded", {
-          outcome: applied.victory ? "victory" : "defeat",
-          inventory: inventorySnapshot,
-          character
-        });
-
-        battles.removeBattleForPlayer(currentCharacterId);
-        socket.join(`location:${currentLocationId}`);
-        io.to(`location:${currentLocationId}`).emit(
-          "worldState",
-          world.snapshot(currentLocationId)
-        );
       } catch (error) {
         reject(error, "BATTLE_REWARD_FAILED", "Battle rewards could not be persisted.");
       }
@@ -343,7 +528,13 @@ export function createGameServer(
 
       if (!currentCharacterId) return;
       void persistGameplayState(currentCharacterId).finally(() => {
-        battles.removeBattleForPlayer(currentCharacterId);
+        const departure = battles.removeBattleForPlayer(currentCharacterId);
+        if (departure?.snapshot) {
+          for (const remainingPlayerId of departure.playerIds) {
+            io.to(`player:${remainingPlayerId}`).emit("battleState", departure.snapshot);
+          }
+        }
+        emitPartyStates(parties.removePlayer(currentCharacterId));
         world.removePlayer(currentCharacterId);
         characters.removePlayer(currentCharacterId);
         if (currentLocationId) {
@@ -358,6 +549,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, loot, battles, characters, connections }
+    services: { world, inventory, loot, battles, characters, parties, connections }
   };
 }

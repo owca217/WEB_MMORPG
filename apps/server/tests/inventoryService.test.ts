@@ -68,8 +68,9 @@ describeDatabase("persistent catalog-backed inventory", () => {
 
   beforeEach(async () => {
     await pool.query(
-      `TRUNCATE item_instances, item_tags, item_effects, item_requirements,
-       item_stat_modifiers, item_versions, items, admin_audit_log CASCADE`
+      `TRUNCATE character_equipment, character_reward_claims, item_instances, item_tags,
+       item_effects, item_requirements, item_stat_modifiers, item_versions,
+       items, admin_audit_log CASCADE`
     );
     await seedItemMetadata(pool);
   });
@@ -171,6 +172,60 @@ describeDatabase("persistent catalog-backed inventory", () => {
     expect(restored.instanceId).toBe(saved.instanceId);
     expect(restored.quantity).toBe(saved.quantity);
     expect(restored.name).toBe("Field Bandage");
+  });
+
+  it("maps published backpack items to persistent bags with their catalog capacity", async () => {
+    const inventory = new InventoryService(pool);
+    await inventory.addItems(characterId, [{ itemId: "simple-bag", quantity: 2 }]);
+
+    const bags = (await inventory.getSnapshot(characterId)).items;
+    expect(bags).toHaveLength(2);
+    expect(bags.every((item) => item.category === "bag")).toBe(true);
+    expect(bags.every((item) => item.containerCapacity === 8)).toBe(true);
+    expect(bags.every((item) => item.quantity === 1)).toBe(true);
+  });
+
+  it("claims the quartermaster bag once and equips it when a slot is free", async () => {
+    const inventory = new InventoryService(pool);
+
+    const first = await inventory.claimSimpleBag(characterId);
+    const second = await inventory.claimSimpleBag(characterId);
+
+    expect(first.claimed).toBe(true);
+    expect(first.inventory.items).toHaveLength(1);
+    expect(first.inventory.items[0]).toMatchObject({
+      itemId: "simple-bag",
+      category: "bag",
+      containerCapacity: 8
+    });
+    expect(first.equipment.items).toEqual([
+      { slot: "bag-1", itemInstanceId: first.inventory.items[0]!.instanceId }
+    ]);
+    expect(second.claimed).toBe(false);
+    expect(second.inventory.items).toHaveLength(1);
+  });
+
+  it("persists bag equipment and inventory transfers", async () => {
+    const inventory = new InventoryService(pool);
+    await inventory.addItems(characterId, [
+      { itemId: "simple-bag", quantity: 1 },
+      { itemId: "field-bandage", quantity: 1 }
+    ]);
+    const snapshot = await inventory.getSnapshot(characterId);
+    const bag = snapshot.items.find((item) => item.itemId === "simple-bag")!;
+    const bandage = snapshot.items.find((item) => item.itemId === "field-bandage")!;
+
+    await inventory.setContainerSlot(characterId, "bag-2", bag.instanceId);
+    const moved = await inventory.moveInventoryItem(characterId, bandage.instanceId, bag.instanceId);
+    const restored = await new InventoryService(pool).getSnapshot(characterId);
+
+    expect(await inventory.getEquipmentSnapshot(characterId)).toEqual({
+      items: [{ slot: "bag-2", itemInstanceId: bag.instanceId }]
+    });
+    expect(moved.items.find((item) => item.instanceId === bandage.instanceId))
+      .toMatchObject({ containerInstanceId: bag.instanceId });
+    expect(restored.items.find((item) => item.instanceId === bandage.instanceId))
+      .toMatchObject({ containerInstanceId: bag.instanceId });
   });
 
   it("stacks compatible stackable rewards but keeps non-stackable definitions separate", async () => {

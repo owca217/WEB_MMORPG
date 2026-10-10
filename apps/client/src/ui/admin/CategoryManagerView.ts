@@ -100,6 +100,31 @@ export class CategoryManagerView {
     }
     card.append(stats);
 
+    const specialFields = document.createElement("fieldset");
+    const specialLegend = document.createElement("legend");
+    specialLegend.textContent = "Dozwolone pola specjalistyczne silnika";
+    specialFields.append(specialLegend);
+    for (const field of this.metadata!.specialFields) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = field.code;
+      checkbox.dataset.categorySpecialField = category.id;
+      checkbox.checked = category.allowedSpecialFieldCodes.includes(field.code);
+      label.append(checkbox, document.createTextNode(`${field.label} (${field.code})`));
+      specialFields.append(label);
+    }
+    card.append(specialFields);
+
+    const saveSpecial = document.createElement("button");
+    saveSpecial.type = "button";
+    saveSpecial.dataset.saveCategorySpecialFields = category.id;
+    saveSpecial.textContent = "Zapisz mapowanie pól specjalistycznych";
+    saveSpecial.addEventListener("click", () => {
+      void this.saveAllowedSpecialFields(category.id, status);
+    });
+    card.append(saveSpecial);
+
     const save = document.createElement("button");
     save.type = "button";
     save.dataset.saveCategoryStats = category.id;
@@ -112,10 +137,40 @@ export class CategoryManagerView {
     const subcategories = this.metadata!.subcategories.filter(
       (entry) => entry.categoryId === category.id
     );
-    if (subcategories.length > 0) {
-      const subheading = document.createElement("p");
-      subheading.textContent = `Podkategorie: ${subcategories.map((entry) => entry.name).join(", ")}`;
-      card.append(subheading);
+    for (const subcategory of subcategories) {
+      const subcategoryCard = document.createElement("section");
+      subcategoryCard.className = "category-manager__subcategory";
+      subcategoryCard.dataset.subcategory = subcategory.id;
+      const subcategoryTitle = document.createElement("strong");
+      subcategoryTitle.textContent = `${subcategory.name} (${subcategory.id})`;
+      subcategoryCard.append(subcategoryTitle);
+
+      const subcategoryFields = document.createElement("fieldset");
+      const subcategoryLegend = document.createElement("legend");
+      subcategoryLegend.textContent = "Dozwolone pola specjalistyczne";
+      subcategoryFields.append(subcategoryLegend);
+      for (const field of this.metadata!.specialFields) {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = field.code;
+        checkbox.dataset.subcategorySpecialField = `${category.id}:${subcategory.id}`;
+        checkbox.checked = subcategory.allowedSpecialFieldCodes.includes(field.code);
+        label.append(checkbox, document.createTextNode(`${field.label} (${field.code})`));
+        subcategoryFields.append(label);
+      }
+      subcategoryCard.append(subcategoryFields);
+
+      const saveSubcategoryFields = document.createElement("button");
+      saveSubcategoryFields.type = "button";
+      saveSubcategoryFields.dataset.saveSubcategorySpecialFields = subcategory.id;
+      saveSubcategoryFields.dataset.categoryId = category.id;
+      saveSubcategoryFields.textContent = "Zapisz pola podkategorii";
+      saveSubcategoryFields.addEventListener("click", () => {
+        void this.saveSubcategorySpecialFields(category.id, subcategory.id, status);
+      });
+      subcategoryCard.append(saveSubcategoryFields);
+      card.append(subcategoryCard);
     }
 
     // Celowo brak przycisku hard-delete. Kategorie systemowe i własne są zachowywane
@@ -152,6 +207,21 @@ export class CategoryManagerView {
       stats.append(label);
     }
     section.append(stats);
+
+    const specialFields = document.createElement("fieldset");
+    const specialLegend = document.createElement("legend");
+    specialLegend.textContent = "Dozwolone pola specjalistyczne";
+    specialFields.append(specialLegend);
+    for (const field of this.metadata!.specialFields) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = field.code;
+      checkbox.dataset.newCategorySpecialField = "";
+      label.append(checkbox, document.createTextNode(`${field.label} (${field.code})`));
+      specialFields.append(label);
+    }
+    section.append(specialFields);
 
     const create = document.createElement("button");
     create.type = "button";
@@ -202,6 +272,21 @@ export class CategoryManagerView {
     }
     section.append(stats);
 
+    const specialFields = document.createElement("fieldset");
+    const specialLegend = document.createElement("legend");
+    specialLegend.textContent = "Dozwolone pola specjalistyczne";
+    specialFields.append(specialLegend);
+    for (const field of this.metadata!.specialFields) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = field.code;
+      checkbox.dataset.newSubcategorySpecialField = "";
+      label.append(checkbox, document.createTextNode(`${field.label} (${field.code})`));
+      specialFields.append(label);
+    }
+    section.append(specialFields);
+
     const create = document.createElement("button");
     create.type = "button";
     create.dataset.createSubcategory = "";
@@ -226,13 +311,66 @@ export class CategoryManagerView {
     }
   }
 
+  private async saveAllowedSpecialFields(
+    categoryId: string,
+    status: HTMLElement
+  ): Promise<void> {
+    const selector = `[data-category-special-field='${escapeSelector(categoryId)}']`;
+    const allowedSpecialFieldCodes = this.checkedValues(selector);
+    status.textContent = "Zapisywanie pól specjalistycznych...";
+    try {
+      const updated = await this.api.updateCategoryAllowedSpecialFields(
+        categoryId,
+        allowedSpecialFieldCodes
+      );
+      const category = this.metadata?.categories.find((entry) => entry.id === categoryId);
+      if (category) category.allowedSpecialFieldCodes = [...updated.allowedSpecialFieldCodes];
+      status.textContent = `Zapisano pola specjalistyczne kategorii ${categoryId}.`;
+    } catch (error) {
+      status.textContent = this.errorMessage(error);
+    }
+  }
+
+  private async saveSubcategorySpecialFields(
+    categoryId: string,
+    subcategoryId: string,
+    status: HTMLElement
+  ): Promise<void> {
+    const mappingId = `${categoryId}:${subcategoryId}`;
+    const selector = `[data-subcategory-special-field='${escapeSelector(mappingId)}']`;
+    const allowedSpecialFieldCodes = this.checkedValues(selector);
+    status.textContent = "Zapisywanie pól podkategorii...";
+    try {
+      const updated = await this.api.updateSubcategoryAllowedSpecialFields(
+        categoryId,
+        subcategoryId,
+        allowedSpecialFieldCodes
+      );
+      const subcategory = this.metadata?.subcategories.find(
+        (entry) => entry.categoryId === categoryId && entry.id === subcategoryId
+      );
+      if (subcategory) {
+        subcategory.allowedSpecialFieldCodes = [...updated.allowedSpecialFieldCodes];
+      }
+      status.textContent = `Zapisano pola podkategorii ${subcategoryId}.`;
+    } catch (error) {
+      status.textContent = this.errorMessage(error);
+    }
+  }
+
   private async createCategory(status: HTMLElement): Promise<void> {
     const id = this.require<HTMLInputElement>("[data-new-category-id]").value.trim();
     const name = this.require<HTMLInputElement>("[data-new-category-name]").value.trim();
     const allowedStatCodes = this.checkedValues("[data-new-category-stat]");
+    const allowedSpecialFieldCodes = this.checkedValues("[data-new-category-special-field]");
     status.textContent = "Tworzenie kategorii...";
     try {
-      const created = await this.api.createCategory({ id, name, allowedStatCodes });
+      const created = await this.api.createCategory({
+        id,
+        name,
+        allowedStatCodes,
+        allowedSpecialFieldCodes
+      });
       this.metadata?.categories.push(created);
       status.textContent = `Utworzono kategorię ${created.name}.`;
     } catch (error) {
@@ -245,13 +383,15 @@ export class CategoryManagerView {
     const name = this.require<HTMLInputElement>("[data-new-subcategory-name]").value.trim();
     const categoryId = this.require<HTMLSelectElement>("[data-new-subcategory-category]").value;
     const allowedStatCodes = this.checkedValues("[data-new-subcategory-stat]");
+    const allowedSpecialFieldCodes = this.checkedValues("[data-new-subcategory-special-field]");
     status.textContent = "Tworzenie podkategorii...";
     try {
       const created = await this.api.createSubcategory({
         id,
         categoryId,
         name,
-        allowedStatCodes
+        allowedStatCodes,
+        allowedSpecialFieldCodes
       });
       this.metadata?.subcategories.push(created);
       status.textContent = `Utworzono podkategorię ${created.name}.`;

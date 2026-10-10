@@ -14,6 +14,10 @@ const MIGRATIONS = [
   {
     name: "003_item_icon_assets",
     url: new URL("./migrations/003_item_icon_assets.sql", import.meta.url)
+  },
+  {
+    name: "004_item_special_fields",
+    url: new URL("./migrations/004_item_special_fields.sql", import.meta.url)
   }
 ] as const;
 

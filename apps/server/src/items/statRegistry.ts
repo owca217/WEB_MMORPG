@@ -296,7 +296,7 @@ export const ENGINE_SPECIAL_FIELDS: Readonly<Record<string, ItemSpecialFieldDefi
   eventId: { code: "eventId", label: "ID wydarzenia", type: "text", format: "id" }
 };
 
-const SPECIAL_FIELDS_BY_CATEGORY: Readonly<Record<string, readonly string[]>> = {
+const SPECIAL_FIELDS_BY_CATEGORY = {
   weapon: ["weaponFamily", "durability", "maxDurability", "socketCount"],
   armor: ["armorSlot", "durability", "maxDurability", "socketCount"],
   jewelry: ["jewelrySlot", "socketCount"],
@@ -312,7 +312,7 @@ const SPECIAL_FIELDS_BY_CATEGORY: Readonly<Record<string, readonly string[]>> = 
   "upgrade-item": ["upgradeType", "upgradeBonus", "maxTier", "successChance", "destroyChance"],
   "rune-gem": ["socketType", "gemLevel", "upgradeBonus"],
   special: Object.keys(ENGINE_SPECIAL_FIELDS)
-};
+} as const satisfies Readonly<Record<string, readonly string[]>>;
 
 export interface SystemCategorySeed {
   id: string;

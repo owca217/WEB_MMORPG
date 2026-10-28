@@ -121,7 +121,7 @@ export class CharacterCreatorScene extends Phaser.Scene {
 
   create(): void {
     const host = document.createElement("div");
-    host.className = "character-creator-scene";
+    host.className = "auth-scene character-creator-scene";
     document.body.appendChild(host);
     this.host = host;
 

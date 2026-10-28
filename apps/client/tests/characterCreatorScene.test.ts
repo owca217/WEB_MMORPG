@@ -1,5 +1,7 @@
 /* @vitest-environment jsdom */
 
+import { readFileSync } from "node:fs";
+import { URL as NodeURL } from "node:url";
 import type { SessionView } from "@web-mmorpg/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +15,8 @@ vi.mock("phaser", () => ({
 import { AuthApiRequestError, type AuthApi } from "../src/net/AuthApi";
 import { CharacterCreatorPanel, CharacterCreatorScene } from "../src/scenes/CharacterCreatorScene";
 import { sessionStateStore, SessionStateStore } from "../src/state/SessionStateStore";
+
+const gameStyles = readFileSync(new NodeURL("../src/style.css", import.meta.url), "utf8");
 
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -58,6 +62,36 @@ afterEach(() => {
 });
 
 describe("CharacterCreatorPanel", () => {
+  it("keeps character creation above the full-height game in the visible viewport", () => {
+    const stylesheet = document.createElement("style");
+    stylesheet.textContent = gameStyles;
+    document.head.appendChild(stylesheet);
+    const game = document.createElement("div");
+    game.id = "game";
+    document.body.appendChild(game);
+    const scene = new CharacterCreatorScene();
+    const cleanups: Array<() => void> = [];
+    Object.assign(scene, { events: { once: (_event: string, cleanup: () => void) => cleanups.push(cleanup) } });
+
+    try {
+      scene.create();
+      const host = document.querySelector<HTMLElement>(".character-creator-scene");
+      expect(host?.querySelector("[data-character-form]")).not.toBeNull();
+      expect(game.nextElementSibling).toBe(host);
+      expect(getComputedStyle(document.body).overflow).toBe("hidden");
+      expect(getComputedStyle(game).height).toBe("100%");
+
+      const hostStyle = getComputedStyle(host!);
+      expect(hostStyle.position).toBe("fixed");
+      expect(hostStyle.inset).toBe("0");
+      expect(hostStyle.display).toBe("grid");
+      expect(Number(hostStyle.zIndex)).toBeGreaterThan(0);
+    } finally {
+      cleanups.forEach((cleanup) => cleanup());
+      stylesheet.remove();
+    }
+  });
+
   it("submits a new character to the current origin in an unconfigured production build", async () => {
     vi.stubEnv("DEV", false);
     vi.stubEnv("VITE_GAME_SERVER_URL", undefined);

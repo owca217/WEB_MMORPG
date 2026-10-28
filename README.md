@@ -25,6 +25,13 @@ Use a separate disposable database for tests: integration tests reset its schema
 The current recovery branch follows the deployed `feature/mvp-vertical-slice`
 version. The additional RPG interface in draft PR #16 is a separate change.
 
+## Android client
+
+The installable Android client shares the browser game's accounts and server.
+Build an APK with `npm run android:apk -w @web-mmorpg/client` (JDK 21 and Android
+SDK 36 required). Installation, signed builds, and verification are documented
+in [docs/android-client.md](docs/android-client.md).
+
 ## MVP direction
 
 - 2D world split into separate locations

@@ -8,7 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("phaser", () => ({
   default: {
     Scene: class {},
-    Scenes: { Events: { SHUTDOWN: "shutdown" } }
+    Scenes: { Events: { SHUTDOWN: "shutdown" } },
+    Math: {
+      DegToRad: (degrees: number) => degrees * Math.PI / 180,
+      Vector2: class { constructor(readonly x: number, readonly y: number) {} }
+    },
+    Geom: { Polygon: class {
+      static Contains() { return true; }
+      constructor(readonly points: Array<{ x: number; y: number }>) {}
+    } }
   }
 }));
 
@@ -39,27 +47,51 @@ const initialBattle: BattleSnapshot = {
   finished: false
 };
 
-function createScene() {
+function createScene(snapshot = initialBattle, width = 800, height = 600) {
   const scene = new BattleScene();
   const events = new EventEmitter();
   const start = vi.fn(() => events.emit("shutdown"));
+  const scaleEvents = new EventEmitter();
+  const polygons: Array<Array<{ x: number; y: number }>> = [];
+  const zones: Array<{ x: number; y: number; width: number; height: number; handlers: Map<string, () => void> }> = [];
+  const bodies: Array<{ x: number; y: number; radius: number }> = [];
   const drawable = () => ({
+    width: 80,
+    height: 16,
     destroy() {},
     setOrigin() { return this; },
+    setPosition() { return this; },
+    setDepth() { return this; },
     setStrokeStyle() { return this; },
     setInteractive() { return this; },
-    on() { return this; }
+    on() { return this; },
+    lineStyle() {},
+    fillStyle() {},
+    fillCircle() {},
+    fillRoundedRect() {},
+    strokePoints(points: Array<{ x: number; y: number }>) { polygons.push(points); }
   });
+  const scale = Object.assign(scaleEvents, { width, height });
 
   Object.assign(scene, {
-    cameras: { main: { setBackgroundColor() {}, centerX: 400, centerY: 300 } },
-    add: { graphics: drawable, circle: drawable, text: drawable },
+    cameras: { main: { setBackgroundColor() {}, centerX: width / 2, centerY: height / 2, width, height } },
+    scale,
+    add: {
+      graphics: drawable,
+      circle: (x: number, y: number, radius: number) => { bodies.push({ x, y, radius }); return drawable(); },
+      text: drawable,
+      zone: (x: number, y: number, zoneWidth: number, zoneHeight: number) => {
+        const zone = { x, y, width: zoneWidth, height: zoneHeight, handlers: new Map<string, () => void>() };
+        zones.push(zone);
+        return { ...drawable(), on(event: string, handler: () => void) { zone.handlers.set(event, handler); return this; } };
+      }
+    },
     events,
     scene: { start }
   });
-  scene.init({ playerId: "character-1", snapshot: initialBattle });
+  scene.init({ playerId: "character-1", snapshot });
   scene.create();
-  return { scene, events, start };
+  return { scene, events, start, scale, polygons, zones, bodies };
 }
 
 describe("BattleScene completion", () => {
@@ -138,5 +170,54 @@ describe("BattleScene completion", () => {
     expect(transport.listenerCount("battleEnded")).toBe(1);
     next.events.emit("shutdown");
     expect(transport.listenerCount("battleEnded")).toBe(0);
+  });
+
+  it("fits every cell and combatant beside a phone HUD and recalculates on resize", () => {
+    const cells = [];
+    for (let q = -4; q <= 4; q += 1) {
+      for (let r = -4; r <= 4; r += 1) {
+        if (Math.abs(q + r) <= 4) cells.push({ q, r });
+      }
+    }
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return DOMRect.fromRect(this.classList.contains("battle-hud")
+        ? { x: 598, y: 12, width: 230, height: 356 }
+        : {});
+    });
+    const battle = { ...initialBattle, cells };
+    const { events, polygons, bodies, zones, scale } = createScene(battle, 840, 380);
+    const assertArenaFits = () => {
+      const points = polygons.slice(-61).flat();
+      expect(points).toHaveLength(366);
+      for (const point of points) {
+        expect(point.x).toBeGreaterThanOrEqual(12);
+        expect(point.x).toBeLessThanOrEqual(586);
+        expect(point.y).toBeGreaterThanOrEqual(12);
+        expect(point.y).toBeLessThanOrEqual(368);
+      }
+    };
+    assertArenaFits();
+    expect(bodies).toHaveLength(battle.combatants.length);
+    expect(zones).toHaveLength(61);
+    expect(bodies[0]!.radius).toBeGreaterThanOrEqual(7);
+
+    polygons.length = 0;
+    scale.height = 340;
+    scale.emit("resize");
+    assertArenaFits();
+    expect(Math.max(...polygons.flat().map((point) => point.y))).toBeLessThanOrEqual(328);
+    events.emit("shutdown");
+    expect(scale.listenerCount("resize")).toBe(0);
+  });
+
+  it("attacks a combatant through its whole hex touch target", () => {
+    const enemy = { ...initialBattle.combatants[0]!, id: "wolf", ownerPlayerId: "wolf", name: "Wilk", position: { q: 1, r: 0 } };
+    const { events, zones } = createScene({ ...initialBattle, cells: [{ q: 1, r: 0 }], combatants: [...initialBattle.combatants, enemy] });
+    const commands: unknown[] = [];
+    transport.on("battleCommand", (command) => commands.push(command));
+    document.querySelector<HTMLButtonElement>("[data-action='melee']")!.click();
+    zones[0]!.handlers.get("pointerup")!();
+    expect(commands).toEqual([{ type: "meleeAttack", combatantId: "hero:character-1", targetId: "wolf" }]);
+    events.emit("shutdown");
   });
 });

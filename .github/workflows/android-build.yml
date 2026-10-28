@@ -1,0 +1,50 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/mvp-vertical-slice, codex/android-client]
+    paths:
+      - apps/client/**
+      - packages/shared/**
+      - scripts/build-android-*.mjs
+      - package*.json
+      - .github/workflows/android-build.yml
+  pull_request:
+    paths:
+      - apps/client/**
+      - packages/shared/**
+      - scripts/build-android-*.mjs
+      - package*.json
+      - .github/workflows/android-build.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run test -w @web-mmorpg/client
+      - run: chmod +x apps/client/android/gradlew
+      - run: npm run android:apk -w @web-mmorpg/client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WEB-MMORPG-android-debug
+          path: artifacts/android/*
+          if-no-files-found: error
+          retention-days: 30

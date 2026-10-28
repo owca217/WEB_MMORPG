@@ -33,8 +33,13 @@ export interface BattleResultSummary {
 
 export class GameSocket {
   private socket: GameClientSocket | null = null;
+  private sessionToken: string | null = null;
+  private authenticationVersion = 0;
+  private connectionVersion = 0;
+  private authenticating = false;
   private connectionState: ConnectionState = "connecting";
   private readonly connectionHandlers = new Set<(state: ConnectionState) => void>();
+  private readonly reauthenticatedHandlers = new Set<(result: SocketAuthResult) => void>();
 
   connect(): GameClientSocket {
     if (this.socket) return this.socket;
@@ -46,22 +51,59 @@ export class GameSocket {
     const socket = io(serverUrl, { transports: ["websocket"] });
     this.socket = socket;
 
-    socket.on("connect", () => this.setConnectionState("connected"));
-    socket.on("disconnect", () => this.setConnectionState("disconnected"));
-    socket.on("connect_error", () => this.setConnectionState("disconnected"));
-    socket.io.on("reconnect_attempt", () => this.setConnectionState("connecting"));
-    socket.io.on("reconnect_failed", () => this.setConnectionState("disconnected"));
+    socket.on("connect", () => {
+      if (this.socket !== socket) return;
+      if (this.sessionToken && !this.authenticating) {
+        void this.reauthenticate(socket, this.sessionToken);
+      } else if (!this.authenticating) {
+        this.setConnectionState("connected");
+      }
+    });
+    socket.on("disconnect", () => {
+      if (this.socket !== socket) return;
+      this.connectionVersion += 1;
+      this.authenticationVersion += 1;
+      this.authenticating = false;
+      this.setConnectionState("disconnected");
+    });
+    socket.on("connect_error", () => {
+      if (this.socket === socket) this.setConnectionState("disconnected");
+    });
+    socket.io.on("reconnect_attempt", () => {
+      if (this.socket === socket) this.setConnectionState("connecting");
+    });
+    socket.io.on("reconnect_failed", () => {
+      if (this.socket === socket) this.setConnectionState("disconnected");
+    });
 
     return socket;
   }
 
-  authenticate(sessionToken: string): Promise<SocketAuthResult> {
-    return this.connect().emitWithAck("authenticate", { sessionToken });
+  async authenticate(sessionToken: string): Promise<SocketAuthResult> {
+    const socket = this.connect();
+    this.sessionToken = null;
+    this.authenticating = true;
+    const version = ++this.authenticationVersion;
+    const connectionVersion = this.connectionVersion;
+    this.setConnectionState("connecting");
+    if (!socket.connected && !socket.active) socket.connect();
+    const result = await this.requestAuthentication(socket, sessionToken);
+    if (!this.isCurrentAuthentication(socket, version, connectionVersion)) {
+      return this.authenticationFailure();
+    }
+    this.authenticating = false;
+    if (result.ok) this.sessionToken = sessionToken;
+    this.setConnectionState(result.ok ? "connected" : "disconnected");
+    return result;
   }
 
   disconnect(): void {
-    this.socket?.disconnect();
+    const socket = this.socket;
     this.socket = null;
+    this.sessionToken = null;
+    this.authenticationVersion += 1;
+    this.authenticating = false;
+    socket?.disconnect();
     this.setConnectionState("disconnected");
   }
 
@@ -141,6 +183,59 @@ export class GameSocket {
     this.connectionHandlers.add(handler);
     handler(this.connectionState);
     return () => this.connectionHandlers.delete(handler);
+  }
+
+  onReauthenticated(handler: (result: SocketAuthResult) => void): () => void {
+    this.reauthenticatedHandlers.add(handler);
+    return () => this.reauthenticatedHandlers.delete(handler);
+  }
+
+  private async reauthenticate(socket: GameClientSocket, sessionToken: string): Promise<void> {
+    this.authenticating = true;
+    const version = ++this.authenticationVersion;
+    const connectionVersion = this.connectionVersion;
+    this.setConnectionState("connecting");
+    const result = await this.requestAuthentication(socket, sessionToken);
+    if (!this.isCurrentAuthentication(socket, version, connectionVersion)) return;
+    this.authenticating = false;
+    if (result.ok) {
+      this.setConnectionState("connected");
+      socket.emit("requestWorldState");
+      socket.emit("requestPlayerState");
+    } else {
+      this.sessionToken = null;
+      socket.disconnect();
+      this.setConnectionState("disconnected");
+    }
+    for (const handler of this.reauthenticatedHandlers) handler(result);
+  }
+
+  private async requestAuthentication(
+    socket: GameClientSocket,
+    sessionToken: string
+  ): Promise<SocketAuthResult> {
+    try {
+      return await socket.timeout(15_000).emitWithAck("authenticate", { sessionToken });
+    } catch {
+      return this.authenticationFailure();
+    }
+  }
+
+  private isCurrentAuthentication(
+    socket: GameClientSocket,
+    version: number,
+    connectionVersion: number
+  ): boolean {
+    return this.socket === socket && this.authenticationVersion === version &&
+      this.connectionVersion === connectionVersion;
+  }
+
+  private authenticationFailure(): SocketAuthResult {
+    return {
+      ok: false,
+      code: "AUTHENTICATION_FAILED",
+      message: "The gameplay session could not be authenticated. Try connecting again."
+    };
   }
 
   private setConnectionState(state: ConnectionState): void {

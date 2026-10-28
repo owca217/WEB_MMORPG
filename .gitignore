@@ -4,3 +4,9 @@ dist/
 .env.*
 coverage/
 .DS_Store
+dist-android/
+artifacts/
+*.keystore
+*.jks
+*.p12
+signing.properties

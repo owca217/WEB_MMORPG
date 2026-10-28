@@ -6,6 +6,7 @@ export function resolveViteBasePath(
   return configuredBasePath ?? "/WEB_MMORPG/";
 }
 
-export default defineConfig({
-  base: resolveViteBasePath(process.env.VITE_BASE_PATH)
-});
+export default defineConfig(({ mode }) => ({
+  base: resolveViteBasePath(process.env.VITE_BASE_PATH),
+  ...(mode === "android" ? { build: { target: "chrome111" } } : {})
+}));

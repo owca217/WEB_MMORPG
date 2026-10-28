@@ -6,14 +6,21 @@
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "android:sync": "node ../../scripts/build-android-client.mjs",
+    "android:apk": "node ../../scripts/build-android-apk.mjs",
+    "android:open": "cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.0",
     "@web-mmorpg/shared": "*",
     "phaser": "4.2.1",
     "socket.io-client": "4.8.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.6.0",
     "jsdom": "^27.0.0",
     "typescript": "^5.9.2",
     "vite": "8.2.2",

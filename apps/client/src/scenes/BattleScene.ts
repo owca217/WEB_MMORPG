@@ -8,19 +8,13 @@ import type {
 import Phaser from "phaser";
 import { gameSocket } from "../net/GameSocket";
 import { BattleHud, type AttackMode } from "../ui/BattleHud";
+import { axialToPixel, calculateBattleLayout, type SafeInsets } from "./battleLayout";
 
-const HEX_SIZE = 34;
+export { axialToPixel } from "./battleLayout";
 
 interface BattleSceneData {
   playerId: PlayerId;
   snapshot: BattleSnapshot;
-}
-
-export function axialToPixel({ q, r }: HexCoord, size: number): { x: number; y: number } {
-  return {
-    x: size * Math.sqrt(3) * (q + r / 2),
-    y: size * 1.5 * r
-  };
 }
 
 function hexPolygon(x: number, y: number, size: number): Phaser.Math.Vector2[] {
@@ -44,6 +38,8 @@ export class BattleScene extends Phaser.Scene {
   private unsubscribeState: (() => void) | undefined;
   private unsubscribeEnded: (() => void) | undefined;
   private unsubscribeRejected: (() => void) | undefined;
+  private hudObserver: ResizeObserver | undefined;
+  private readonly onResize = () => this.renderSnapshot();
 
   constructor() {
     super("BattleScene");
@@ -64,6 +60,12 @@ export class BattleScene extends Phaser.Scene {
       },
       onEndTurn: () => this.requestEndTurn()
     });
+    this.scale.on("resize", this.onResize);
+    const hudElement = document.querySelector<HTMLElement>(".battle-hud");
+    if (hudElement && typeof ResizeObserver !== "undefined") {
+      this.hudObserver = new ResizeObserver(this.onResize);
+      this.hudObserver.observe(hudElement);
+    }
 
     this.unsubscribeState = gameSocket.onBattleState((snapshot) => {
       this.snapshot = snapshot;
@@ -91,6 +93,9 @@ export class BattleScene extends Phaser.Scene {
       this.unsubscribeState?.();
       this.unsubscribeEnded?.();
       this.unsubscribeRejected?.();
+      this.scale.off("resize", this.onResize);
+      this.hudObserver?.disconnect();
+      this.hudObserver = undefined;
       this.hud?.destroy();
       this.hud = null;
       this.clearRenderObjects();
@@ -101,9 +106,20 @@ export class BattleScene extends Phaser.Scene {
     const snapshot = this.snapshot;
     if (!snapshot) return;
 
+    this.refreshHud();
     this.clearRenderObjects();
-    const centerX = this.cameras.main.centerX;
-    const centerY = this.cameras.main.centerY - 20;
+    const hud = document.querySelector<HTMLElement>(".battle-hud")?.getBoundingClientRect();
+    const styles = getComputedStyle(document.documentElement);
+    const insets = Object.fromEntries(
+      ["top", "right", "bottom", "left"].map((edge) => [
+        edge, Number.parseFloat(styles.getPropertyValue(`--safe-area-${edge}`)) || 0
+      ])
+    ) as unknown as SafeInsets;
+    const layout = calculateBattleLayout(
+      this.scale.width, this.scale.height, snapshot.cells,
+      hud?.width ? hud : undefined, insets
+    );
+    const { centerX, centerY, hexSize } = layout;
 
     const graphics = this.add.graphics();
     this.renderObjects.push(graphics);
@@ -112,66 +128,80 @@ export class BattleScene extends Phaser.Scene {
     const coverKeys = new Set(snapshot.coverCells.map((cell) => `${cell.q},${cell.r}`));
 
     for (const cell of snapshot.cells) {
-      const local = axialToPixel(cell, HEX_SIZE);
+      const local = axialToPixel(cell, hexSize);
       const x = centerX + local.x;
       const y = centerY + local.y;
       const key = `${cell.q},${cell.r}`;
 
       graphics.lineStyle(1, 0x5c6470, 0.9);
-      graphics.strokePoints(hexPolygon(x, y, HEX_SIZE - 1), true);
+      graphics.strokePoints(hexPolygon(x, y, hexSize - 1), true);
 
       if (blockedKeys.has(key)) {
         graphics.fillStyle(0x3e3b3a, 1);
-        graphics.fillCircle(x, y, HEX_SIZE * 0.48);
+        graphics.fillCircle(x, y, hexSize * 0.48);
       } else if (coverKeys.has(key)) {
         graphics.fillStyle(0x826b49, 1);
         graphics.fillRoundedRect(
-          x - HEX_SIZE * 0.42,
+          x - hexSize * 0.42,
           y,
-          HEX_SIZE * 0.84,
-          HEX_SIZE * 0.32,
+          hexSize * 0.84,
+          hexSize * 0.32,
           5
         );
       }
 
       if (!blockedKeys.has(key)) {
-        const zone = this.add.zone(x, y, HEX_SIZE * 1.45, HEX_SIZE * 1.45).setInteractive();
-        zone.on("pointerup", () => this.requestMove(cell));
+        const width = hexSize * Math.sqrt(3);
+        const zone = this.add.zone(x, y, width, hexSize * 2).setInteractive(
+          new Phaser.Geom.Polygon(hexPolygon(width / 2, hexSize, hexSize)),
+          Phaser.Geom.Polygon.Contains
+        );
+        zone.on("pointerup", () => {
+          const target = this.snapshot?.combatants.find((combatant) =>
+            combatant.position.q === cell.q && combatant.position.r === cell.r && combatant.hp > 0
+          );
+          if (this.attackMode && target) this.requestAttack(target.id);
+          else this.requestMove(cell);
+        });
         this.renderObjects.push(zone);
       }
     }
 
     for (const combatant of snapshot.combatants) {
-      this.renderCombatant(combatant, centerX, centerY);
+      this.renderCombatant(combatant, layout);
     }
-
-    this.refreshHud();
   }
 
   private renderCombatant(
     combatant: CombatantSnapshot,
-    centerX: number,
-    centerY: number
+    { centerX, centerY, hexSize, labelFontSize, arena }: ReturnType<typeof calculateBattleLayout>
   ): void {
-    const local = axialToPixel(combatant.position, HEX_SIZE);
+    const local = axialToPixel(combatant.position, hexSize);
     const x = centerX + local.x;
     const y = centerY + local.y;
     const owned = combatant.ownerPlayerId === this.playerId;
     const active = combatant.id === this.snapshot?.activeCombatantId;
     const fill = combatant.hp <= 0 ? 0x555555 : owned ? 0x5fa6e8 : 0xcf6a61;
 
-    const body = this.add.circle(x, y, HEX_SIZE * 0.38, fill, 1);
+    const body = this.add.circle(x, y, hexSize * 0.38, fill, 1);
     body.setStrokeStyle(active ? 4 : 2, active ? 0xffdf77 : 0x17191e);
-    body.setInteractive({ useHandCursor: true });
-    body.on("pointerup", () => this.requestAttack(combatant.id));
+    // Labels may share space at phone sizes; every unit remains visible above them.
+    body.setDepth(2);
 
-    const label = this.add.text(x, y - HEX_SIZE * 0.68, `${combatant.name} ${combatant.hp}/${combatant.maxHp}`, {
+    const compact = hexSize < 30;
+    const name = compact && combatant.name.length > 12 ? `${combatant.name.slice(0, 11)}…` : combatant.name;
+    const caption = `${name}${compact ? "\n" : " "}${combatant.hp}/${combatant.maxHp}`;
+    const label = this.add.text(x, y - hexSize * 0.5, caption, {
       fontFamily: "sans-serif",
-      fontSize: "13px",
+      fontSize: `${labelFontSize}px`,
       color: "#ffffff",
       backgroundColor: "#000000aa",
       padding: { x: 4, y: 2 }
-    }).setOrigin(0.5);
+    }).setOrigin(0.5, 1).setDepth(1);
+    label.setPosition(
+      Math.max(arena.x + label.width / 2, Math.min(x, arena.x + arena.width - label.width / 2)),
+      Math.max(arena.y + label.height, Math.min(y - hexSize * 0.5, arena.y + arena.height))
+    );
 
     this.renderObjects.push(body, label);
   }

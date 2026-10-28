@@ -88,7 +88,7 @@ describeDatabase("persistent character lifecycle", () => {
     const service = new CharacterLifecycleService(pool);
     const created = await service.createCharacter(accountId, {
       nickname: "StateHero",
-      appearance: { body: "default" }
+      appearance: { gender: "female", skinId: "female-scout", hairStyle: "long" }
     });
 
     await service.saveGameplayState(created.id, {
@@ -107,6 +107,7 @@ describeDatabase("persistent character lifecycle", () => {
     const persisted = await new CharacterLifecycleService(pool).getCharacter(accountId);
     expect(persisted).toMatchObject({
       id: created.id,
+      appearance: { gender: "female", skinId: "female-scout", hairStyle: "long" },
       x: 321,
       y: 654,
       level: 3,

@@ -3,6 +3,7 @@ import type { LocationId, PlayerId } from "./ids";
 export interface WorldPlayerSnapshot {
   id: PlayerId;
   nickname: string;
+  appearance?: Record<string, unknown>;
   x: number;
   y: number;
 }

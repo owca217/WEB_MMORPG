@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { PlayerStateSnapshot } from "@web-mmorpg/shared";
+import type { PlayerStateSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
 import { io as createClient, type Socket } from "socket.io-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthService } from "../src/auth/AuthService";
@@ -41,7 +41,7 @@ afterAll(async () => {
   await pool?.end();
 });
 
-async function createIdentity(username: string, nickname?: string) {
+async function createIdentity(username: string, nickname?: string, appearance: Record<string, unknown> = {}) {
   if (!pool) throw new Error("DATABASE_URL_REQUIRED");
   const lifecycle = new CharacterLifecycleService(pool);
   const auth = new AuthService(pool, new AccountRepository(pool), lifecycle);
@@ -50,7 +50,7 @@ async function createIdentity(username: string, nickname?: string) {
   if (!account) throw new Error("ACCOUNT_NOT_CREATED");
   let characterId: string | undefined;
   if (nickname) {
-    characterId = (await lifecycle.createCharacter(account.id, { nickname, appearance: {} })).id;
+    characterId = (await lifecycle.createCharacter(account.id, { nickname, appearance })).id;
   }
   const login = await auth.login(username, PASSWORD);
   return { auth, lifecycle, accountId: account.id, characterId, token: login.token };
@@ -83,7 +83,7 @@ async function startTestServer(auth: AuthService, lifecycle: CharacterLifecycleS
     socket.once("connect", resolve);
     socket.once("connect_error", reject);
   });
-  return { game, socket };
+  return { game, socket, url: `http://127.0.0.1:${address.port}` };
 }
 
 function once<T>(socket: Socket, event: string, timeoutMs = 1500): Promise<T> {
@@ -97,6 +97,32 @@ function once<T>(socket: Socket, event: string, timeoutMs = 1500): Promise<T> {
 }
 
 describeDatabase("durable Socket.IO authentication", () => {
+  it("hydrates persisted skins for the owner and broadcasts each appearance to nearby players", async () => {
+    const owner = await createIdentity("skin_owner", "SkinOwner", { gender: "female", skinId: "female-scout" });
+    const nearby = await createIdentity("skin_nearby", "SkinNearby", { gender: "male", skinId: "male-guard" });
+    const { socket, url } = await startTestServer(owner.auth, owner.lifecycle);
+    const ownerState = once<PlayerStateSnapshot>(socket, "playerState");
+    await socket.emitWithAck("authenticate", { sessionToken: owner.token });
+    expect((await ownerState).character.appearance).toEqual({ gender: "female", skinId: "female-scout" });
+
+    const nearbySocket = createClient(url, { transports: ["websocket"], forceNew: true });
+    clients.push(nearbySocket);
+    await new Promise<void>((resolve, reject) => {
+      nearbySocket.once("connect", resolve);
+      nearbySocket.once("connect_error", reject);
+    });
+    const ownerWorld = once<WorldStateSnapshot>(socket, "worldState");
+    const nearbyWorld = once<WorldStateSnapshot>(nearbySocket, "worldState");
+    await nearbySocket.emitWithAck("authenticate", { sessionToken: nearby.token });
+
+    for (const snapshot of await Promise.all([ownerWorld, nearbyWorld])) {
+      expect(snapshot.players).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: owner.characterId, appearance: { gender: "female", skinId: "female-scout" } }),
+        expect.objectContaining({ id: nearby.characterId, appearance: { gender: "male", skinId: "male-guard" } })
+      ]));
+    }
+  });
+
   it("resolves identity only from the persistent session token and active character", async () => {
     const identity = await createIdentity("socket_player", "SocketHero");
     const { socket } = await startTestServer(identity.auth, identity.lifecycle);

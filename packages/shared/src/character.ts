@@ -5,6 +5,7 @@ import type { InventorySnapshot } from "./inventory";
 export interface CharacterSnapshot {
   playerId: PlayerId;
   nickname: string;
+  appearance?: Record<string, unknown>;
   level: number;
   hp: number;
   maxHp: number;

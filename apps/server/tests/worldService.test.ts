@@ -7,6 +7,20 @@ function createTestWorld() {
 }
 
 describe("WorldService", () => {
+  it("shares selected appearances without exposing mutable world state", () => {
+    const world = createTestWorld();
+    const appearance = { gender: "female", skinId: "female-scout", detail: { color: "green" } };
+    const joined = world.addPlayer({ id: "p1", nickname: "Owczy", appearance }, 0);
+    appearance.detail.color = "red";
+    expect(joined.appearance).toEqual({ gender: "female", skinId: "female-scout", detail: { color: "green" } });
+
+    (joined.appearance!.detail as { color: string }).color = "blue";
+    const snapshot = world.snapshot();
+    expect(snapshot.players[0]?.appearance).toEqual({ gender: "female", skinId: "female-scout", detail: { color: "green" } });
+    (snapshot.players[0]!.appearance!.detail as { color: string }).color = "yellow";
+    expect(world.getPlayer("p1")?.appearance).toEqual({ gender: "female", skinId: "female-scout", detail: { color: "green" } });
+  });
+
   it("clamps player movement to world bounds", () => {
     const world = createTestWorld();
     world.addPlayer({ id: "p1", nickname: "Owczy" }, 0);

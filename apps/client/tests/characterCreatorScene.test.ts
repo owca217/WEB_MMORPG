@@ -36,6 +36,13 @@ function submit(host: HTMLElement): void {
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
+function choose(host: HTMLElement, name: string, value: string): void {
+  if (!host.isConnected) document.body.appendChild(host);
+  const radio = host.querySelector<HTMLInputElement>(`input[name='${name}'][value='${value}']`);
+  expect(radio, `Missing ${name} option ${value}`).not.toBeNull();
+  radio!.click();
+}
+
 function api(overrides: Partial<Record<keyof AuthApi, unknown>> = {}): AuthApi {
   return {
     login: vi.fn(),
@@ -128,7 +135,7 @@ describe("CharacterCreatorPanel", () => {
     const created = {
       id: "character-1",
       nickname: "OwczyHero",
-      appearance: { bodyType: "balanced", hairStyle: "short", hairColor: "brown" }
+      appearance: { gender: "female", skinId: "female-guard" }
     };
     const refreshed: SessionView = {
       accountUsername: "Owczy",
@@ -148,21 +155,50 @@ describe("CharacterCreatorPanel", () => {
     ).mount();
 
     input(host, "nickname", "OwczyHero");
-    input(host, "bodyType", "balanced");
-    input(host, "hairStyle", "short");
-    input(host, "hairColor", "brown");
+    choose(host, "gender", "female");
+    choose(host, "skinId", "female-guard");
     submit(host);
     await flush();
 
     expect(createCharacter).toHaveBeenCalledWith("character-token", {
       nickname: "OwczyHero",
-      appearance: { bodyType: "balanced", hairStyle: "short", hairColor: "brown" }
+      appearance: { gender: "female", skinId: "female-guard" }
     });
     expect(getSession).toHaveBeenCalledWith("character-token");
     expect(store.getSession()).toEqual(refreshed);
     expect(enterWorld).toHaveBeenCalledWith("character-token", refreshed);
     expect(createCharacter.mock.invocationCallOrder[0]!).toBeLessThan(getSession.mock.invocationCallOrder[0]!);
     expect(getSession.mock.invocationCallOrder[0]!).toBeLessThan(enterWorld.mock.invocationCallOrder[0]!);
+  });
+
+  it("offers three skins for each gender and keeps the variant and nickname when gender changes", () => {
+    const host = document.createElement("div");
+    new CharacterCreatorPanel(host, api(), new SessionStateStore(localStorage), vi.fn()).mount();
+
+    const skinOptions = () => Array.from(host.querySelectorAll<HTMLInputElement>("input[name='skinId']"));
+    expect(skinOptions().map(({ value }) => value)).toEqual(["male-traveler", "male-scout", "male-guard"]);
+    expect(skinOptions().find(({ checked }) => checked)?.value).toBe("male-traveler");
+    input(host, "nickname", "OwczyHero");
+    choose(host, "skinId", "male-scout");
+    choose(host, "gender", "female");
+
+    expect(skinOptions().map(({ value }) => value)).toEqual(["female-traveler", "female-scout", "female-guard"]);
+    expect(skinOptions().find(({ checked }) => checked)?.value).toBe("female-scout");
+    expect(host.querySelector<HTMLInputElement>("[name='nickname']")?.value).toBe("OwczyHero");
+    const preview = host.querySelector<HTMLElement>("[data-skin-preview]");
+    expect(preview?.dataset.skinId).toBe("female-scout");
+    expect(preview?.getAttribute("aria-label")).toContain("Zwiadowczyni");
+    expect(preview?.style.getPropertyValue("--skin-image")).toContain("female-scout.png");
+
+    const back = host.querySelector<HTMLButtonElement>("button[data-direction='north']");
+    expect(back).not.toBeNull();
+    back!.click();
+    expect(back!.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector("button[data-direction='south']")?.getAttribute("aria-pressed")).toBe("false");
+    expect(preview?.dataset.direction).toBe("north");
+    choose(host, "gender", "male");
+    expect(skinOptions().find(({ checked }) => checked)?.value).toBe("male-scout");
+    expect(preview?.dataset.skinId).toBe("male-scout");
   });
 
   it("preserves the form and does not enter the world when creation fails", async () => {
@@ -180,12 +216,15 @@ describe("CharacterCreatorPanel", () => {
     new CharacterCreatorPanel(host, api({ createCharacter }), store, enterWorld).mount();
 
     input(host, "nickname", "OwczyHero");
-    input(host, "hairColor", "black");
+    choose(host, "gender", "female");
+    choose(host, "skinId", "female-scout");
     submit(host);
     await flush();
 
     expect(host.querySelector<HTMLInputElement>("[name='nickname']")?.value).toBe("OwczyHero");
-    expect(host.querySelector<HTMLSelectElement>("[name='hairColor']")?.value).toBe("black");
+    expect(host.querySelector<HTMLInputElement>("[name='gender']:checked")?.value).toBe("female");
+    expect(host.querySelector<HTMLInputElement>("[name='skinId']:checked")?.value).toBe("female-scout");
+    expect(host.querySelector<HTMLElement>("[data-skin-preview]")?.dataset.skinId).toBe("female-scout");
     expect(host.querySelector("[data-character-error]")?.textContent).toBe("Ten nick jest już zajęty.");
     expect(enterWorld).not.toHaveBeenCalled();
   });

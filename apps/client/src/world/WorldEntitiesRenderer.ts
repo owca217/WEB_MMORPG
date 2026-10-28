@@ -1,15 +1,28 @@
-import type {
-  EncounterSnapshot,
-  NpcSnapshot,
-  PlayerId,
-  WorldPlayerSnapshot,
-  WorldStateSnapshot
+import {
+  resolveCharacterSkin,
+  type CharacterSkinId,
+  type EncounterSnapshot,
+  type NpcSnapshot,
+  type PlayerId,
+  type WorldPlayerSnapshot,
+  type WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import {
+  getCharacterAnimationFrames,
+  resolveCharacterMotion,
+  type CharacterDirection
+} from "../characters/characterSkinAnimation";
+import { getCharacterSkinTextureKey } from "../characters/characterSkinAssets";
+import { getCharacterWalkAnimationKey } from "../characters/characterSkinSprites";
 
 interface PlayerView {
   container: Phaser.GameObjects.Container;
   label: Phaser.GameObjects.Text;
+  sprite: Phaser.GameObjects.Sprite | undefined;
+  fallback: Phaser.GameObjects.Container | undefined;
+  skinId: CharacterSkinId | undefined;
+  direction: CharacterDirection;
   targetX: number;
   targetY: number;
 }
@@ -36,13 +49,19 @@ export class WorldEntitiesRenderer {
   updateRemotePlayers(): void {
     for (const [id, view] of this.playerViews) {
       if (id === this.localPlayerId) continue;
-      view.container.x = Phaser.Math.Linear(view.container.x, view.targetX, 0.25);
-      view.container.y = Phaser.Math.Linear(view.container.y, view.targetY, 0.25);
+      let x = Phaser.Math.Linear(view.container.x, view.targetX, 0.25);
+      let y = Phaser.Math.Linear(view.container.y, view.targetY, 0.25);
+      if (Math.hypot(view.targetX - x, view.targetY - y) < 0.5) {
+        x = view.targetX;
+        y = view.targetY;
+      }
+      this.updatePlayerPosition(view, x, y);
     }
   }
 
   setLocalPlayerPosition(x: number, y: number): void {
-    this.playerViews.get(this.localPlayerId)?.container.setPosition(x, y);
+    const view = this.playerViews.get(this.localPlayerId);
+    if (view) this.updatePlayerPosition(view, x, y);
   }
 
   getLocalPlayerObject(): Phaser.GameObjects.Container | undefined {
@@ -75,6 +94,7 @@ export class WorldEntitiesRenderer {
       view.targetX = player.x;
       view.targetY = player.y;
       view.label.setText(player.nickname);
+      this.setPlayerSkin(view, resolveCharacterSkin(player.appearance).id, player.id === this.localPlayerId);
       if (player.id !== this.localPlayerId) continue;
       if (view.container.x === 0 && view.container.y === 0) {
         view.container.setPosition(player.x, player.y);
@@ -86,18 +106,67 @@ export class WorldEntitiesRenderer {
     const local = player.id === this.localPlayerId;
     const container = this.scene.add.container(player.x, player.y).setDepth(20);
     const shadow = this.scene.add.ellipse(0, 19, 32, 12, 0x101713, 0.38);
-    const body = this.scene.add.rectangle(0, 3, 20, 28, local ? 0x5f8d62 : 0x796c5c).setStrokeStyle(2, 0x2a3027);
-    const head = this.scene.add.circle(0, -17, 9, local ? 0xd9b37a : 0xc39a6b).setStrokeStyle(2, 0x3f3328);
     const facing = this.scene.add.triangle(0, 20, -5, 0, 5, 0, 0, 8, local ? 0xe9d27c : 0xbcae92);
-    const label = this.scene.add.text(0, -39, player.nickname, {
+    const label = this.scene.add.text(0, -50, player.nickname, {
       fontFamily: "sans-serif",
       fontSize: "13px",
       color: local ? "#fff4b8" : "#ffffff",
       backgroundColor: "#101611bb",
       padding: { x: 4, y: 2 }
     }).setOrigin(0.5);
-    container.add([shadow, body, head, facing, label]);
-    return { container, label, targetX: player.x, targetY: player.y };
+    container.add([shadow, facing, label]);
+    const view: PlayerView = {
+      container,
+      label,
+      sprite: undefined,
+      fallback: undefined,
+      skinId: undefined,
+      direction: "south",
+      targetX: player.x,
+      targetY: player.y
+    };
+    this.setPlayerSkin(view, resolveCharacterSkin(player.appearance).id, local);
+    return view;
+  }
+
+  private setPlayerSkin(view: PlayerView, skinId: CharacterSkinId, local: boolean): void {
+    if (view.skinId === skinId) return;
+    view.sprite?.destroy();
+    view.fallback?.destroy(true);
+    view.sprite = undefined;
+    view.fallback = undefined;
+    view.skinId = skinId;
+
+    const textureKey = getCharacterSkinTextureKey(skinId);
+    if (this.scene.textures.exists(textureKey)) {
+      this.scene.textures.get(textureKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      view.sprite = this.scene.add.sprite(0, 20, textureKey, getCharacterAnimationFrames(view.direction)[0])
+        .setOrigin(0.5, 1)
+        .setDisplaySize(40, 60);
+      view.container.addAt(view.sprite, 2);
+      return;
+    }
+
+    // Keep players visible if an asset could not be loaded.
+    view.fallback = this.scene.add.container(0, 0);
+    const body = this.scene.add.rectangle(0, 3, 20, 28, local ? 0x5f8d62 : 0x796c5c).setStrokeStyle(2, 0x2a3027);
+    const head = this.scene.add.circle(0, -17, 9, local ? 0xd9b37a : 0xc39a6b).setStrokeStyle(2, 0x3f3328);
+    view.fallback.add([body, head]);
+    view.container.addAt(view.fallback, 2);
+  }
+
+  private updatePlayerPosition(view: PlayerView, x: number, y: number): void {
+    const motion = resolveCharacterMotion(x - view.container.x, y - view.container.y, view.direction);
+    view.direction = motion.direction;
+    view.container.setPosition(x, y);
+    if (!view.sprite || !view.skinId) return;
+
+    if (motion.moving) {
+      view.sprite.play(getCharacterWalkAnimationKey(view.skinId, view.direction), true);
+    } else {
+      view.sprite.stop();
+      view.sprite.setFrame(getCharacterAnimationFrames(view.direction)[0]);
+    }
   }
 
   private renderNpcs(npcs: NpcSnapshot[]): void {

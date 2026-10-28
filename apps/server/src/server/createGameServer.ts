@@ -155,6 +155,7 @@ export function createGameServer(
         characters.hydrate({
           playerId: persisted.id,
           nickname: persisted.nickname,
+          appearance: persisted.appearance,
           level: persisted.level,
           hp: persisted.hp,
           maxHp: persisted.maxHp,
@@ -166,6 +167,7 @@ export function createGameServer(
         world.addPlayer({
           id: persisted.id,
           nickname: persisted.nickname,
+          appearance: persisted.appearance,
           locationId: persisted.locationId,
           x: persisted.x,
           y: persisted.y

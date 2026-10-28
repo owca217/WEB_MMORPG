@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { CharacterService } from "../src/character/CharacterService";
 
 describe("CharacterService", () => {
+  it("preserves selected appearance through combat updates without leaking mutable data", () => {
+    const characters = new CharacterService();
+    const appearance = { gender: "female", skinId: "female-guard", detail: { color: "blue" } };
+    const hydrated = characters.hydrate({ ...characters.createPlayer("p1", "Owczy"), appearance });
+    appearance.detail.color = "red";
+    (hydrated.appearance!.detail as { color: string }).color = "green";
+    const afterBattle = characters.applyBattleResult("p1", { hp: 50, severelyInjured: false, injuries: [] });
+    expect(afterBattle.appearance).toEqual({ gender: "female", skinId: "female-guard", detail: { color: "blue" } });
+    (afterBattle.appearance!.detail as { color: string }).color = "yellow";
+    expect(characters.getSnapshot("p1")?.appearance).toEqual({ gender: "female", skinId: "female-guard", detail: { color: "blue" } });
+  });
+
   it("creates stable MVP 2 base stats", () => {
     const characters = new CharacterService();
 

@@ -1,5 +1,6 @@
 import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { resolveGameServerUrl } from "../hosting";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
@@ -58,7 +59,33 @@ export class WorldScene extends Phaser.Scene {
     this.cameraFollowing = false;
   }
 
+  preload(): void {
+    if (preloadCharacterSkins(this) === 0) return;
+
+    this.cameras.main.setBackgroundColor(0x101b15);
+    const loadingLabel = this.add.text(this.scale.width / 2, this.scale.height / 2, "Wczytywanie postaci… 0%", {
+      fontFamily: "Georgia, serif",
+      fontSize: "22px",
+      color: "#f3e3b6",
+      backgroundColor: "#17291f",
+      padding: { x: 24, y: 16 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1000);
+    const onProgress = (progress: number): void => {
+      loadingLabel.setText(`Wczytywanie postaci… ${Math.round(progress * 100)}%`);
+    };
+    const clearLoading = (): void => {
+      this.load.off(Phaser.Loader.Events.PROGRESS, onProgress);
+      this.load.off(Phaser.Loader.Events.COMPLETE, clearLoading);
+      this.events.off(Phaser.Scenes.Events.SHUTDOWN, clearLoading);
+      loadingLabel.destroy();
+    };
+    this.load.on(Phaser.Loader.Events.PROGRESS, onProgress);
+    this.load.once(Phaser.Loader.Events.COMPLETE, clearLoading);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, clearLoading);
+  }
+
   create(): void {
+    registerCharacterSkinAnimations(this);
     this.cameras.main.setBackgroundColor(0x29452d);
     this.cameras.main.setBounds(
       0,

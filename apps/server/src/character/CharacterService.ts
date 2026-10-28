@@ -70,6 +70,7 @@ export class CharacterService {
   private clone(character: CharacterSnapshot): CharacterSnapshot {
     return {
       ...character,
+      ...(character.appearance !== undefined ? { appearance: structuredClone(character.appearance) } : {}),
       injuries: [...character.injuries]
     };
   }

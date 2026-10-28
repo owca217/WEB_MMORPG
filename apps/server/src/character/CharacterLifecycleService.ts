@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CharacterLifecycleSummary, InjuryKind } from "@web-mmorpg/shared";
+import { getCharacterSkin, type CharacterLifecycleSummary, type InjuryKind } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
 import {
   CharacterRepository,
@@ -28,7 +28,16 @@ function normalizeNickname(input: string): { display: string; normalized: string
 }
 
 function validAppearance(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const appearance = value as Record<string, unknown>;
+  if ("gender" in appearance && appearance.gender !== "male" && appearance.gender !== "female") {
+    return false;
+  }
+  if ("skinId" in appearance) {
+    const skin = getCharacterSkin(appearance.skinId);
+    if (!skin || ("gender" in appearance && skin.gender !== appearance.gender)) return false;
+  }
+  return true;
 }
 
 function hasPgCode(error: unknown, code: string): boolean {
@@ -84,7 +93,7 @@ export class CharacterLifecycleService {
       throw new CharacterLifecycleError(
         "INVALID_APPEARANCE",
         400,
-        "Character appearance must be an object."
+        "Character appearance must contain a valid gender and matching base skin when selected."
       );
     }
 

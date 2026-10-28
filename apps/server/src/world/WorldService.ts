@@ -24,6 +24,7 @@ export class WorldService {
     input: {
       id: PlayerId;
       nickname: string;
+      appearance?: Record<string, unknown>;
       locationId?: LocationId;
       x?: number;
       y?: number;
@@ -33,6 +34,7 @@ export class WorldService {
     const player: WorldPlayerState = {
       id: input.id,
       nickname: input.nickname,
+      ...(input.appearance !== undefined ? { appearance: structuredClone(input.appearance) } : {}),
       x: input.x ?? FOREST_SETTLEMENT_01.spawn.x,
       y: input.y ?? FOREST_SETTLEMENT_01.spawn.y,
       locationId: input.locationId ?? FOREST_SETTLEMENT_01.id,
@@ -144,6 +146,7 @@ export class WorldService {
     return {
       id: player.id,
       nickname: player.nickname,
+      ...(player.appearance !== undefined ? { appearance: structuredClone(player.appearance) } : {}),
       x: player.x,
       y: player.y
     };

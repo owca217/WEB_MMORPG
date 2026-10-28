@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import type {
   BattleCommand,
   BattleSnapshot,
+  CharacterSnapshot,
   NpcInteractionPayload,
   PlayerId,
   PlayerStateSnapshot,
@@ -16,7 +17,8 @@ import {
   beforeEach,
   describe,
   expect,
-  it
+  it,
+  vi
 } from "vitest";
 import { AuthService } from "../src/auth/AuthService";
 import { findPath, hexDistance, hexKey, hexNeighbors } from "../src/battle/hex";
@@ -199,10 +201,12 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
         quantity: number;
       }>;
     };
-    character: { hp: number };
+    character: CharacterSnapshot;
+    experienceGained?: number;
+    levelsGained?: number;
   }>(socket, "battleEnded", 4000);
 
-  for (let step = 0; step < 40 && !battle.finished; step += 1) {
+  for (let step = 0; step < 160 && !battle.finished; step += 1) {
     const statePromise = onceWithTimeout<BattleSnapshot>(socket, "battleState");
     socket.emit("battleCommand", choosePlayerCommand(battle, playerId));
     battle = await statePromise;
@@ -281,6 +285,8 @@ describeDatabase("Socket.IO game flow", () => {
     const ended = await winBattle(client, started, playerId);
 
     expect(ended.outcome).toBe("victory");
+    expect(ended.experienceGained).toBe(40);
+    expect(ended.character.experience).toBe(40);
     const pelt = ended.inventory.items.find((item) => item.itemId === "wolf-pelt");
     const bandage = ended.inventory.items.find((item) => item.itemId === "field-bandage");
     expect(pelt).toMatchObject({
@@ -298,6 +304,89 @@ describeDatabase("Socket.IO game flow", () => {
 
     const returnedWorld = await worldReturnPromise;
     expect(returnedWorld.players.some((player) => player.id === playerId)).toBe(true);
+  });
+
+  it("awards XP once, advances automatically and restores saved progression", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "owczy_progress", "ProgressHero");
+    await lifecycle.saveGameplayState(identity.characterId, {
+      locationId: "forest-settlement-01", x: 1320, y: 455,
+      level: 1, experience: 80, hp: 100, maxHp: 100, maxAp: 5, initiative: 10,
+      severelyInjured: false, injuries: []
+    });
+    const client = await connectClient();
+    const initialState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const playerId = await authenticate(client, identity.token);
+    expect((await initialState).character.experience).toBe(80);
+
+    const startedPromise = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    const started = await startedPromise;
+    const ended = await winBattle(client, started, playerId);
+    expect(ended).toMatchObject({
+      outcome: "victory", experienceGained: 40, levelsGained: 1,
+      character: {
+        level: 2, experience: 120, maxHp: 130,
+        statistics: { strength: 12, dexterity: 11, vitality: 13, meleeDamage: 22, armor: 2 }
+      }
+    });
+    expect(ended.character.hp).toBeGreaterThan(30);
+    const account = await new AccountRepository(pool!).findByNormalizedUsername("owczy_progress");
+    expect(await lifecycle.getCharacter(account!.id)).toMatchObject({
+      level: 2, experience: 120, hp: ended.character.hp, maxHp: 130
+    });
+
+    const rejected = onceWithTimeout<{ code: string }>(client, "commandRejected");
+    client.emit("battleCommand", { type: "endTurn", combatantId: `hero:${playerId}` });
+    expect((await rejected).code).toBe("BATTLE_NOT_FOUND");
+    const restoredPromise = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, identity.token);
+    expect((await restoredPromise).character).toEqual(ended.character);
+  });
+
+  it("keeps victory XP when disconnecting while loot is still being saved", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "owczy_disconnect", "OfflineHero");
+    await lifecycle.saveGameplayState(identity.characterId, {
+      locationId: "forest-settlement-01", x: 1320, y: 455,
+      level: 1, experience: 80, hp: 100, maxHp: 100, maxAp: 5, initiative: 10,
+      severelyInjured: false, injuries: []
+    });
+    const client = await connectClient();
+    const playerId = await authenticate(client, identity.token);
+    let releaseLoot!: () => void;
+    const lootGate = new Promise<void>((resolve) => { releaseLoot = resolve; });
+    let markLootStarted!: () => void;
+    const lootStarted = new Promise<void>((resolve) => { markLootStarted = resolve; });
+    let markLootFinished!: () => void;
+    const lootFinished = new Promise<void>((resolve) => { markLootFinished = resolve; });
+    const addItems = game.services.inventory.addItems.bind(game.services.inventory);
+    vi.spyOn(game.services.inventory, "addItems").mockImplementationOnce(async (...args) => {
+      markLootStarted();
+      await lootGate;
+      try { return await addItems(...args); }
+      finally { markLootFinished(); }
+    });
+    try {
+      const started = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+      client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+      let battle = await started;
+      for (let step = 0; step < 160 && !battle.finished; step += 1) {
+        const next = onceWithTimeout<BattleSnapshot>(client, "battleState");
+        client.emit("battleCommand", choosePlayerCommand(battle, playerId));
+        battle = await next;
+      }
+      expect(battle.finished).toBe(true);
+      await lootStarted;
+      client.disconnect();
+      await vi.waitFor(() => expect(game.services.characters.getSnapshot(playerId)).toBeUndefined());
+      const account = await new AccountRepository(pool!).findByNormalizedUsername("owczy_disconnect");
+      expect(await lifecycle.getCharacter(account!.id)).toMatchObject({ level: 2, experience: 120 });
+    } finally {
+      releaseLoot();
+      await lootFinished;
+    }
+    expect((await game.services.inventory.getSnapshot(playerId)).items.some((item) => item.itemId === "wolf-pelt")).toBe(true);
   });
 
   it("recovers from defeat while preserving severe injury state", async () => {
@@ -318,7 +407,8 @@ describeDatabase("Socket.IO game flow", () => {
     let battle = await startedPromise;
     const endedPromise = onceWithTimeout<{
       outcome: "victory" | "defeat";
-      character: { hp: number; severelyInjured: boolean; injuries: string[] };
+      character: { hp: number; severelyInjured: boolean; injuries: string[]; experience: number };
+      experienceGained?: number;
     }>(client, "battleEnded", 4000);
 
     for (let turn = 0; turn < 12 && !battle.finished; turn += 1) {
@@ -331,6 +421,8 @@ describeDatabase("Socket.IO game flow", () => {
 
     const ended = await endedPromise;
     expect(ended.outcome).toBe("defeat");
+    expect(ended.character.experience).toBe(0);
+    expect(ended.experienceGained).toBe(0);
     expect(ended.character.hp).toBe(25);
     expect(ended.character.severelyInjured).toBe(true);
     expect(ended.character.injuries.length).toBeGreaterThan(0);

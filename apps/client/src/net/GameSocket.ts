@@ -20,6 +20,15 @@ export interface BattleEndedPayload {
   outcome: "victory" | "defeat";
   inventory: InventorySnapshot;
   character: CharacterSnapshot;
+  experienceGained?: number;
+  levelsGained?: number;
+}
+
+export interface BattleResultSummary {
+  outcome: BattleEndedPayload["outcome"];
+  experienceGained: number;
+  levelsGained: number;
+  level: number;
 }
 
 export class GameSocket {

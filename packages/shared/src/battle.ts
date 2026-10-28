@@ -1,4 +1,5 @@
 import type { BattleId, EntityId, PlayerId } from "./ids";
+import type { CombatStatistics } from "./characterProgression";
 
 export interface HexCoord {
   q: number;
@@ -18,6 +19,8 @@ export interface CombatantSnapshot {
   id: EntityId;
   ownerPlayerId?: PlayerId;
   name: string;
+  level?: number;
+  combatStats?: CombatStatistics;
   hp: number;
   maxHp: number;
   ap: number;

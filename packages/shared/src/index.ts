@@ -3,6 +3,7 @@ export * from "./world";
 export * from "./battle";
 export * from "./inventory";
 export * from "./character";
+export * from "./characterProgression";
 export * from "./characterSkins";
 export * from "./items";
 export * from "./admin";

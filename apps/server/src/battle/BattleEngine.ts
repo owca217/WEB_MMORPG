@@ -63,7 +63,12 @@ function cloneState(state: BattleState): BattleState {
     combatants: Object.fromEntries(
       Object.entries(state.combatants).map(([id, combatant]) => [
         id,
-        { ...combatant, position: { ...combatant.position }, injuries: [...combatant.injuries] }
+        {
+          ...combatant,
+          position: { ...combatant.position },
+          injuries: [...combatant.injuries],
+          ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {})
+        }
       ])
     )
   };
@@ -81,7 +86,13 @@ export function createBattleState(input: CreateBattleStateInput): BattleState {
 
   const combatants: Record<string, CombatantState> = {};
   for (const inputCombatant of input.combatants) {
-    combatants[inputCombatant.id] = { ...inputCombatant, ap: 0 };
+    combatants[inputCombatant.id] = {
+      ...inputCombatant,
+      position: { ...inputCombatant.position },
+      injuries: [...inputCombatant.injuries],
+      ...(inputCombatant.combatStats ? { combatStats: { ...inputCombatant.combatStats } } : {}),
+      ap: 0
+    };
   }
 
   const activeCombatantId = ordered[0]!.id;
@@ -183,8 +194,9 @@ function applyAttack(
   const next = cloneState(state);
   const attacker = next.combatants[attackerId]!;
   const target = next.combatants[targetId]!;
+  const mitigatedDamage = Math.max(1, Math.round(damage * 100 / (100 + Math.max(0, target.combatStats?.armor ?? 0))));
   attacker.ap -= apCost;
-  next.combatants[targetId] = applyDamageWithInjuries(target, damage, next.seed + next.round);
+  next.combatants[targetId] = applyDamageWithInjuries(target, mitigatedDamage, next.seed + next.round);
   next.finished = battleFinished(next.combatants);
   return next;
 }
@@ -222,7 +234,7 @@ function applyValidatedCommand(
       const cost = 2;
       if (actor.ap < cost) return reject("INSUFFICIENT_AP", "Not enough AP.");
       if (distance !== 1) return reject("OUT_OF_RANGE", "Melee target must be adjacent.");
-      return { ok: true, state: applyAttack(state, actor.id, target.id, 20, cost) };
+      return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.meleeDamage ?? 20, cost) };
     }
 
     const cost = rangedAttackApCost(actor);
@@ -232,7 +244,7 @@ function applyValidatedCommand(
     if (!hasLineOfSight(actor.position, target.position, blockers)) {
       return reject("NO_LINE_OF_SIGHT", "Line of sight is blocked.");
     }
-    return { ok: true, state: applyAttack(state, actor.id, target.id, 15, cost) };
+    return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.rangedDamage ?? 15, cost) };
   }
 
   const next = cloneState(state);

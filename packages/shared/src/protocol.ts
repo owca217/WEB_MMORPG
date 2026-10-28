@@ -32,6 +32,8 @@ export interface ServerToClientEvents {
     outcome: "victory" | "defeat";
     inventory: InventorySnapshot;
     character: CharacterSnapshot;
+    experienceGained?: number;
+    levelsGained?: number;
   }) => void;
   commandRejected: (payload: { code: string; message: string }) => void;
 }

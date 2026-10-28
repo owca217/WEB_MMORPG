@@ -70,8 +70,16 @@ export class BattleScene extends Phaser.Scene {
       this.attackMode = null;
       this.renderSnapshot();
     });
-    this.unsubscribeEnded = gameSocket.onBattleEnded(() => {
-      this.scene.start("WorldScene", { playerId: this.playerId });
+    this.unsubscribeEnded = gameSocket.onBattleEnded((payload) => {
+      this.scene.start("WorldScene", {
+        playerId: this.playerId,
+        battleResult: {
+          outcome: payload.outcome,
+          experienceGained: payload.experienceGained ?? 0,
+          levelsGained: payload.levelsGained ?? 0,
+          level: payload.character.level
+        }
+      });
     });
     this.unsubscribeRejected = gameSocket.onCommandRejected(({ message }) => {
       this.hud?.setStatus(message);

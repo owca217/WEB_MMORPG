@@ -1,9 +1,12 @@
-import type {
-  BattleCommand,
-  BattleSnapshot,
-  CharacterSnapshot,
-  InjuryKind,
-  PlayerId
+import {
+  getCharacterStatistics,
+  MAX_CHARACTER_LEVEL,
+  type CombatStatistics,
+  type BattleCommand,
+  type BattleSnapshot,
+  type CharacterSnapshot,
+  type InjuryKind,
+  type PlayerId
 } from "@web-mmorpg/shared";
 import { generateArena } from "./arenaGenerator";
 import {
@@ -19,6 +22,7 @@ interface ActiveBattle {
   encounterId: string;
   seed: number;
   state: BattleState;
+  experienceReward: number;
 }
 
 export interface PlayerBattleOutcome {
@@ -35,6 +39,7 @@ export interface AppliedBattleCommand {
   encounterId?: string;
   seed?: number;
   playerOutcome?: PlayerBattleOutcome;
+  experienceReward?: number;
 }
 
 export class BattleService {
@@ -44,9 +49,24 @@ export class BattleService {
     const seed = 12345;
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
     const playerStart = arena.playerStartCells[0];
-    const enemyStart = arena.enemyStartCells[0];
+    const level = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
+    const statistics = character.statistics ?? getCharacterStatistics(level);
+    const combatStats: CombatStatistics = {
+      meleeDamage: statistics.meleeDamage,
+      rangedDamage: statistics.rangedDamage,
+      armor: statistics.armor
+    };
+    const wolfCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
+    const healthFactor = wolfCount === 3 ? 0.65 : wolfCount === 2 ? 0.75 : 1;
+    const damageFactor = wolfCount === 3 ? 0.35 : wolfCount === 2 ? 0.5 : 1;
+    const wolfHp = Math.round((120 + 28 * (level - 1)) * healthFactor);
+    const wolfDamage = Math.round((10 + 2 * (level - 1)) * damageFactor);
+    // Mature packs need more mitigation as the hero gains additional attacks per turn.
+    const wolfArmor = Math.floor(1.5 * (level - 1) + 3 * Math.max(0, level - 25));
+    const wolfInitiative = character.initiative - (character.injuries.includes("concussion") ? 2 : 0) - 1;
+    const enemyStarts = arena.enemyStartCells.slice(0, wolfCount);
 
-    if (!playerStart || !enemyStart) {
+    if (!playerStart || enemyStarts.length !== wolfCount) {
       throw new Error("ARENA_START_POSITION_MISSING");
     }
 
@@ -60,6 +80,8 @@ export class BattleService {
           ownerPlayerId: character.playerId,
           side: "player",
           name: character.nickname,
+          level,
+          combatStats,
           hp: character.hp,
           maxHp: character.maxHp,
           maxAp: character.maxAp,
@@ -68,22 +90,30 @@ export class BattleService {
           severelyInjured: character.severelyInjured,
           injuries: [...character.injuries]
         },
-        {
-          id: `wolf:${encounterId}`,
-          side: "enemy",
+        ...enemyStarts.map((position, index) => ({
+          id: index === 0 ? `wolf:${encounterId}` : `wolf:${encounterId}:${index + 1}`,
+          side: "enemy" as const,
           name: "Wolf",
-          hp: 60,
-          maxHp: 60,
+          level,
+          combatStats: {
+            meleeDamage: wolfDamage,
+            rangedDamage: 0,
+            armor: wolfArmor
+          },
+          hp: wolfHp,
+          maxHp: wolfHp,
           maxAp: 4,
-          initiative: 7,
-          position: enemyStart,
+          initiative: wolfInitiative,
+          position,
           severelyInjured: false,
           injuries: []
-        }
+        }))
       ]
     });
 
-    this.battlesByPlayer.set(character.playerId, { encounterId, seed, state });
+    this.battlesByPlayer.set(character.playerId, {
+      encounterId, seed, state, experienceReward: wolfCount * (25 + 15 * level)
+    });
     return this.toSnapshot(state);
   }
 
@@ -133,7 +163,8 @@ export class BattleService {
       victory,
       encounterId: active.encounterId,
       seed: active.seed,
-      ...(playerOutcome ? { playerOutcome } : {})
+      ...(playerOutcome ? { playerOutcome } : {}),
+      ...(victory ? { experienceReward: active.experienceReward } : {})
     };
   }
 
@@ -177,6 +208,8 @@ export class BattleService {
           ? { ownerPlayerId: combatant.ownerPlayerId }
           : {}),
         name: combatant.name,
+        ...(combatant.level !== undefined ? { level: combatant.level } : {}),
+        ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {}),
         hp: combatant.hp,
         maxHp: combatant.maxHp,
         ap: combatant.ap,

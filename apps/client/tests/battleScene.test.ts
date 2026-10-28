@@ -105,7 +105,8 @@ describe("BattleScene completion", () => {
       transport.emit("battleEnded", completed);
 
       expect(start).toHaveBeenCalledExactlyOnceWith("WorldScene", {
-        playerId: "character-1"
+        playerId: "character-1",
+        battleResult: { outcome, experienceGained: 0, levelsGained: 0, level: 1 }
       });
       expect(document.querySelector(".battle-hud")).toBeNull();
 
@@ -114,4 +115,28 @@ describe("BattleScene completion", () => {
       expect(start).toHaveBeenCalledTimes(1);
     }
   );
+
+  it("carries awarded XP and the final level into the world without retaining battle listeners", () => {
+    const { start } = createScene();
+    transport.emit("battleEnded", {
+      outcome: "victory", experienceGained: 80, levelsGained: 1,
+      inventory: { items: [] },
+      character: {
+        playerId: "character-1", nickname: "Hero", level: 2, experience: 150,
+        hp: 101, maxHp: 130, maxAp: 5, initiative: 10,
+        severelyInjured: false, injuries: []
+      }
+    } satisfies BattleEndedPayload);
+
+    expect(start).toHaveBeenCalledExactlyOnceWith("WorldScene", {
+      playerId: "character-1",
+      battleResult: { outcome: "victory", experienceGained: 80, levelsGained: 1, level: 2 }
+    });
+    expect(transport.listenerCount("battleEnded")).toBe(0);
+    expect(transport.listenerCount("battleState")).toBe(0);
+    const next = createScene();
+    expect(transport.listenerCount("battleEnded")).toBe(1);
+    next.events.emit("shutdown");
+    expect(transport.listenerCount("battleEnded")).toBe(0);
+  });
 });

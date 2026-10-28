@@ -72,6 +72,7 @@ export function createGameServer(
         x: player.x,
         y: player.y,
         level: character.level,
+        ...(character.experience !== undefined ? { experience: character.experience } : {}),
         hp: character.hp,
         maxHp: character.maxHp,
         maxAp: character.maxAp,
@@ -157,6 +158,7 @@ export function createGameServer(
           nickname: persisted.nickname,
           appearance: persisted.appearance,
           level: persisted.level,
+          experience: persisted.experience,
           hp: persisted.hp,
           maxHp: persisted.maxHp,
           maxAp: persisted.maxAp,
@@ -291,11 +293,18 @@ export function createGameServer(
       if (!applied.finished) return;
 
       try {
+        const beforeReward = characters.getSnapshot(currentCharacterId);
+        let experienceGained = 0;
+        let levelsGained = 0;
         if (applied.playerOutcome) {
           characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
         }
 
         if (applied.victory && applied.encounterId && applied.seed !== undefined) {
+          // Disconnect saves must include earned XP even while loot persistence is pending.
+          const progressed = characters.awardExperience(currentCharacterId, applied.experienceReward ?? 0);
+          experienceGained = (progressed.experience ?? 0) - (beforeReward?.experience ?? 0);
+          levelsGained = progressed.level - (beforeReward?.level ?? progressed.level);
           const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
           await inventory.addItems(currentCharacterId, reward);
         } else {
@@ -314,7 +323,9 @@ export function createGameServer(
         socket.emit("battleEnded", {
           outcome: applied.victory ? "victory" : "defeat",
           inventory: inventorySnapshot,
-          character
+          character,
+          experienceGained,
+          levelsGained
         });
 
         battles.removeBattleForPlayer(currentCharacterId);

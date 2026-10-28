@@ -5,7 +5,7 @@ import { resolveGameServerUrl } from "../hosting";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
 import { AuthApi } from "../net/AuthApi";
-import { gameSocket } from "../net/GameSocket";
+import { gameSocket, type BattleResultSummary } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { sessionStateStore } from "../state/SessionStateStore";
 import { logoutSession } from "../state/logoutSession";
@@ -20,6 +20,7 @@ import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
 
 interface WorldSceneData {
   playerId: PlayerId;
+  battleResult?: BattleResultSummary;
 }
 
 const WORLD_ERROR_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
 
 export class WorldScene extends Phaser.Scene {
   private playerId: PlayerId = "";
+  private battleResult: BattleResultSummary | undefined;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private pointerTarget: { x: number; y: number } | null = null;
@@ -53,6 +55,7 @@ export class WorldScene extends Phaser.Scene {
 
   init(data: WorldSceneData): void {
     this.playerId = data.playerId;
+    this.battleResult = data.battleResult;
     this.pointerTarget = null;
     this.authoritativePosition = null;
     this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
@@ -141,6 +144,7 @@ export class WorldScene extends Phaser.Scene {
       }
     });
     this.hud.updateSession(session?.accountRole ?? "PLAYER");
+    if (this.battleResult) this.hud.showBattleResult(this.battleResult);
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();

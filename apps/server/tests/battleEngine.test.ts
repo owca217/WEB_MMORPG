@@ -62,6 +62,67 @@ function makeState(overrides?: Partial<GeneratedArena>) {
 }
 
 describe("battle engine", () => {
+  it.each([
+    { type: "meleeAttack" as const, armor: 100, damage: 28 },
+    { type: "rangedAttack" as const, armor: 100, damage: 16 },
+    { type: "meleeAttack" as const, armor: -100, damage: 55 },
+    { type: "rangedAttack" as const, armor: 100_000, damage: 1 }
+  ])("uses actor damage and target armor for $type with armor $armor", ({ type, armor, damage }) => {
+    const fighters = combatants();
+    fighters[0]!.combatStats = { meleeDamage: 55, rangedDamage: 31, armor: 0 };
+    fighters[1]!.combatStats = { meleeDamage: 8, rangedDamage: 0, armor };
+    fighters[1]!.position = { q: 1, r: 0 };
+    fighters[1]!.hp = 100;
+    fighters[1]!.maxHp = 100;
+    const state = createBattleState({ id: "scaled", seed: 42, arena, combatants: fighters });
+
+    const result = applyBattleCommand(state, "player-1", {
+      type, combatantId: "hero-1", targetId: "enemy-1"
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.combatants["enemy-1"]!.hp).toBe(100 - damage);
+      expect(state.combatants["enemy-1"]!.hp).toBe(100);
+    }
+  });
+
+  it.each([
+    { type: "meleeAttack" as const, damage: 20 },
+    { type: "rangedAttack" as const, damage: 15 }
+  ])("keeps legacy $type damage for combatants without statistics", ({ type, damage }) => {
+    const state = makeState();
+    state.combatants["enemy-1"]!.position = { q: 1, r: 0 };
+    const result = applyBattleCommand(state, "player-1", {
+      type, combatantId: "hero-1", targetId: "enemy-1"
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.state.combatants["enemy-1"]!.hp).toBe(40 - damage);
+  });
+
+  it("isolates combat statistics and injuries from input and later command states", () => {
+    const fighters = combatants();
+    fighters[0]!.combatStats = { meleeDamage: 55, rangedDamage: 31, armor: 12 };
+    fighters[0]!.level = 5;
+    fighters[0]!.injuries = ["brokenArm"];
+    const state = createBattleState({ id: "scaled", seed: 42, arena, combatants: fighters });
+    fighters[0]!.combatStats.meleeDamage = 999;
+    fighters[0]!.injuries.push("legTrauma");
+    fighters[0]!.position.q = 99;
+
+    expect(state.combatants["hero-1"]!.combatStats!.meleeDamage).toBe(55);
+    expect(state.combatants["hero-1"]!.injuries).toEqual(["brokenArm"]);
+    expect(state.combatants["hero-1"]!.position.q).toBe(0);
+    const result = applyBattleCommand(state, "player-1", { type: "endTurn", combatantId: "hero-1" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      result.state.combatants["hero-1"]!.combatStats!.armor = 999;
+      expect(state.combatants["hero-1"]!.combatStats!.armor).toBe(12);
+      expect(result.state.combatants["hero-1"]!.level).toBe(5);
+    }
+  });
+
   it("orders combatants by initiative and refreshes the active AP", () => {
     const state = makeState();
 

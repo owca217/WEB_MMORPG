@@ -1,10 +1,12 @@
-import type { HexCoord, InjuryKind, PlayerId } from "@web-mmorpg/shared";
+import type { CombatStatistics, HexCoord, InjuryKind, PlayerId } from "@web-mmorpg/shared";
 
 export interface CombatantState {
   id: string;
   ownerPlayerId?: PlayerId;
   side: "player" | "enemy";
   name: string;
+  level?: number;
+  combatStats?: CombatStatistics;
   hp: number;
   maxHp: number;
   ap: number;

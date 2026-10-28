@@ -321,9 +321,48 @@ button {
 
 .world-hud__stats span {
   flex: 1;
+  white-space: nowrap;
   padding: 6px 8px;
   background: rgba(9, 13, 10, 0.45);
   border-radius: 7px;
+}
+
+.experience-progress {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.experience-progress__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #dfc998;
+}
+
+.experience-progress__track {
+  height: 7px;
+  overflow: hidden;
+  background: #11190f;
+  border: 1px solid #646342;
+  border-radius: 5px;
+}
+
+.experience-progress__track > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #719850, #d1b969);
+}
+
+.world-hud__battle-result {
+  margin: 0;
+  padding: 8px;
+  color: #e6dfb1;
+  background: #34402a;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .world-hud__actions button,
@@ -543,6 +582,20 @@ button {
 
 .battle-hud__name {
   font-weight: 800;
+}
+
+.battle-hud__name small {
+  font-weight: 400;
+  color: #d7c28d;
+}
+
+.battle-hud__combat-stats {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  color: #c9d3df;
+  font-size: 13px;
 }
 
 .battle-hud__injuries {

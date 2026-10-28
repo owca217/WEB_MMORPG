@@ -44,6 +44,7 @@ describeDatabase("persistent character lifecycle", () => {
       appearance: { body: "default", hair: "short" }
     });
     expect(created.nickname).toBe("Owczy");
+    expect(created.experience).toBe(0);
 
     const reloaded = new CharacterLifecycleService(pool);
     expect(await reloaded.getLifecycle(accountId, new Date())).toEqual({
@@ -96,6 +97,7 @@ describeDatabase("persistent character lifecycle", () => {
       x: 321,
       y: 654,
       level: 3,
+      experience: 450,
       hp: 47,
       maxHp: 120,
       maxAp: 6,
@@ -111,6 +113,7 @@ describeDatabase("persistent character lifecycle", () => {
       x: 321,
       y: 654,
       level: 3,
+      experience: 450,
       hp: 47,
       maxHp: 120,
       maxAp: 6,
@@ -118,6 +121,22 @@ describeDatabase("persistent character lifecycle", () => {
       severelyInjured: true,
       injuries: ["bleeding"]
     });
+  });
+
+  it("preserves earned experience when a legacy gameplay save omits XP", async () => {
+    const accountId = await createAccount(pool, "owner_experience");
+    const service = new CharacterLifecycleService(pool);
+    const created = await service.createCharacter(accountId, { nickname: "XpHero", appearance: {} });
+    const state = {
+      locationId: "forest-settlement-01", x: 321, y: 654,
+      level: 3, hp: 47, maxHp: 160, maxAp: 5, initiative: 11,
+      severelyInjured: false, injuries: []
+    };
+    await service.saveGameplayState(created.id, { ...state, experience: 450 });
+    await service.saveGameplayState(created.id, { ...state, hp: 48 });
+
+    expect(await new CharacterLifecycleService(pool).getCharacter(accountId))
+      .toMatchObject({ experience: 450, level: 3, hp: 48 });
   });
 
   it("exposes lifecycle errors as typed service errors", () => {

@@ -2,6 +2,29 @@
 
 Browser MMORPG prototype inspired by classic 2D map-based RPGs, with a deeper tactical combat system.
 
+## Play and run locally on Windows
+
+The hosted game is available at https://web-mmorpg-server.onrender.com/.
+
+On this recovery workstation, run the following from the repository in PowerShell:
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+Then open http://localhost:3001/. The script starts the portable PostgreSQL 16
+runtime in `%LOCALAPPDATA%\WEB_MMORPG\postgres-runtime`, builds the browser client
+and serves the client and API from the same address. Press Ctrl+C to stop the
+game server. The local database retains accounts and character progress.
+
+On another machine, install Node.js 22 or later and PostgreSQL 16, create a
+development database and pass its connection string with
+`-DatabaseUrl 'postgresql://USER:PASSWORD@localhost:5432/web_mmorpg_dev'`.
+Use a separate disposable database for tests: integration tests reset its schema.
+
+The current recovery branch follows the deployed `feature/mvp-vertical-slice`
+version. The additional RPG interface in draft PR #16 is a separate change.
+
 ## MVP direction
 
 - 2D world split into separate locations

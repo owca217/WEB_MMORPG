@@ -1,5 +1,6 @@
 import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { resolveGameServerUrl } from "../hosting";
 import { AuthApi, AuthApiRequestError } from "../net/AuthApi";
 import { gameSocket } from "../net/GameSocket";
 import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
@@ -42,7 +43,10 @@ export class BootScene extends Phaser.Scene {
   }
 
   private async resumeSession(): Promise<void> {
-    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    const serverUrl = resolveGameServerUrl(
+      import.meta.env.VITE_GAME_SERVER_URL,
+      import.meta.env.DEV
+    );
     const authApi = new AuthApi(serverUrl);
 
     try {

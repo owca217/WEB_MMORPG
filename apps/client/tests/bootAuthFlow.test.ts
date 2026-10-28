@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import type { SessionView } from "@web-mmorpg/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({
   default: {
@@ -10,8 +10,8 @@ vi.mock("phaser", () => ({
 }));
 
 import { AuthApiRequestError } from "../src/net/AuthApi";
-import { resolveBootDestination } from "../src/scenes/BootScene";
-import { SessionStateStore } from "../src/state/SessionStateStore";
+import { BootScene, resolveBootDestination } from "../src/scenes/BootScene";
+import { sessionStateStore, SessionStateStore } from "../src/state/SessionStateStore";
 
 function session(character: SessionView["character"]): SessionView {
   return {
@@ -24,6 +24,32 @@ function session(character: SessionView["character"]): SessionView {
 describe("Boot authentication flow", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStateStore.reset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    sessionStateStore.reset();
+  });
+
+  it("resumes a saved session from the current origin in an unconfigured production build", async () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_GAME_SERVER_URL", undefined);
+    sessionStateStore.setAuthenticated("saved-token", session({ state: "none" }));
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requests.push(url);
+      return new Response(JSON.stringify(session({ state: "none" })));
+    });
+    const destinations: string[] = [];
+    const scene = new BootScene();
+    Object.assign(scene, { scene: { start: (name: string) => destinations.push(name) } });
+
+    scene.create();
+
+    await vi.waitFor(() => expect(destinations).toEqual(["CharacterCreatorScene"]));
+    expect(requests).toEqual(["/api/auth/session"]);
   });
 
   it("routes an unauthenticated client directly to AuthScene", async () => {

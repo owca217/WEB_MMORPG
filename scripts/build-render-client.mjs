@@ -5,10 +5,13 @@ import { pathToFileURL } from "node:url";
 export function buildClientForRender(env = process.env, spawn = spawnSync) {
   if (env.RENDER !== "true") return 0;
 
+  const buildArguments = ["run", "build", "-w", "@web-mmorpg/client"];
+  const npmCli = env.npm_execpath;
   const result = spawn(
-    "npm",
-    ["run", "build", "-w", "@web-mmorpg/client"],
+    npmCli ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm",
+    npmCli ? [npmCli, ...buildArguments] : buildArguments,
     {
+      shell: !npmCli && process.platform === "win32",
       env: {
         ...env,
         VITE_BASE_PATH: "/",

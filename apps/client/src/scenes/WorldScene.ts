@@ -1,5 +1,6 @@
 import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { resolveGameServerUrl } from "../hosting";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
 import { AuthApi } from "../net/AuthApi";
@@ -92,7 +93,10 @@ export class WorldScene extends Phaser.Scene {
     });
 
     const session = sessionStateStore.getSession();
-    const serverUrl = import.meta.env.VITE_GAME_SERVER_URL ?? "http://localhost:3001";
+    const serverUrl = resolveGameServerUrl(
+      import.meta.env.VITE_GAME_SERVER_URL,
+      import.meta.env.DEV
+    );
     if (session?.accountRole === "ADMIN") {
       this.adminPanel = new AdminPanel(
         new AdminApi(serverUrl, () => sessionStateStore.getToken())

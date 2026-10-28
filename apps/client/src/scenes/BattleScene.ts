@@ -42,6 +42,7 @@ export class BattleScene extends Phaser.Scene {
   private attackMode: AttackMode = null;
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
   private unsubscribeState: (() => void) | undefined;
+  private unsubscribeEnded: (() => void) | undefined;
   private unsubscribeRejected: (() => void) | undefined;
 
   constructor() {
@@ -69,6 +70,9 @@ export class BattleScene extends Phaser.Scene {
       this.attackMode = null;
       this.renderSnapshot();
     });
+    this.unsubscribeEnded = gameSocket.onBattleEnded(() => {
+      this.scene.start("WorldScene", { playerId: this.playerId });
+    });
     this.unsubscribeRejected = gameSocket.onCommandRejected(({ message }) => {
       this.hud?.setStatus(message);
     });
@@ -77,6 +81,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.unsubscribeState?.();
+      this.unsubscribeEnded?.();
       this.unsubscribeRejected?.();
       this.hud?.destroy();
       this.hud = null;

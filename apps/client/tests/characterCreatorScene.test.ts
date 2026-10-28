@@ -1,17 +1,18 @@
 /* @vitest-environment jsdom */
 
 import type { SessionView } from "@web-mmorpg/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({
   default: {
-    Scene: class {}
+    Scene: class {},
+    Scenes: { Events: { SHUTDOWN: "shutdown" } }
   }
 }));
 
 import { AuthApiRequestError, type AuthApi } from "../src/net/AuthApi";
-import { CharacterCreatorPanel } from "../src/scenes/CharacterCreatorScene";
-import { SessionStateStore } from "../src/state/SessionStateStore";
+import { CharacterCreatorPanel, CharacterCreatorScene } from "../src/scenes/CharacterCreatorScene";
+import { sessionStateStore, SessionStateStore } from "../src/state/SessionStateStore";
 
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -50,7 +51,39 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  sessionStateStore.reset();
+});
+
 describe("CharacterCreatorPanel", () => {
+  it("submits a new character to the current origin in an unconfigured production build", async () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_GAME_SERVER_URL", undefined);
+    sessionStateStore.setAuthenticated("creator-token", {
+      accountUsername: "Owczy", accountRole: "PLAYER", character: { state: "none" }
+    });
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requests.push(url);
+      return new Response(JSON.stringify({ code: "NAME_TAKEN", message: "Nick jest zajęty." }), {
+        status: 409
+      });
+    });
+    const scene = new CharacterCreatorScene();
+    const cleanups: Array<() => void> = [];
+    Object.assign(scene, { events: { once: (_event: string, cleanup: () => void) => cleanups.push(cleanup) } });
+
+    scene.create();
+    input(document.body, "nickname", "HeroForTest");
+    submit(document.body);
+
+    await vi.waitFor(() => expect(document.querySelector("[data-character-error]")?.textContent).toBe("Nick jest zajęty."));
+    expect(requests).toEqual(["/api/character"]);
+    cleanups.forEach((cleanup) => cleanup());
+  });
+
   it("creates a character under Bearer auth, refreshes SessionView and only then enters the world", async () => {
     const store = new SessionStateStore(localStorage);
     store.setAuthenticated("character-token", {

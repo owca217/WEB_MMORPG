@@ -1,14 +1,12 @@
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { delimiter, dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -29,16 +27,13 @@ describe("Render client install build", () => {
 
   it("builds with root asset paths and the public server URL on Render, and skips other installs", () => {
     const temp = mkdtempSync(resolve(tmpdir(), "render-client-build-"));
-    const bin = resolve(temp, "bin");
-    const npmShim = resolve(bin, "npm");
+    const npmShim = resolve(temp, "npm cli.cjs");
     const capture = resolve(temp, "capture.json");
 
     try {
-      mkdirSync(bin);
       writeFileSync(
         npmShim,
         [
-          "#!/usr/bin/env node",
           'const fs = require("node:fs");',
           "fs.writeFileSync(",
           "  process.env.CAPTURE_FILE,",
@@ -51,11 +46,11 @@ describe("Render client install build", () => {
           "",
         ].join("\n")
       );
-      chmodSync(npmShim, 0o755);
-
       const env = {
-        ...process.env,
-        PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "npm_execpath")
+        ),
+        npm_execpath: npmShim,
         RENDER: "true",
         CAPTURE_FILE: capture,
         VITE_BASE_PATH: "/WEB_MMORPG/",

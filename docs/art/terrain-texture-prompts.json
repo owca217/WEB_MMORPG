@@ -1,0 +1,33 @@
+{
+  "tool": "built-in image_gen",
+  "useCase": "stylized-concept",
+  "reference": "Existing male traveler sprite inspected for pixel-art style; original new terrain materials generated from descriptions.",
+  "purpose": "Opaque repeatable terrain textures for Osada Zielony Brzeg; render through Phaser nearest filtering at world-scale texture repeat sizes.",
+  "requestedSize": {
+    "width": 1024,
+    "height": 1024
+  },
+  "actualSize": {
+    "width": 1254,
+    "height": 1254
+  },
+  "format": "PNG RGB, fully opaque",
+  "preservation": "Generated source PNGs copied unchanged; no bitmap editing or resizing.",
+  "prompts": [
+    {
+      "id": "meadow-grass",
+      "path": "apps/client/public/assets/environment/terrain/meadow-grass.png",
+      "prompt": "Use case: stylized-concept. Asset type: production seamless repeatable terrain texture tile for a tiny old-school 2D browser MMORPG. Generate a fully OPAQUE square1024x1024 PNG tile of muted olive meadow grass viewed straight top-down, orthographic. It must repeat seamlessly in BOTH directions: identical visual continuity and average color at all opposite edges, no visible border or vignette. Fine irregular clusters of short grass, a few subtle sparse darker blades and soft mossy patches, but keep texture detail scale SMALL and contrast LOW so40x60 pixel characters remain readable above it. Colors: subdued olive and forest green midtones, slightly warm highlights, avoiding bright neon or yellow. Crisp hand-authored-looking pixel art, chunky square pixel clusters and limited palette matching classic detailed chibi fantasy RPG sprites. Equivalent to native128x128 pixelart enlarged exactly8x with nearest-neighbor, no blur or photographic microdetail. Uniform ambient illumination throughout the whole tile. Fill the ENTIRE tile edge-to-edge with grass; no bare margins. NO characters, flowers, bushes, trees, rocks, paths, buildings, large individual plants, shadows, gradients, horizons, perspective, 3D render, text, grid, borders, icons or watermark."
+    },
+    {
+      "id": "worn-earth",
+      "path": "apps/client/public/assets/environment/terrain/worn-earth.png",
+      "prompt": "Use case: stylized-concept. Asset type: production seamless repeatable terrain texture for a tiny old-school2D browser MMORPG. Generate a fully OPAQUE square1024x1024 PNG tile of warm ochre-brown WORN EARTH, viewed straight top-down orthographic, for use as the surface material of a narrow village footpath. This is ONLY a material swatch of compacted dirt filling the whole image, not an illustration of a road. It must repeat seamlessly in BOTH directions, all opposite edges continuous, no borders or vignette. Dense compacted earth with subtle tiny gravel flecks and small muted earthy color variations, limited low-contrast highlights, a handful of minute cracks. Keep detail scale SMALL and overall texture low-contrast so40x60 pixel RPG characters remain readable. Warm medium-brown clay, ochre soil and subdued tan highlights, not orange/red. Crisp hand-authored-looking pixel art: chunky square pixel clusters, limited palette matching classic detailed chibi fantasy RPG sprites. Equivalent native128x128 pixelart enlarged8x nearest-neighbor, no blur, no photographic microdetail. Uniform ambient lighting throughout, no directional shadow. Fill the entire square edge-to-edge with compacted dirt. NO grass margins, plants, trees, bushes, boulders, large stones, cobblestones, paving, footprints, wheeltracks, framedroad, perspective, 3Drender, characters, buildings, text, grid, icons, borders or watermark."
+    },
+    {
+      "id": "forest-floor",
+      "path": "apps/client/public/assets/environment/terrain/forest-floor.png",
+      "prompt": "Use case: stylized-concept. Asset type: production seamless repeatable terrain texture for a tiny old-school2D browser MMORPG. Generate a fully OPAQUE square1024x1024 PNG tile of subdued forest floor viewed straight top-down, orthographic. Ground material only: deep olive-green moss interspersed with muted dark brown leaf litter and tiny scattered dry leaves, moist earth visible in a few small patches. Keep fine detail scale SMALL and contrast LOW so40x60 pixel characters remain clear above it. All opposite edges must join seamlessly for repeating tile usage: no frame, margin, border or vignette, equal average color all edges. Crisp classic pixel-art clusters, limited dark forest palette and warm brown leaf accents, equivalent native128x128 pixelart enlarged exactly8x nearest-neighbor. No blur, no photographic microdetail, no illustration of a whole forest scene. Uniform soft ambient illumination with no cast shadows. Tile occupies entire square edge-to-edge. NO trees, trunks, branches, rocks, boulders, ferns, grass tufts, bushes, mushrooms, flowers, animals, characters, paths, buildings, text, grid, borders, large focal objects, perspective, 3D render, glow or watermark."
+    }
+  ]
+}

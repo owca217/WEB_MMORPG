@@ -1,0 +1,7 @@
+# Terrain and vegetation refresh
+
+Generate project-bound pixel-art textures and integrate them into Zielony Brzeg on web and Android. The existing map geometry, NPCs, encounter, movement and interactions stay in place. Visual defaults: muted olive grass, warm worn earth path, dark moss and leaf litter in the forest; separate oak, pine, shrubs and low grass/flower clumps. Built-in imagegen produces original PNGs and prompt manifests under docs/art. Terrain fills are opaque and repeatable; vegetation has real alpha and source-frame bounds, preserving the original image files.
+
+The Phaser renderer uses small repeating ground textures and static vegetation sprites, nearest filtering, restrained contrast and negative layer depths. Decorations avoid the path, NPCs and encounter. Missing images retain the existing primitive fallback. Shared asset loading joins WorldScene preload and frame registration. Objects, geometry masks and helper graphics are destroyed on rerender and scene exit.
+
+Work: generate/inspect three terrain tiles and four vegetation images in parallel; integrate textured ground/path/clearing/forest with authored decoration placement; check renderer cleanup and fallback plus scene loading; visually inspect village/forest on desktop and phone; build signed Android0.1.7; deploy and verify public art/client bytes, CI and APK signature/checksum. No server/database changes are required.

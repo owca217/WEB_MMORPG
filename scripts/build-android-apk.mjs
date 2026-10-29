@@ -33,7 +33,7 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 const variant = release ? 'release' : 'debug';
 const artifactDirectory = resolve(repositoryRoot, 'artifacts/android');
 mkdirSync(artifactDirectory, { recursive: true });
-const name = `WEB-MMORPG-0.1.6${release ? '' : '-debug'}.apk`;
+const name = `WEB-MMORPG-0.1.7${release ? '' : '-debug'}.apk`;
 const output = resolve(artifactDirectory, name);
 copyFileSync(resolve(androidDirectory, `app/build/outputs/apk/${variant}/app-${variant}.apk`), output);
 const digest = createHash('sha256').update(readFileSync(output)).digest('hex');

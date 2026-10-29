@@ -22,6 +22,7 @@ import { SocialController } from "../ui/SocialController";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
 import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
+import { preloadEnvironmentAssets, registerEnvironmentFrames } from "../world/environmentAssets";
 
 interface WorldSceneData {
   playerId: PlayerId;
@@ -74,11 +75,11 @@ export class WorldScene extends Phaser.Scene {
   }
 
   preload(): void {
-    const pendingAssets=preloadCharacterSkins(this)+preloadNpcSkins(this);
+    const pendingAssets=preloadCharacterSkins(this)+preloadNpcSkins(this)+preloadEnvironmentAssets(this);
     if(pendingAssets===0)return;
 
     this.cameras.main.setBackgroundColor(0x101b15);
-    const loadingLabel = this.add.text(this.scale.width / 2, this.scale.height / 2, "Wczytywanie postaci… 0%", {
+    const loadingLabel = this.add.text(this.scale.width / 2, this.scale.height / 2, "Wczytywanie świata… 0%", {
       fontFamily: "Georgia, serif",
       fontSize: "22px",
       color: "#f3e3b6",
@@ -86,7 +87,7 @@ export class WorldScene extends Phaser.Scene {
       padding: { x: 24, y: 16 }
     }).setOrigin(0.5).setScrollFactor(0).setDepth(1000);
     const onProgress = (progress: number): void => {
-      loadingLabel.setText(`Wczytywanie postaci… ${Math.round(progress * 100)}%`);
+      loadingLabel.setText(`Wczytywanie świata… ${Math.round(progress * 100)}%`);
     };
     const clearLoading = (): void => {
       this.load.off(Phaser.Loader.Events.PROGRESS, onProgress);
@@ -102,6 +103,7 @@ export class WorldScene extends Phaser.Scene {
   create(): void {
     registerCharacterSkinAnimations(this);
     registerNpcSkinFrames(this);
+    registerEnvironmentFrames(this);
     this.cameras.main.setBackgroundColor(0x29452d);
     this.cameras.main.setBounds(
       0,

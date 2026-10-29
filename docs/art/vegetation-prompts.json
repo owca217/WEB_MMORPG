@@ -1,0 +1,68 @@
+{
+  "tool": "built-in image_gen",
+  "useCase": "stylized-concept",
+  "purpose": "Forest settlement vegetation props matching the game's compact medieval pixel art",
+  "format": {
+    "width": 1254,
+    "height": 1254,
+    "color": "RGBA8",
+    "transparentBackground": true,
+    "frameAlphaThreshold": 32,
+    "recommendedFramePadding": 2,
+    "frameNote": "Phaser crops the complete visible silhouette; original PNG files stay unchanged. Tiny alpha values outside these bounds are negligible generated edge speckles."
+  },
+  "assets": [
+    {
+      "id": "oak",
+      "path": "apps/client/public/assets/environment/vegetation/oak.png",
+      "frame": {
+        "x": 30,
+        "y": 61,
+        "width": 1200,
+        "height": 1147
+      },
+      "transparentPercent": 45.57441704885674,
+      "bytes": 1513515,
+      "prompt": "Use case: stylized-concept. Asset type: ONE production vegetation sprite for an old-school browser pixel-art MMORPG, to render at 110–150 world pixels tall beside 40x60 character sprites. Generate one complete mature broadleaf OAK TREE, with irregular rounded dense layered canopy, readable clustered olive/forest green leaves, warm brown thick visible trunk and small roots. Elevated three-quarter top-down RPG orthographic view, as an upright tree standing on a flat top-down map, not side-view illustration, not isometric diamond ground. Match compact detailed pixel-art game sprites: hard square pixel clusters, strong dark pixel outlines, clustered highlights, limited warm medieval woodland palette, light from upper left. Single tree only, centered, full silhouette including roots, generous fully transparent margins on all sides. Square1024x1024 canvas, tree around80% height. REAL ALPHA TRANSPARENCY outside tree. No soil patch, ground, floor, cast shadow, scenery, forest background, checkerboard, grid, labels, letters, text, watermark, character or extra trees. No photographic leaf detail, blurry airbrush, soft focus, painterly strokes, 3D rendering or glow. Clean readable silhouette at game scale; avoid thin noisy twigs and huge individual leaves."
+    },
+    {
+      "id": "pine",
+      "path": "apps/client/public/assets/environment/vegetation/pine.png",
+      "frame": {
+        "x": 346,
+        "y": 25,
+        "width": 568,
+        "height": 1205
+      },
+      "transparentPercent": 74.88190899170502,
+      "bytes": 726068,
+      "prompt": "Use case: stylized-concept. Asset type: ONE production vegetation sprite for an old-school browser pixel-art MMORPG, to render at110–150 world pixels tall beside40x60 character sprites. Generate one complete evergreen PINE TREE, with layered slightly irregular triangular tiers of dense forest-green and muted olive needles, a visible warm brown trunk and small roots. Elevated three-quarter top-down RPG orthographic view, upright on a flat top-down map; no side-view landscape and no isometric diamond platform. Match compact detailed pixel-art game sprites: hard square pixel clusters, strong dark pixel outlines, clustered highlights, limited warm medieval woodland palette, upper-left lighting. Single tree only, centered complete silhouette including roots with clear fully transparent padding around all sides. Square1024x1024 canvas, tree around80% height, fairly narrow canopy. REAL ALPHA TRANSPARENCY outside tree. No ground patch, grass carpet, soil, floor, cast shadow, scenery, forest background, checkerboard, grid, labels, text, watermark, people, extra trees, glow or snow. No photorealism, blurry airbrush, soft focus, painterly strokes or3D rendering. Readable at tiny game scale."
+    },
+    {
+      "id": "shrubs",
+      "path": "apps/client/public/assets/environment/vegetation/shrubs.png",
+      "frame": {
+        "x": 108,
+        "y": 349,
+        "width": 1047,
+        "height": 641
+      },
+      "transparentPercent": 70.34790107064093,
+      "bytes": 780305,
+      "prompt": "Use case: stylized-concept. Asset type: ONE production low vegetation prop sprite for an old-school browser pixel-art MMORPG, to render only35–50 world pixels high beside40x60 character sprites. Generate one compact low rounded woodland SHRUB, one bush only with a few fernlike leaves near its base and a handful of tiny muted red berries. Dense irregular clustered olive/forest-green foliage with dark readable outlines and small warm highlights. Elevated three-quarter top-down RPG orthographic viewpoint on a flat map. Compact detailed crisp pixel-art game sprite, hard square pixel clusters, restrained medieval woodland palette, upper-left light. Single full isolated bush centered in square1024x1024canvas with generous real transparent padding; low broad silhouette about1.5times wider than tall. REAL ALPHA TRANSPARENCY outside the plant. No soil mound, ground patch, floor, cast shadow, scenery, background, checkerboard, grid, sprite atlas, labels, text, watermark, person or other separate props. No photorealism, blurry airbrush, softfocus, painterly rendering,3D style or glow. Whole plant contained with no clipped leaves."
+    },
+    {
+      "id": "ground-plants",
+      "path": "apps/client/public/assets/environment/vegetation/ground-plants.png",
+      "frame": {
+        "x": 321,
+        "y": 410,
+        "width": 621,
+        "height": 460
+      },
+      "transparentPercent": 89.80690816500436,
+      "bytes": 337878,
+      "prompt": "Use case: stylized-concept. Asset type: ONE tiny ground vegetation decoration sprite for an old-school browser pixel-art MMORPG, to render18–28 world pixels tall beside40x60 character sprites. Generate one small loose clump of meadow GRASS with a few tiny cream and pale yellow wildflowers interspersed. One natural compact grassy clump, sparse readable leaves with varied blade heights, low broad silhouette. Elevated three-quarter top-down RPG orthographic viewpoint on a flat map. Crisp compact pixel-art game sprite: square pixel clusters, dark olive outlines, muted green blades and a few warm highlights, upper-left lighting; limited medieval woodland palette. Single complete isolated clump centered on square1024x1024canvas with generous fully transparent padding. REAL ALPHA TRANSPARENCY outside the plant. No ground tile, soil mound, floor, cast shadow, garden scene, background, checkerboard, grid, atlas, labels, text, watermark, people, trees or additional separate clumps. Nophotorealism, blurry airbrush, softfocus, painterly3Dstyle, glow or oversize blooms. Readable as a tiny subtle map prop."
+    }
+  ]
+}

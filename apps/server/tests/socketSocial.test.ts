@@ -65,21 +65,25 @@ describeDb("authenticated social Socket.IO",()=>{
     expect(await bob.socket.timeout(1000).emitWithAck("socialAction",{type:"respondParty",inviteId:"fake",accept:"yes"})).toMatchObject({ok:false,code:"INVALID_SOCIAL_ACTION"});
   });
 
-  it.each([{far:false,bonus:8},{far:true,bonus:0}])("awards a persisted party XP bonus only to qualifying start members (far:$far)",async({far,bonus})=>{
+  it.each([{far:false},{far:true}])("splits shared battle XP and awards only admitted party members regardless of world distance (far:$far)",async({far})=>{
     const {identity,game}=await setup();const alice=await identity("alice"),bob=await identity("bob");
     await act(alice.socket,{type:"inviteParty",playerId:bob.id});
     const invites=(await state(bob.socket)).partyInvites;
     await act(bob.socket,{type:"respondParty",inviteId:invites[0]!.id,accept:true});
-    const started=once<BattleSnapshot>(alice.socket,"battleStarted");alice.socket.emit("startEncounter",{encounterId:"wolf-pack-01"});const battle=await started;
+    const started=once<BattleSnapshot>(alice.socket,"battleStarted"),joined=once<BattleSnapshot>(bob.socket,"battleStarted");
+    alice.socket.emit("startEncounter",{encounterId:"wolf-pack-01"});const battle=await started;
+    expect((await joined).id).toBe(battle.id);
     const late=await identity("late");await act(alice.socket,{type:"inviteParty",playerId:late.id});
     await act(late.socket,{type:"respondParty",inviteId:(await state(late.socket)).partyInvites[0]!.id,accept:true});
     if(far)game.services.world.addPlayer({id:bob.id,nickname:bob.nickname,x:0,y:0});
-    vi.spyOn(game.services.battles,"applyCommand").mockReturnValue({result:{ok:true,state:{} as never},snapshot:{...battle,finished:true},finished:true,victory:true,encounterId:"wolf-pack-01",seed:12345,playerOutcome:{hp:80,severelyInjured:false,injuries:[]},experienceReward:80});
-    const ended=once<{experienceGained:number;partyBonusExperience?:number}>(alice.socket,"battleEnded");
+    vi.spyOn(game.services.battles,"applyCommand").mockReturnValue({result:{ok:true,state:{} as never},snapshot:{...battle,finished:true},finished:true,victory:true,encounterId:"wolf-pack-01",seed:12345,participantIds:[alice.id,bob.id],initialParticipantCount:2,playerOutcomes:{[alice.id]:{hp:80,severelyInjured:false,injuries:[]},[bob.id]:{hp:80,severelyInjured:false,injuries:[]}},experienceReward:80});
+    const ended=once<{experienceGained:number;partyBonusExperience?:number}>(alice.socket,"battleEnded"),bobEnded=once<{experienceGained:number;partyBonusExperience?:number}>(bob.socket,"battleEnded");
     alice.socket.emit("battleCommand",{type:"endTurn",combatantId:battle.activeCombatantId});
-    const outcome=await ended;
-    expect(outcome.experienceGained).toBe(80+bonus);expect(outcome.partyBonusExperience??0).toBe(bonus);
-    expect((await pool!.query("SELECT experience FROM characters WHERE id=$1",[alice.id])).rows[0].experience).toBe(80+bonus);
+    for(const outcome of await Promise.all([ended,bobEnded])) {
+      expect(outcome.experienceGained).toBe(44);expect(outcome.partyBonusExperience).toBe(4);
+    }
+    for(const id of [alice.id,bob.id])expect((await pool!.query("SELECT experience FROM characters WHERE id=$1",[id])).rows[0].experience).toBe(44);
+    expect((await pool!.query("SELECT experience FROM characters WHERE id=$1",[late.id])).rows[0].experience).toBe(0);
   });
 
   it("pushes both committed inventories after partial barter and prevents receipt replay",async()=>{

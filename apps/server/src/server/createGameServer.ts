@@ -962,6 +962,7 @@ export function createGameServer(
         if(mode!=="manual" && mode!=="auto")throw new Error("INVALID_BATTLE_MODE");
         if(typeof encounterId!=="string")throw new Error("ENCOUNTER_NOT_FOUND");
         if(pendingWeaponSelections.has(id))throw new Error("WEAPON_ACTION_PENDING");
+        if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
         if(busy(id))throw new Error("BATTLE_ACTION_PENDING");
         world.startEncounter(id,encounterId);
         const party=social.parties.getParty(id);

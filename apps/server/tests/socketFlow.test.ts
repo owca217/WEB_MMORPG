@@ -531,7 +531,7 @@ describeDatabase("Socket.IO game flow", () => {
     expect((await restoredPromise).character).toEqual(ended.character);
   });
 
-  it("keeps victory XP when disconnecting while loot is still being saved", async () => {
+  it("finishes pending victory rewards before disconnect cleanup and preserves XP and gold", async () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const identity = await createIdentity(auth, lifecycle, "owczy_disconnect", "OfflineHero");
     await lifecycle.saveGameplayState(identity.characterId, {
@@ -565,10 +565,19 @@ describeDatabase("Socket.IO game flow", () => {
       }
       expect(battle.finished).toBe(true);
       await lootStarted;
+      const serverSocket=game.io.sockets.sockets.get(client.id!);
+      if(!serverSocket)throw new Error("Authenticated server socket missing");
+      const disconnected=new Promise<void>(resolve=>serverSocket.once("disconnect",()=>resolve()));
       client.disconnect();
+      await disconnected;
+      expect(game.services.characters.getSnapshot(playerId)).toMatchObject({level:2,experience:120});
+      // Cleanup must wait for the durable reward transaction; unblock that transaction first.
+      releaseLoot();
+      await lootFinished;
       await vi.waitFor(() => expect(game.services.characters.getSnapshot(playerId)).toBeUndefined());
       const account = await new AccountRepository(pool!).findByNormalizedUsername("owczy_disconnect");
       expect(await lifecycle.getCharacter(account!.id)).toMatchObject({ level: 2, experience: 120 });
+      expect(await game.services.merchant.getGold(playerId)).toBe(115);
     } finally {
       releaseLoot();
       await lootFinished;

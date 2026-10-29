@@ -256,7 +256,7 @@ export class SocialPanel {
       }
       members.append(this.action("Opuść drużynę", { type: "leaveParty" }));
     } else members.append(node("p", "Nie należysz jeszcze do drużyny.", "social-widget__hint"));
-    members.append(node("p", "Maksymalnie 5 osób. Każdy inny członek online w odległości do 800 dodaje +10% XP; łącznie do +40%. Premia zależy od obecności przy pokonaniu przeciwnika.", "social-widget__hint"));
+    members.append(node("p", "Maksymalnie 5 osób. Rozpoczęcie walki dołącza dostępnych członków online z tej samej lokacji, niezależnie od odległości. Wspólna walka daje +10% XP za każdego innego uczestnika drużyny, do +40%. Przy walce solo premia wymaga obecności członka drużyny w odległości do 800.", "social-widget__hint"));
     if (snapshot.partyInvites.length) {
       const invites = this.section("Zaproszenia do drużyny");
       for (const invite of snapshot.partyInvites) {

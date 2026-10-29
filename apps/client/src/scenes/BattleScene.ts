@@ -36,6 +36,7 @@ export class BattleScene extends Phaser.Scene {
   private snapshot: BattleSnapshot | null = null;
   private hud: BattleHud | null = null;
   private attackCard: BattleAttackCard | null = null;
+  private selectedHealingTargetId:string|null=null;
   private selectedTargetId: string | null = null;
   private layout: ReturnType<typeof calculateBattleLayout> | null = null;
   private pendingCommand = false;
@@ -62,6 +63,7 @@ export class BattleScene extends Phaser.Scene {
     this.playerId = data.playerId;
     this.snapshot = data.snapshot;
     this.selectedTargetId = null;
+    this.selectedHealingTargetId=null;
     this.pendingCommand = false;
     this.pendingItem = false;
     this.modePending=false;this.modeVersion+=1;
@@ -76,6 +78,8 @@ export class BattleScene extends Phaser.Scene {
       onInventoryChanged: (inventory) => this.applyInventory(inventory),
       onEndTurn: () => this.requestEndTurn(),
       onHealSelf: () => this.requestHealSelf(),
+      onSelectHealingTarget: id=>this.selectHealingTarget(id),
+      onTypingChange:()=>this.updateKeyboardCapture(),
       onToggleAuto:()=>{void this.toggleAuto();}
     });
     this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
@@ -231,7 +235,8 @@ export class BattleScene extends Phaser.Scene {
     const y = centerY + local.y;
     const owned = combatant.ownerPlayerId === this.playerId;
     const active = combatant.id === this.snapshot?.activeCombatantId;
-    const fill = combatant.hp <= 0 ? 0x555555 : owned ? 0x5fa6e8 : 0xcf6a61;
+    const ally=combatant.side==="player" && this.ownCombatant()?.side==="player";
+    const fill = combatant.hp <= 0 ? 0x555555 : owned ? 0x5fa6e8 : ally ? 0x6fac75 : 0xcf6a61;
 
     const body = this.add.circle(x, y - hexSize * 0.16, Math.max(4, hexSize * 0.38), fill, 1);
     body.setStrokeStyle(active ? 4 : 2, active ? 0xffdf77 : 0x17191e);
@@ -301,9 +306,10 @@ export class BattleScene extends Phaser.Scene {
 
   private requestHealSelf():void {
     const active=this.activeOwnedCombatant();
-    if(!active || !this.snapshot || !getBattleHealingPreview(this.snapshot,active.id).available)return;
+    const targetId=this.selectedHealingTargetId??active?.id;
+    if(!active || !this.snapshot || !targetId || !getBattleHealingPreview(this.snapshot,active.id,targetId).available)return;
     this.pendingCommand=true;this.selectedTargetId=null;this.attackCard?.hide();this.refreshHud();
-    gameSocket.sendBattleCommand({type:"healSelf",combatantId:active.id});
+    gameSocket.sendBattleCommand(targetId===active.id ? {type:"healSelf",combatantId:active.id} : {type:"healAlly",combatantId:active.id,targetId});
   }
 
   private requestEndTurn(): void {
@@ -326,7 +332,12 @@ export class BattleScene extends Phaser.Scene {
     const state = player?.character.playerId === this.playerId ? player : null;
     const own = this.ownCombatant();
     const ownedTurn=Boolean(own && own.hp>0 && !snapshot.finished && snapshot.activeCombatantId===own.id && !this.pendingCommand && !this.pendingItem && !this.modePending);
-    this.hud.update(own, ownedTurn, state?.inventory ?? { items: [] }, state?.character, own ? getBattleHealingPreview(snapshot,own.id) : undefined);
+    const members=this.teamMembers();
+    const healingTarget=members.find(member=>member.id===this.selectedHealingTargetId && member.hp>0)??own;
+    this.selectedHealingTargetId=healingTarget?.id??null;
+    this.hud.update(own, ownedTurn, state?.inventory ?? { items: [] }, state?.character,
+      own ? getBattleHealingPreview(snapshot,own.id,this.selectedHealingTargetId??own.id) : undefined,
+      {members,activeCombatantId:snapshot.activeCombatantId,healingTargetId:this.selectedHealingTargetId??""});
     this.hud.setAutoBattle(Boolean(snapshot.autoBattle),this.modePending);
   }
 
@@ -335,9 +346,19 @@ export class BattleScene extends Phaser.Scene {
   }
   private updateKeyboardCapture():void {
     const keyboard=this.input?.keyboard;if(!keyboard)return;
-    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping);
+    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.hud?.isTyping);
     keyboard.resetKeys?.();keyboard.enabled=!typing;
     if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();
+  }
+
+  private teamMembers():CombatantSnapshot[] {
+    const own=this.ownCombatant();
+    return own ? this.snapshot?.combatants.filter(unit=>unit.id===own.id || (own.side==="player" && unit.side==="player"))??[] : [];
+  }
+  private selectHealingTarget(id:string):void {
+    const own=this.ownCombatant(),target=this.teamMembers().find(unit=>unit.id===id && unit.hp>0);
+    if(!own || !target || !(own.combatStats?.healingPower))return;
+    this.selectedHealingTargetId=id;this.selectedTargetId=null;this.attackCard?.hide();this.refreshHud();
   }
 
   private enemyAt(cell: HexCoord): CombatantSnapshot | undefined {
@@ -353,6 +374,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private selectCell(cell: HexCoord, touch: boolean): void {
+    const ally=this.teamMembers().find(unit=>unit.hp>0 && hexKey(unit.position)===hexKey(cell));
+    if(ally){
+      this.selectedTargetId=null;this.attackCard?.hide();
+      if(this.ownCombatant()?.combatStats?.healingPower)this.selectHealingTarget(ally.id);
+      else this.hud?.setStatus(`${ally.name}: ${ally.hp}/${ally.maxHp} HP · Drużyna`);
+      return;
+    }
     const target = this.enemyAt(cell);
     if (target) {
       this.selectedTargetId = target.id;

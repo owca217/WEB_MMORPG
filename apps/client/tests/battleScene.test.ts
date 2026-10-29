@@ -55,7 +55,7 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
   const scaleEvents = new EventEmitter();
   const polygons: Array<Array<{ x: number; y: number }>> = [];
   const zones: Array<{ x: number; y: number; width: number; height: number; handlers: Map<string, (pointer?: {wasTouch:boolean}) => void> }> = [];
-  const bodies: Array<{ x: number; y: number; radius: number }> = [];
+  const bodies: Array<{ x: number; y: number; radius: number; fill:number }> = [];
   const drawable = () => ({
     width: 80,
     height: 16,
@@ -80,7 +80,7 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
     scale,
     add: {
       graphics: drawable,
-      circle: (x: number, y: number, radius: number) => { bodies.push({ x, y, radius }); return drawable(); },
+      circle: (x: number, y: number, radius: number, fill:number) => { bodies.push({ x, y, radius, fill }); return drawable(); },
       text: drawable,
       zone: (x: number, y: number, zoneWidth: number, zoneHeight: number) => {
         const zone = { x, y, width: zoneWidth, height: zoneHeight, handlers: new Map<string, (pointer?: {wasTouch:boolean}) => void>() };
@@ -140,6 +140,36 @@ describe("BattleScene completion", () => {
     expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);events.emit("shutdown");
     const automatic=createScene({...battle,autoBattle:true});
     expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);automatic.events.emit("shutdown");
+  });
+
+  it("distinguishes party allies, keeps own stats during their turn and heals the explicitly selected ally",()=>{
+    const commands:unknown[]=[];transport.on("battleCommand",command=>commands.push(command));
+    const own={...initialBattle.combatants[0]!,side:"player" as const,combatStats:{meleeDamage:20,rangedDamage:15,armor:0,healingPower:20}};
+    const ally={...own,id:"hero:ally",ownerPlayerId:"ally",name:"Borys",hp:40,position:{q:1,r:0}};
+    const enemy={...own,id:"wolf",side:"enemy" as const,name:"Wilk",position:{q:2,r:0}};delete enemy.ownerPlayerId;
+    const snapshot={...initialBattle,cells:[own.position,ally.position,enemy.position],combatants:[own,ally,enemy]};
+    const {events,zones,bodies}=createScene(snapshot);
+    expect(bodies.map(body=>body.fill)).toEqual([0x5fa6e8,0x6fac75,0xcf6a61]);
+    expect(document.querySelector('[data-team-member="hero:ally"]')?.textContent).toContain("Borys");
+    zones[1]!.handlers.get("pointerup")!({wasTouch:true});
+    expect(commands).toEqual([]);expect(document.querySelector<HTMLElement>('[data-attack-preview]')?.hidden??true).toBe(true);
+    expect(document.querySelector<HTMLSelectElement>('[data-battle-healing-target]')?.value).toBe(ally.id);
+    let select=document.querySelector<HTMLSelectElement>('[data-battle-healing-target]')!;select.value=own.id;select.dispatchEvent(new Event("change",{bubbles:true}));
+    expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);
+    select=document.querySelector<HTMLSelectElement>('[data-battle-healing-target]')!;select.value=ally.id;select.dispatchEvent(new Event("change",{bubbles:true}));
+    document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')!.click();
+    expect(commands).toEqual([{type:"healAlly",combatantId:own.id,targetId:ally.id}]);
+    transport.emit("battleState",{...snapshot,activeCombatantId:ally.id,combatants:[own,{...ally,hp:60},enemy]});
+    expect(document.querySelector('[data-name]')?.textContent).toBe("Hero");
+    expect(document.querySelector('[data-hp]')?.textContent).toBe("100/100");
+    expect(document.querySelector('[data-turn-status]')?.textContent).toContain("Borys");
+    expect(document.querySelector('[data-team-member="hero:ally"]')?.getAttribute("data-active")).toBe("true");
+    expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('[data-action="end"]')?.disabled).toBe(true);
+    expect(document.querySelector('[data-action="auto"]')?.textContent).toBe("Włącz auto");
+    transport.emit("battleState",{...snapshot,activeCombatantId:ally.id,autoBattle:true});
+    expect(document.querySelector('[data-action="auto"]')?.textContent).toBe("Przejmij sterowanie");
+    events.emit("shutdown");
   });
 
   beforeEach(() => {

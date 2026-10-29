@@ -103,3 +103,12 @@
 @media (prefers-reduced-motion: reduce) {
   .battle-hud .battle-hud__meter > span { transition: none; }
 }
+
+.battle-hud__team-member { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 8px; padding:7px; border:1px solid #526348; border-radius:6px; background:#223025; font-size:12px; }
+.battle-hud__team-member + .battle-hud__team-member { margin-top:5px; }
+.battle-hud__team-member[data-active="true"] { border-color:#e5c767; background:#3b3b26; }
+.battle-hud__team-member small { grid-column:1/-1; color:#e5d29a; }
+.battle-hud__heal-target { display:grid; gap:5px; font-size:12px; }
+.battle-hud__heal-target[hidden], .battle-hud__team[hidden] { display:none; }
+.battle-hud__heal-target select { width:100%; min-height:44px; border:1px solid #8d8059; border-radius:6px; background:#252d24; color:#f3e5c3; padding:7px; font:inherit; }
+@media(max-width:600px),(max-height:500px) and (orientation:landscape) { .battle-hud__team-member { font-size:10px; padding:4px; } .battle-hud__heal-target { font-size:10px; } }

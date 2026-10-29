@@ -6,6 +6,7 @@ import type {
   LocationId,
   NpcInteractionPayload,
   PlayerId,
+  BattleSnapshot,
   ServerToClientEvents
 } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
@@ -31,6 +32,21 @@ export interface GameServerOptions {
   characterLifecycle: CharacterLifecycleService;
   connections?: ActiveConnectionRegistry;
   autoBattleStepMs?: number;
+}
+
+type BattleEndedPayload=Parameters<ServerToClientEvents["battleEnded"]>[0];
+interface OwnerStateOperations {
+  owner:string;
+  isCurrent:()=>boolean;
+  persist:()=>Promise<void>;
+  push:()=>Promise<void>;
+  enterBattle:(snapshot:BattleSnapshot)=>void;
+  battleState:(snapshot:BattleSnapshot)=>void;
+  battleEnded:(payload:BattleEndedPayload)=>void;
+  resumeWorld:()=>void;
+  stopAuto:()=>void;
+  scheduleAuto:()=>void;
+  error:(code:string,message:string)=>void;
 }
 
 const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
@@ -110,7 +126,9 @@ export function createGameServer(
   const pendingMerchantOperations = new Map<PlayerId, Promise<void>>();
   const pendingBattleRewards = new Map<PlayerId, Promise<void>>();
   const pendingWeaponSelections = new Map<PlayerId,Promise<void>>();
-  const ownerStateOperations=new Map<PlayerId,{owner:string;persist:()=>Promise<void>;push:()=>Promise<void>}>();
+  const ownerStateOperations=new Map<PlayerId,OwnerStateOperations>();
+  const pendingPartyStarts=new Map<PlayerId,symbol>();
+  const battleSettlements=new Map<string,Promise<void>>();
   const battleRewardTokens = new Map<PlayerId,string>();
   const autoStepMs=Number.isFinite(options.autoBattleStepMs) ? Math.max(10,Math.min(2000,options.autoBattleStepMs!)) : 300;
   const autoStops=new Set<()=>void>();
@@ -166,7 +184,7 @@ export function createGameServer(
   const healing=new HealingService({
     getCharacter:id=>characters.getSnapshot(id),
     isOnline:id=>{const owner=characterOwners.get(id);return Boolean(owner && io.sockets.sockets.get(owner)?.connected);},
-    isBusy:id=>pendingWeaponSelections.has(id)||pendingMerchantOperations.has(id)||pendingBattleRewards.has(id)||pendingBattleItemUses.has(id)||social.isBusy(id),
+    isBusy:id=>pendingPartyStarts.has(id)||pendingWeaponSelections.has(id)||pendingMerchantOperations.has(id)||pendingBattleRewards.has(id)||pendingBattleItemUses.has(id)||social.isBusy(id),
     isInBattle:id=>battles.hasBattle(id),
     getPartyMemberIds:id=>social.parties.getParty(id)?.members.map(member=>member.id)??[],
     getPosition:id=>{const player=world.getPlayer(id),locationId=world.getPlayerLocationId(id);return player && locationId ? {locationId,x:player.x,y:player.y} : undefined;},
@@ -175,6 +193,119 @@ export function createGameServer(
     persist:id=>ownerStateOperations.get(id)?.persist()??Promise.reject(new Error("HEAL_TARGET_UNAVAILABLE")),
     push:id=>ownerStateOperations.get(id)?.push()??Promise.resolve()
   });
+
+  const broadcastBattle=(ids:readonly PlayerId[]):void=>{
+    for(const id of ids){const snapshot=battles.getSnapshot(id);if(snapshot)ownerStateOperations.get(id)?.battleState(snapshot);}
+  };
+  const scheduleActive=(ids:readonly PlayerId[]):void=>{
+    const first=ids.find(id=>battles.hasBattle(id));
+    const active=first ? battles.getActivePlayerId(first) : undefined;
+    if(active)ownerStateOperations.get(active)?.scheduleAuto();
+  };
+  const settleBattle=(ids:PlayerId[],applied:AppliedBattleCommand):Promise<void>=>{
+    const battleId=applied.snapshot!.id;
+    const rewardToken=ids.map(id=>battleRewardTokens.get(id)).find(Boolean)??battleId;
+    const existing=battleSettlements.get(rewardToken);
+    if(existing)return existing;
+    let release!:()=>void;
+    const durable=new Promise<void>(resolve=>{release=resolve;});
+    for(const id of ids){pendingBattleRewards.set(id,durable);ownerStateOperations.get(id)?.stopAuto();}
+    const owners=new Map(ids.map(id=>[id,ownerStateOperations.get(id)]));
+    const rewards=new Map<PlayerId,{experienceGained:number;levelsGained:number;partyBonusExperience:number;goldGained:number}>();
+    const operation=Promise.resolve().then(async()=>{
+      try {
+        for(const id of ids) {
+          const before=characters.getSnapshot(id);
+          if(!before)continue;
+          const outcome=applied.playerOutcomes?.[id]??(ids.length===1 ? applied.playerOutcome : undefined);
+          if(outcome)characters.applyBattleResult(id,outcome);
+          let experienceGained=0,levelsGained=0,partyBonusExperience=0;
+          if(applied.victory) {
+            const base=Math.floor((applied.experienceReward??0)/Math.max(1,applied.initialParticipantCount??ids.length));
+            const context=partyExperienceContexts.get(id);
+            const party=social.parties.getParty(id);
+            const sharedBattle=(applied.initialParticipantCount??ids.length)>1;
+            const bonus=sharedBattle
+              ? party && context?.partyId===party.id
+                ? Math.min(40,ids.filter(other=>other!==id && context.memberIds.includes(other) && party.members.some(member=>member.id===other && member.online)).length*10)
+                : 0
+              : social.parties.getExperienceBonus(id,context);
+            partyBonusExperience=Math.floor(base*bonus/100);
+            const progressed=characters.awardExperience(id,base+partyBonusExperience);
+            experienceGained=(progressed.experience??0)-(before.experience??0);
+            levelsGained=progressed.level-before.level;
+          }
+          if(!applied.victory || (outcome?.hp??before.hp)<=0) {
+            characters.recoverAfterDefeat(id);world.resetPlayerToSpawn(id);
+          }
+          rewards.set(id,{experienceGained,levelsGained,partyBonusExperience,goldGained:0});
+        }
+        await Promise.all(ids.map(async id=>{
+          const owner=owners.get(id);
+          if(!owner)return;
+          try {
+            if(applied.victory && applied.encounterId && applied.seed!==undefined) {
+              await inventory.addItems(id,loot.rollEncounterLoot(applied.encounterId,applied.seed));
+              if(applied.encounterId==="wolf-pack-01") {
+                await merchant.rewardVictory(id,rewardToken,15);
+                const reward=rewards.get(id);if(reward)reward.goldGained=15;
+              }
+            }
+          }catch{owner.error("BATTLE_REWARD_FAILED","Nie udało się zapisać wszystkich nagród za walkę.");}
+          try{await owner.persist();}catch{owner.error("CHARACTER_SAVE_FAILED","Nie udało się zapisać wyniku walki.");}
+        }));
+      }finally {
+        for(const id of ids) {
+          if(battles.getSnapshot(id)?.id===battleId)battles.removeBattleForPlayer(id);
+          partyExperienceContexts.delete(id);battleRewardTokens.delete(id);
+          if(pendingBattleRewards.get(id)===durable)pendingBattleRewards.delete(id);
+        }
+        release();social.markChanged();void broadcastSocial();
+      }
+      // Presentation reads must not hold mutation locks or delay reconnects.
+      for(const id of ids) {
+        const owner=owners.get(id),reward=rewards.get(id);
+        if(!owner || !reward)continue;
+        void(async()=>{
+          const items=await inventory.getSnapshot(id);
+          if(ownerStateOperations.get(id)!==owner || !owner.isCurrent() || battles.hasBattle(id))return;
+          await owner.push();
+          if(ownerStateOperations.get(id)!==owner || !owner.isCurrent() || battles.hasBattle(id))return;
+          const character=characters.getSnapshot(id);if(!character)return;
+          owner.battleEnded({outcome:applied.victory?"victory":"defeat",inventory:items,character,...reward});
+          owner.resumeWorld();
+        })().catch(()=>owner.error("BATTLE_STATE_FAILED","Nie udało się odświeżyć wyniku walki. Połącz się ponownie."));
+      }
+    });
+    battleSettlements.set(rewardToken,operation);
+    void operation.finally(()=>{if(battleSettlements.get(rewardToken)===operation)battleSettlements.delete(rewardToken);}).catch(()=>undefined);
+    return operation;
+  };
+  const dispatchBattle=async(actorId:PlayerId,applied:AppliedBattleCommand):Promise<void>=>{
+    if(!applied.result.ok) {
+      ownerStateOperations.get(actorId)?.error(applied.result.code,applied.result.code==="AUTO_BATTLE_ACTIVE"?"Najpierw przejmij sterowanie w panelu walki.":applied.result.message);
+      return;
+    }
+    if(!applied.snapshot)return;
+    const ids=applied.participantIds??battles.getParticipantIds(actorId);
+    const claim=ids.map(id=>battleRewardTokens.get(id)).find(Boolean)??applied.snapshot.id;
+    if(applied.finished && battleSettlements.has(claim)){await battleSettlements.get(claim);return;}
+    const awards=applied.trainingAwards??{[actorId]:{...(applied.weaponTraining?{weaponTraining:applied.weaponTraining}:{}),...(applied.shieldTraining?{shieldTraining:applied.shieldTraining}:{})}};
+    const trained:PlayerId[]=[];
+    for(const [id,award] of Object.entries(awards)) {
+      if(!characters.getSnapshot(id))continue;
+      if(award.weaponTraining)characters.trainWeapon(id,award.weaponTraining.family,award.weaponTraining.amount);
+      if(award.shieldTraining)characters.trainWeapon(id,"shield",award.shieldTraining);
+      if(award.weaponTraining || award.shieldTraining)trained.push(id);
+    }
+    broadcastBattle(ids);
+    if(applied.finished){await settleBattle(ids,applied);return;}
+    await Promise.all(trained.map(async id=>{
+      const owner=ownerStateOperations.get(id);if(!owner)return;
+      try{await owner.persist();void owner.push().catch(()=>undefined);}catch{owner.error("WEAPON_SAVE_FAILED","Nie udało się zapisać treningu broni.");}
+    }));
+    scheduleActive(ids);
+  };
 
   io.on("connection", (socket) => {
     let characterId: PlayerId | null = null;
@@ -266,7 +397,24 @@ export function createGameServer(
       const socialCleanup = releasedCharacterId && characterOwners.get(releasedCharacterId)===socket.id
         ? social.removeDisconnected(releasedCharacterId) : Promise.resolve();
       const save = releasedCharacterId
-        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,pendingWeapon,pendingHeal,socialCleanup]).then(()=>persistGameplayState(releasedCharacterId))
+        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,pendingWeapon,pendingHeal,socialCleanup]).then(async()=>{
+          if(characterOwners.get(releasedCharacterId)!==socket.id)return;
+          // Item COMMIT installs a staged shared state; wait before removing any actor.
+          while(true) {
+            const items=battles.getParticipantIds(releasedCharacterId).map(id=>pendingBattleItemUses.get(id)).filter((item):item is Promise<void>=>Boolean(item));
+            if(!items.length)break;
+            await Promise.allSettled(items);
+          }
+          await pendingBattleRewards.get(releasedCharacterId);
+          const detached=battles.detachPlayer(releasedCharacterId);
+          if(detached.outcome) {
+            characters.applyBattleResult(releasedCharacterId,detached.outcome);
+            if(detached.outcome.hp<=0){characters.recoverAfterDefeat(releasedCharacterId);world.resetPlayerToSpawn(releasedCharacterId);}
+          }
+          const continuation=detached.applied ? dispatchBattle(releasedCharacterId,detached.applied) : Promise.resolve();
+          await persistGameplayState(releasedCharacterId);
+          await continuation;
+        })
         : Promise.resolve();
       unregisterConnection?.();
       unregisterConnection = null;
@@ -407,7 +555,17 @@ export function createGameServer(
             x: persisted.x,
             y: persisted.y
           });
-          ownerStateOperations.set(persisted.id,{owner:socket.id,persist:()=>persistGameplayState(persisted.id),push:()=>emitPlayerState(persisted.id)});
+          const registeredVersion=characterVersion;
+          const current=()=>ownsCharacter(persisted.id,registeredVersion);
+          ownerStateOperations.set(persisted.id,{
+            owner:socket.id,isCurrent:current,persist:()=>persistGameplayState(persisted.id),push:()=>emitPlayerState(persisted.id),
+            enterBattle:snapshot=>{if(!current())return;stopAuto();autoStalls=0;if(locationId)socket.leave(`location:${locationId}`);socket.emit("battleStarted",snapshot);},
+            battleState:snapshot=>{if(current())socket.emit("battleState",snapshot);},
+            battleEnded:payload=>{if(current())socket.emit("battleEnded",payload);},
+            resumeWorld:()=>{if(!current())return;locationId=world.getPlayerLocationId(persisted.id)??locationId;if(locationId){socket.join(`location:${locationId}`);io.to(`location:${locationId}`).emit("worldState",world.snapshot(locationId));}},
+            stopAuto,scheduleAuto:()=>scheduleAuto(persisted.id,registeredVersion),
+            error:(code,message)=>{if(current())socket.emit("commandRejected",{code,message});}
+          });
 
           socket.join(`location:${persisted.locationId}`);
           socket.join(AUTHENTICATED_CHAT_ROOM);
@@ -464,7 +622,7 @@ export function createGameServer(
       if(!id || !ownsCharacter(id,version)){failure("AUTHENTICATION_REQUIRED","Zaloguj się, aby wybrać styl broni.");return;}
       if(!isWeaponLoadout(payload)){failure("INVALID_WEAPON_LOADOUT","Wybierz poprawny styl wręcz i dystansowy.");return;}
       if(battles.hasBattle(id)){failure("BATTLE_IN_PROGRESS","Styl broni można zmienić poza walką.");return;}
-      if(pendingWeaponSelections.has(id) || pendingBattleRewards.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id) || healing.pendingFor(id)) {
+      if(pendingPartyStarts.has(id) || pendingWeaponSelections.has(id) || pendingBattleRewards.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id) || healing.pendingFor(id)) {
         failure("WEAPON_ACTION_PENDING","Poczekaj na zakończenie poprzedniej czynności.");return;
       }
       const previous=characters.getSnapshot(id)?.weaponTraining?.loadout;
@@ -520,6 +678,7 @@ export function createGameServer(
       const id=characterId,version=characterVersion;
       if(!id || !ownsCharacter(id,version)){ack(socialFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
       const now=Date.now();while(socialActionTimes[0]!==undefined && now-socialActionTimes[0]>=10000)socialActionTimes.shift();
+      if(pendingPartyStarts.has(id) || (payload && typeof payload==="object" && "playerId" in payload && typeof payload.playerId==="string" && pendingPartyStarts.has(payload.playerId))){ack(socialFailure(new Error("SOCIAL_ACTION_PENDING")));return;}
       if(pendingMerchantOperations.has(id)){ack({ok:false,code:"MERCHANT_ACTION_PENDING",message:MERCHANT_ERRORS.MERCHANT_ACTION_PENDING!});return;}
       if(socialActionTimes.length>=20){ack(socialFailure(new Error("SOCIAL_RATE_LIMITED")));return;}
       socialActionTimes.push(now);
@@ -624,6 +783,7 @@ export function createGameServer(
       if(!id || !ownsCharacter(id,version)){ack(merchantFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
       try {
         checkMerchantRate();assertMerchant(id,version,payload?.npcId);
+        if(pendingPartyStarts.has(id))throw new Error("BATTLE_ACTION_PENDING");
         if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
         const shop=await merchant.getShop(id);
         assertMerchant(id,version,payload.npcId);
@@ -636,6 +796,7 @@ export function createGameServer(
       if(!id || !ownsCharacter(id,version)){ack(merchantFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
       try {
         checkMerchantRate();assertMerchant(id,version,payload?.npcId);
+        if(pendingPartyStarts.has(id))throw new Error("BATTLE_ACTION_PENDING");
         if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
       }catch(error){ack(merchantFailure(error));return;}
       const operation=(async()=>{
@@ -767,181 +928,84 @@ export function createGameServer(
       const assertCurrent = (): void => {
         if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) throw new Error("SESSION_REPLACED");
       };
-      const operation = (async () => {
-        // Earlier position snapshots must finish before the item transaction saves battle HP.
-        await pendingCharacterSaves.get(currentCharacterId);
-        assertCurrent();
-        const applied = await battles.useConsumable(currentCharacterId, payload.combatantId, (prepare) =>
-          inventory.consumeBattleItem(currentCharacterId, payload.itemInstanceId, prepare, assertCurrent)
-        );
-        // A disconnect during COMMIT still needs the new HP before its final save.
-        if (characterOwners.get(currentCharacterId) === socket.id) {
-          characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
-        }
-        if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) {
-          ack({ ok: false, code: "SESSION_REPLACED", message: BATTLE_ITEM_ERRORS.SESSION_REPLACED! });
-          return;
-        }
-        const character = characters.getSnapshot(currentCharacterId)!;
-        socket.emit("battleState", applied.snapshot);
-        await emitPlayerState(currentCharacterId);
-        ack({ ok: true, inventory: applied.inventory });
-      })().catch((error: unknown) => {
-        const code = error instanceof Error && BATTLE_ITEM_ERRORS[error.message]
-          ? error.message : "BATTLE_ITEM_USE_FAILED";
-        ack({ ok: false, code, message: BATTLE_ITEM_ERRORS[code] ?? "Nie udało się użyć przedmiotu. Spróbuj ponownie." });
-      });
-      pendingBattleItemUses.set(currentCharacterId, operation);
-      void operation.then(() => {
-        if (pendingBattleItemUses.get(currentCharacterId) === operation) pendingBattleItemUses.delete(currentCharacterId);
-      });
+      let finishMutation!:()=>void;
+      const mutation=new Promise<void>(resolve=>{finishMutation=resolve;});
+      pendingBattleItemUses.set(currentCharacterId,mutation);
+      const releaseMutation=()=>{finishMutation();if(pendingBattleItemUses.get(currentCharacterId)===mutation)pendingBattleItemUses.delete(currentCharacterId);};
+      void(async()=>{
+        try {
+          await pendingCharacterSaves.get(currentCharacterId);
+          assertCurrent();
+          const applied=await battles.useConsumable(currentCharacterId,payload.combatantId,prepare=>inventory.consumeBattleItem(currentCharacterId,payload.itemInstanceId,prepare,assertCurrent));
+          if(characterOwners.get(currentCharacterId)===socket.id)characters.applyBattleResult(currentCharacterId,applied.playerOutcome);
+          const ids=battles.getParticipantIds(currentCharacterId);
+          broadcastBattle(ids);
+          releaseMutation();
+          scheduleActive(ids);
+          if(!ownsCharacter(currentCharacterId,currentCharacterVersion)){ack({ok:false,code:"SESSION_REPLACED",message:BATTLE_ITEM_ERRORS.SESSION_REPLACED!});return;}
+          ack({ok:true,inventory:applied.inventory});
+          void emitPlayerState(currentCharacterId).catch(()=>undefined);
+        }catch(error) {
+          const code=error instanceof Error && BATTLE_ITEM_ERRORS[error.message] ? error.message : "BATTLE_ITEM_USE_FAILED";
+          ack({ok:false,code,message:BATTLE_ITEM_ERRORS[code]??"Nie udało się użyć przedmiotu. Spróbuj ponownie."});
+        }finally{releaseMutation();}
+      })();
     });
 
-    socket.on("startEncounter", async (payload) => {
-      if (!characterId) return;
-      const currentCharacterId = characterId;
-      const currentLocationId = locationId;
-      const currentCharacterVersion = characterVersion;
-      const character = characters.getSnapshot(currentCharacterId);
-      if (!currentLocationId || !character) return;
-
+    socket.on("startEncounter",async payload=>{
+      const id=characterId,version=characterVersion,zone=locationId;
+      if(!id || !zone || !ownsCharacter(id,version))return;
+      const reservation=Symbol("party-start"),reserved:PlayerId[]=[];
+      const busy=(target:PlayerId)=>battles.hasBattle(target)||pendingPartyStarts.has(target)||pendingBattleItemUses.has(target)||pendingBattleRewards.has(target)||pendingWeaponSelections.has(target)||pendingMerchantOperations.has(target)||Boolean(healing.pendingFor(target))||social.isBusy(target);
       try {
-        const encounterId=payload?.encounterId;
-        const mode=payload?.mode===undefined ? "manual" : payload.mode;
+        const encounterId=payload?.encounterId,mode=payload?.mode??"manual";
         if(mode!=="manual" && mode!=="auto")throw new Error("INVALID_BATTLE_MODE");
         if(typeof encounterId!=="string")throw new Error("ENCOUNTER_NOT_FOUND");
-        if(healing.pendingFor(currentCharacterId))throw new Error("HEAL_ACTION_PENDING");
-        if(pendingWeaponSelections.has(currentCharacterId))throw new Error("WEAPON_ACTION_PENDING");
-        if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
-        await social.cancelForBattle(currentCharacterId);
-        if(!ownsCharacter(currentCharacterId,currentCharacterVersion))return;
-        if(healing.pendingFor(currentCharacterId))throw new Error("HEAL_ACTION_PENDING");
-        if(pendingWeaponSelections.has(currentCharacterId))throw new Error("WEAPON_ACTION_PENDING");
-        if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
-        if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_ALREADY_STARTED");
-        world.startEncounter(currentCharacterId, encounterId);
-        let snapshot = battles.startBattle(characters.getSnapshot(currentCharacterId)!, encounterId);
-        stopAuto();autoStalls=0;
-        if(mode==="auto")snapshot=battles.setAuto(currentCharacterId,true);
-        battleRewardTokens.set(currentCharacterId,randomUUID());
-        partyExperienceContexts.set(currentCharacterId,social.parties.captureExperienceContext(currentCharacterId));
-        social.markChanged();void broadcastSocial();
-        socket.leave(`location:${currentLocationId}`);
-        socket.emit("battleStarted", snapshot);
-        if(mode==="auto")scheduleAuto(currentCharacterId,currentCharacterVersion);
-      } catch (error) {
-        reject(error, "ENCOUNTER_REJECTED", "Encounter could not be started.");
-      }
+        if(pendingWeaponSelections.has(id))throw new Error("WEAPON_ACTION_PENDING");
+        if(busy(id))throw new Error("BATTLE_ACTION_PENDING");
+        world.startEncounter(id,encounterId);
+        const party=social.parties.getParty(id);
+        const candidates=[...new Set([id,...(party?.members.map(member=>member.id)??[])])].slice(0,5);
+        for(const target of candidates) {
+          const owner=ownerStateOperations.get(target),character=characters.getSnapshot(target);
+          if(!owner?.isCurrent() || !character || character.hp<=0 || world.getPlayerLocationId(target)!==zone)continue;
+          if(busy(target)){if(target!==id)owner.error("PARTY_BATTLE_NOT_JOINED","Nie dołączono do walki drużyny: trwa inna walka lub czynność.");continue;}
+          pendingPartyStarts.set(target,reservation);reserved.push(target);
+        }
+        if(!reserved.includes(id))throw new Error("BATTLE_ACTION_PENDING");
+        for(const target of reserved)await social.cancelForBattle(target);
+        if(!ownsCharacter(id,version))return;
+        const currentParty=social.parties.getParty(id);
+        const members=reserved.filter(target=>{
+          const character=characters.getSnapshot(target),owner=ownerStateOperations.get(target);
+          return pendingPartyStarts.get(target)===reservation && owner?.isCurrent() && character && character.hp>0 && world.getPlayerLocationId(target)===zone
+            && !battles.hasBattle(target) && !pendingBattleRewards.has(target) && !pendingBattleItemUses.has(target) && !pendingWeaponSelections.has(target) && !pendingMerchantOperations.has(target) && !healing.pendingFor(target) && !social.isBusy(target)
+            && (target===id || (party?.id===currentParty?.id && currentParty?.members.some(member=>member.id===target)));
+        });
+        if(!members.includes(id))throw new Error("BATTLE_ACTION_PENDING");
+        world.startEncounter(id,encounterId);
+        const ordered=[id,...members.filter(member=>member!==id)];
+        battles.startPartyBattle(ordered.map(member=>characters.getSnapshot(member)!),encounterId);
+        if(mode==="auto")battles.setAuto(id,true);
+        const token=randomUUID();
+        for(const member of ordered) {
+          battleRewardTokens.set(member,token);
+          partyExperienceContexts.set(member,social.parties.captureExperienceContext(member));
+          const snapshot=battles.getSnapshot(member);if(snapshot)ownerStateOperations.get(member)?.enterBattle(snapshot);
+        }
+        social.markChanged();void broadcastSocial();scheduleActive(ordered);
+      }catch(error){reject(error,"ENCOUNTER_REJECTED","Nie można rozpocząć walki drużyny.");}
+      finally{for(const target of reserved)if(pendingPartyStarts.get(target)===reservation)pendingPartyStarts.delete(target);}
     });
 
-    const finishBattleCommand=async(currentCharacterId:PlayerId,currentCharacterVersion:number,applied:AppliedBattleCommand):Promise<void>=>{
-      if (!applied.result.ok) {
-        socket.emit("commandRejected", {
-          code: applied.result.code,
-          message: applied.result.code==="AUTO_BATTLE_ACTIVE" ? "Najpierw przejmij sterowanie w panelu walki." : applied.result.message
-        });
-        return;
-      }
-
-      if (!applied.snapshot) return;
-      if(applied.weaponTraining)characters.trainWeapon(currentCharacterId,applied.weaponTraining.family,applied.weaponTraining.amount);
-      if(applied.shieldTraining)characters.trainWeapon(currentCharacterId,"shield",applied.shieldTraining);
-      socket.emit("battleState", applied.snapshot);
-
-      if (!applied.finished) {
-        if(applied.weaponTraining || applied.shieldTraining) {
-          try {
-            await persistGameplayState(currentCharacterId);
-            if(ownsCharacter(currentCharacterId,currentCharacterVersion))await emitPlayerState(currentCharacterId);
-          }catch{socket.emit("commandRejected",{code:"WEAPON_SAVE_FAILED",message:"Nie udało się zapisać treningu broni. Postęp pozostaje w bieżącej sesji."});}
-        }
-        return;
-      }
-      stopAuto();
-
-      let finishMutations!:()=>void;
-      const mutationsDone=new Promise<void>(resolve=>{finishMutations=resolve;});
-      pendingBattleRewards.set(currentCharacterId,mutationsDone);
-      const releaseMutations=():void=>{
-        finishMutations();
-        if(pendingBattleRewards.get(currentCharacterId)===mutationsDone)pendingBattleRewards.delete(currentCharacterId);
-      };
-      const settlement=(async()=>{
-      try {
-        const beforeReward = characters.getSnapshot(currentCharacterId);
-        let experienceGained = 0;
-        let levelsGained = 0;
-        let partyBonusExperience = 0;
-        let goldGained = 0;
-        if (applied.playerOutcome) {
-          characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
-        }
-
-        if (applied.victory && applied.encounterId && applied.seed !== undefined) {
-          // Disconnect saves must include earned XP even while loot persistence is pending.
-          const baseExperience=applied.experienceReward??0;
-          const bonusPercent=social.parties.getExperienceBonus(currentCharacterId,partyExperienceContexts.get(currentCharacterId));
-          partyBonusExperience=Math.floor(baseExperience*bonusPercent/100);
-          const progressed = characters.awardExperience(currentCharacterId, baseExperience+partyBonusExperience);
-          experienceGained = (progressed.experience ?? 0) - (beforeReward?.experience ?? 0);
-          levelsGained = progressed.level - (beforeReward?.level ?? progressed.level);
-          const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
-          await inventory.addItems(currentCharacterId, reward);
-          const rewardToken=battleRewardTokens.get(currentCharacterId);
-          if(applied.encounterId==="wolf-pack-01" && rewardToken) {
-            await merchant.rewardVictory(currentCharacterId,rewardToken,15);
-            goldGained=15;
-          }
-        } else {
-          characters.recoverAfterDefeat(currentCharacterId);
-          world.resetPlayerToSpawn(currentCharacterId);
-          locationId = world.getPlayerLocationId(currentCharacterId) ?? locationId;
-        }
-
-        await persistGameplayState(currentCharacterId);
-        // Re-authentication waits for durable mutations, never for old presentation reads.
-        releaseMutations();
-        if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) return;
-        const character = characters.getSnapshot(currentCharacterId);
-        const currentLocationId = locationId;
-        if (!character || !currentLocationId) return;
-
-        const inventorySnapshot = await inventory.getSnapshot(currentCharacterId);
-        if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) return;
-        await emitPlayerState(currentCharacterId);
-        if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) return;
-        socket.emit("battleEnded", {
-          outcome: applied.victory ? "victory" : "defeat",
-          inventory: inventorySnapshot,
-          character,
-          experienceGained,
-          levelsGained,
-          goldGained,
-          ...(partyBonusExperience ? {partyBonusExperience} : {})
-        });
-
-        battles.removeBattleForPlayer(currentCharacterId);
-        partyExperienceContexts.delete(currentCharacterId);
-        battleRewardTokens.delete(currentCharacterId);
-        social.markChanged();void broadcastSocial();
-        socket.join(`location:${currentLocationId}`);
-        io.to(`location:${currentLocationId}`).emit(
-          "worldState",
-          world.snapshot(currentLocationId)
-        );
-      } catch (error) {
-        reject(error, "BATTLE_REWARD_FAILED", "Battle rewards could not be persisted.");
-      } finally {releaseMutations();}
-      })();
-      await settlement;
-    };
+    const finishBattleCommand=(id:PlayerId,_version:number,applied:AppliedBattleCommand):Promise<void>=>dispatchBattle(id,applied);
 
     const scheduleAuto=(id:PlayerId,version:number):void=>{
-      if(autoTimer!==undefined || !ownsCharacter(id,version) || !battles.isAuto(id) || battles.getSnapshot(id)?.finished)return;
+      if(autoTimer!==undefined || !ownsCharacter(id,version) || !battles.isAuto(id) || battles.getSnapshot(id)?.finished || battles.getActivePlayerId(id)!==id)return;
       const generation=autoGeneration;
       autoTimer=setTimeout(()=>{
         autoTimer=undefined;
-        if(generation!==autoGeneration || !ownsCharacter(id,version) || !battles.isAuto(id))return;
+        if(generation!==autoGeneration || !ownsCharacter(id,version) || !battles.isAuto(id) || battles.getActivePlayerId(id)!==id)return;
         if(pendingBattleItemUses.has(id) || pendingBattleRewards.has(id)){scheduleAuto(id,version);return;}
         void(async()=>{
           try {
@@ -951,7 +1015,7 @@ export function createGameServer(
             const signature=(snapshot:typeof before)=>snapshot?.combatants.map(unit=>`${unit.id}:${unit.hp}:${unit.position.q},${unit.position.r}`).join(";");
             autoStalls=signature(before)===signature(applied.snapshot) ? autoStalls+1 : 0;
             await finishBattleCommand(id,version,applied);
-            if(generation!==autoGeneration || !ownsCharacter(id,version) || !battles.isAuto(id))return;
+            if(generation!==autoGeneration || !ownsCharacter(id,version) || !battles.isAuto(id) || battles.getActivePlayerId(id)!==id)return;
             if(autoStalls>=40)throw new Error("AUTO_BATTLE_STALLED");
             scheduleAuto(id,version);
           }catch(error){
@@ -979,7 +1043,7 @@ export function createGameServer(
         if(pendingBattleItemUses.has(id) || pendingBattleRewards.has(id))throw new Error("BATTLE_ACTION_PENDING");
         const snapshot=battles.setAuto(id,payload.enabled);
         stopAuto();autoStalls=0;
-        socket.emit("battleState",snapshot);ack({ok:true,snapshot});
+        broadcastBattle(battles.getParticipantIds(id));ack({ok:true,snapshot});
         if(payload.enabled)scheduleAuto(id,version);
       }catch(error){
         const code=error instanceof Error && ["BATTLE_NOT_FOUND","BATTLE_FINISHED","BATTLE_ACTION_PENDING"].includes(error.message) ? error.message : "AUTO_MODE_FAILED";

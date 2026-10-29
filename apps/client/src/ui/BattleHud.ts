@@ -13,6 +13,8 @@ import "./BattleHud.css";
 interface BattleHudHandlers {
   onEndTurn: () => void;
   onHealSelf?: () => void;
+  onSelectHealingTarget?: (combatantId:string) => void;
+  onTypingChange?: () => void;
   onUseItem: (instanceId: string) => Promise<InventoryUpdateResult>;
   onInventoryChanged: (inventory: InventorySnapshot) => void;
   onToggleAuto?: () => void;
@@ -27,12 +29,15 @@ function positiveEffect(value: number | undefined): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+interface BattleHudTeam { members:readonly CombatantSnapshot[]; activeCombatantId:string; healingTargetId:string; }
+
 export class BattleHud {
   private readonly root: HTMLDivElement;
   private readonly itemsElement: HTMLElement;
   private readonly feedbackElement: HTMLElement;
   private readonly endButton: HTMLButtonElement;
   private readonly autoButton: HTMLButtonElement;
+  private team:BattleHudTeam|undefined;
   private healingPreview:ReturnType<typeof getBattleHealingPreview>|undefined;
   private ownCombatant: CombatantSnapshot | undefined;
   private character: CharacterSnapshot | undefined;
@@ -80,10 +85,12 @@ export class BattleHud {
         </dl>
         <p class="battle-hud__injuries" data-injuries>Brak urazów</p>
       </section>
+      <section class="battle-hud__section battle-hud__team" aria-label="Drużyna w walce" data-battle-team hidden><h2>Drużyna</h2><div data-team-members></div></section>
       <section class="battle-hud__turn" aria-label="Akcje tury">
         <p class="battle-hud__turn-status" data-turn-status>Oczekiwanie na postać</p>
         <p class="battle-hud__auto-status" data-auto-status hidden>Auto: wyłączone</p>
         <button type="button" class="battle-hud__auto" data-action="auto" hidden>Włącz auto</button>
+        <label class="battle-hud__heal-target" data-healing-target-label hidden>Cel leczenia<select data-battle-healing-target aria-label="Cel leczenia"></select></label>
         <button type="button" class="battle-hud__heal" data-action="heal-self" hidden disabled>Leczenie kosturem</button>
         <button type="button" class="battle-hud__end-turn" data-action="end" disabled>Koniec tury</button>
       </section>
@@ -102,11 +109,22 @@ export class BattleHud {
       if (!this.destroyed && !this.pending && !this.autoPending && this.ownCombatant && this.ownCombatant.hp > 0) this.handlers.onToggleAuto?.();
     });
     this.requireElement<HTMLButtonElement>("[data-action='heal-self']").addEventListener("click",()=>{if(this.canAct() && this.healingPreview?.available)this.handlers.onHealSelf?.();});
+    this.requireElement<HTMLSelectElement>("[data-battle-healing-target]").addEventListener("change",event=>{
+      const id=(event.currentTarget as HTMLSelectElement).value;
+      if(!this.destroyed && !this.pending && !this.autoPending && !this.autoBattle)this.handlers.onSelectHealingTarget?.(id);
+    });
+    for(const type of ["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend"])this.root.addEventListener(type,event=>event.stopPropagation());
+    this.root.addEventListener("focusin",()=>this.handlers.onTypingChange?.());
+    this.root.addEventListener("focusout",()=>queueMicrotask(()=>this.handlers.onTypingChange?.()));
     this.endButton.addEventListener("click", () => {
       if (this.canAct()) this.handlers.onEndTurn();
     });
     document.body.appendChild(this.root);
     this.render();
+  }
+
+  get isTyping():boolean {
+    return !this.destroyed && document.activeElement instanceof HTMLElement && this.root.contains(document.activeElement) && document.activeElement.matches("select,input,textarea");
   }
 
   get busy(): boolean {
@@ -118,7 +136,8 @@ export class BattleHud {
     ownedTurn: boolean,
     inventory: InventorySnapshot,
     character?: CharacterSnapshot,
-    healingPreview?:ReturnType<typeof getBattleHealingPreview>
+    healingPreview?:ReturnType<typeof getBattleHealingPreview>,
+    team?:BattleHudTeam
   ): void {
     if (this.destroyed) return;
     this.ownCombatant = ownCombatant;
@@ -126,6 +145,7 @@ export class BattleHud {
     this.inventory = inventory;
     this.character = character;
     this.healingPreview=healingPreview;
+    this.team=team;
     this.render();
   }
 
@@ -176,9 +196,12 @@ export class BattleHud {
         ...(combatant.severelyInjured ? ["Ciężko ranny"] : []),
         ...(combatant.injuries.length ? combatant.injuries.map((injury) => INJURY_LABELS[injury]) : [])
       ].join(" · ") || "Brak urazów";
+    const activeAlly=this.team?.members.find(member=>member.id===this.team?.activeCombatantId);
     this.requireElement("[data-turn-status]").textContent = !combatant ? "Oczekiwanie na postać"
       : combatant.hp <= 0 ? "Postać pokonana"
-        : this.ownedTurn ? "Twoja tura" : "Tura przeciwnika";
+        : this.ownedTurn ? "Twoja tura"
+          : activeAlly?.id===combatant.id ? "Oczekiwanie na serwer…"
+            : activeAlly ? `Tura: ${activeAlly.name} (drużyna)` : "Tura przeciwnika";
     this.root.dataset.ownedTurn = `${this.ownedTurn}`;
     this.root.setAttribute("aria-busy", `${this.pending || this.autoPending}`);
     const autoStatus = this.requireElement("[data-auto-status]");
@@ -191,9 +214,34 @@ export class BattleHud {
     const heal=this.requireElement<HTMLButtonElement>("[data-action='heal-self']");
     heal.hidden=!this.handlers.onHealSelf || !(combatant?.combatStats?.healingPower);
     heal.disabled=!this.canAct() || !this.healingPreview?.available;
-    heal.textContent=`Ulecz siebie · ${this.healingPreview?.amount??0} HP · ${this.healingPreview?.apCost??3} AP`;
+    const selected=this.team?.members.find(member=>member.id===this.team?.healingTargetId);
+    const targetName=selected && selected.id!==combatant?.id ? selected.name : "siebie";
+    heal.textContent=`Ulecz ${targetName} · ${this.healingPreview?.amount??0} HP · ${this.healingPreview?.apCost??3} AP`;
     heal.title=this.healingPreview?.reason??"Leczenie kosturem raz na turę";
+    this.renderTeam();
     this.renderItems();
+  }
+
+  private renderTeam():void {
+    const members=this.team?.members??(this.ownCombatant?[this.ownCombatant]:[]);
+    const section=this.requireElement("[data-battle-team]"),list=this.requireElement("[data-team-members]");
+    section.hidden=members.length<2;list.replaceChildren();
+    for(const member of members){
+      const row=document.createElement("div");row.className="battle-hud__team-member";row.dataset.teamMember=member.id;
+      row.dataset.active=String(member.id===this.team?.activeCombatantId);row.dataset.own=String(member.id===this.ownCombatant?.id);
+      const name=document.createElement("strong");name.textContent=`${member.name}${member.id===this.ownCombatant?.id?" (Ty)":""}`;
+      const hp=document.createElement("span");hp.textContent=`${member.hp}/${member.maxHp} HP`;
+      const state=document.createElement("small");state.textContent=member.hp<=0?"Postać pokonana":member.id===this.team?.activeCombatantId?"Wykonuje turę":"";
+      row.append(name,hp,state);list.append(row);
+    }
+    const label=this.requireElement("[data-healing-target-label]"),select=this.requireElement<HTMLSelectElement>("[data-battle-healing-target]");
+    label.hidden=!this.handlers.onSelectHealingTarget || !(this.ownCombatant?.combatStats?.healingPower);
+    select.disabled=this.pending || this.autoPending || this.autoBattle || !this.ownCombatant || this.ownCombatant.hp<=0;
+    select.replaceChildren();
+    for(const member of members.filter(member=>member.hp>0)){
+      const option=document.createElement("option");option.value=member.id;option.textContent=`${member.name}${member.id===this.ownCombatant?.id?" (Ty)":""} · ${member.hp}/${member.maxHp} HP`;select.append(option);
+    }
+    select.value=this.team?.healingTargetId??this.ownCombatant?.id??"";
   }
 
   private renderItems(): void {

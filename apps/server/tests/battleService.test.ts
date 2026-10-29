@@ -48,7 +48,7 @@ function chooseHeroCommand(snapshot: BattleSnapshot): BattleCommand {
 function simulateBattle(level: number) {
   const service = new BattleService();
   let snapshot = service.startBattle(leveledCharacter(level), "encounter:wolf");
-  const actions = { meleeAttack: 0, rangedAttack: 0, move: 0, endTurn: 0, healSelf: 0 };
+  const actions = { meleeAttack: 0, rangedAttack: 0, move: 0, endTurn: 0, healSelf: 0, healAlly: 0 };
   for (let guard = 0; guard < 2_000; guard += 1) {
     const command = chooseHeroCommand(snapshot);
     actions[command.type] += 1;

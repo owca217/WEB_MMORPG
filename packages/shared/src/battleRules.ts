@@ -20,24 +20,28 @@ export function rangedAttackApCost(combatant: Pick<CombatantSnapshot, "injuries"
   return combatant.injuries.includes("brokenArm") ? 4 : 3;
 }
 
-export function mitigatedBattleDamage(damage: number, armor: number, blockPercent=0): number {
-  const afterArmor=Math.max(1, Math.round(damage * 100 / (100 + Math.max(0, armor))));
-  const block=Number.isFinite(blockPercent) ? Math.max(0,Math.min(100,blockPercent)) : 0;
-  return Math.max(1,Math.round(afterArmor*(1-block/100)));
+export function mitigatedBattleDamage(damage: number, armor: number, blockPercent = 0): number {
+  const afterArmor = Math.max(1, Math.round(damage * 100 / (100 + Math.max(0, armor))));
+  const block = Number.isFinite(blockPercent) ? Math.max(0, Math.min(100, blockPercent)) : 0;
+  return Math.max(1, Math.round(afterArmor * (1 - block / 100)));
 }
 
-export function getBattleHealingPreview(snapshot:BattleSnapshot,actorId:string):{amount:number;apCost:number;available:boolean;reason?:string} {
-  const actor=snapshot.combatants.find(unit=>unit.id===actorId);
-  const power=actor?.combatStats?.healingPower??0;
-  const amount=actor ? Math.max(0,Math.min(actor.maxHp-actor.hp,Math.floor(power))) : 0;
-  const reason=snapshot.finished ? "Walka zakończona."
-    : !actor || actor.hp<=0 ? "Postać jest nieprzytomna."
-    : snapshot.activeCombatantId!==actorId ? "Poczekaj na swoją turę."
-    : !Number.isFinite(power) || power<=0 ? "Wybierz kostur leczący przed walką."
-    : actor.healingUsedThisTurn ? "Kostur został już użyty w tej turze."
-    : amount<=0 ? "Masz pełne HP."
-    : actor.ap<STAFF_HEAL_AP_COST ? `Potrzeba ${STAFF_HEAL_AP_COST} AP.` : undefined;
-  return {amount:Number.isFinite(amount) ? amount : 0,apCost:STAFF_HEAL_AP_COST,available:!reason,...(reason ? {reason} : {})};
+export function getBattleHealingPreview(snapshot: BattleSnapshot, actorId: string, targetId = actorId): { amount: number; apCost: number; available: boolean; reason?: string } {
+  const actor = snapshot.combatants.find(unit => unit.id === actorId);
+  const target = snapshot.combatants.find(unit => unit.id === targetId);
+  const power = actor?.combatStats?.healingPower ?? 0;
+  const amount = target ? Math.max(0, Math.min(target.maxHp - target.hp, Math.floor(power))) : 0;
+  const reason = snapshot.finished ? "Walka zakończona."
+    : !actor || actor.hp <= 0 ? "Postać jest nieprzytomna."
+      : snapshot.activeCombatantId !== actorId ? "Poczekaj na swoją turę."
+        : !Number.isFinite(power) || power <= 0 ? "Wybierz kostur leczący przed walką."
+          : actor.healingUsedThisTurn ? "Kostur został już użyty w tej turze."
+            : !target || target.hp <= 0 || (target.id !== actorId && (!actor.side || target.side !== actor.side)) ? "Wybierz żywego sojusznika."
+              : targetId !== actorId && hexDistance(actor.position, target.position) > 6 ? "Sojusznik jest poza zasięgiem (6 pól)."
+                : targetId !== actorId && !hasLineOfSight(actor.position, target.position, new Set(snapshot.blockedCells.map(hexKey))) ? "Przeszkoda zasłania sojusznika."
+                  : amount <= 0 ? "Cel ma pełne HP."
+                    : actor.ap < STAFF_HEAL_AP_COST ? `Potrzeba ${STAFF_HEAL_AP_COST} AP.` : undefined;
+  return { amount: Number.isFinite(amount) ? amount : 0, apCost: STAFF_HEAL_AP_COST, available: !reason, ...(reason ? { reason } : {}) };
 }
 
 export function areBattleEnemies(actor: CombatantSnapshot, target: CombatantSnapshot): boolean {
@@ -59,13 +63,15 @@ export function getBattleAttackPreview(snapshot: BattleSnapshot, actorId: string
   const possible = inRange && lineOfSight;
   const reason = snapshot.finished ? "Walka zakończona."
     : actor.hp <= 0 ? "Postać jest nieprzytomna."
-    : snapshot.activeCombatantId !== actorId ? "Poczekaj na swoją turę."
-    : !inRange ? "Cel poza zasięgiem (6 pól)."
-    : !lineOfSight ? "Przeszkoda zasłania cel."
-    : actor.ap < apCost ? `Potrzeba ${apCost} AP.` : undefined;
-  return { targetId, type, apCost, hitChance: possible ? 100 : 0,
-    averageDamage: possible ? mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0,target.combatStats?.blockPercent??0) : 0,
-    available: !reason, ...(reason ? { reason } : {}) };
+      : snapshot.activeCombatantId !== actorId ? "Poczekaj na swoją turę."
+        : !inRange ? "Cel poza zasięgiem (6 pól)."
+          : !lineOfSight ? "Przeszkoda zasłania cel."
+            : actor.ap < apCost ? `Potrzeba ${apCost} AP.` : undefined;
+  return {
+    targetId, type, apCost, hitChance: possible ? 100 : 0,
+    averageDamage: possible ? mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0, target.combatStats?.blockPercent ?? 0) : 0,
+    available: !reason, ...(reason ? { reason } : {})
+  };
 }
 
 /** One breadth-first traversal yields the same shortest-path costs used by the server. */

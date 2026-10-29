@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   getCharacterStatistics,
   getWeaponCombatStatistics,
@@ -20,6 +21,7 @@ import {
   applyBattleCommand,
   applyNpcBattleCommand,
   createBattleState,
+  removeBattleCombatant,
   type BattleResult,
   type BattleState
 } from "./BattleEngine";
@@ -27,13 +29,13 @@ import { chooseWolfCommand } from "./NpcBattleAi";
 import { chooseAutoBattleCommand } from "./AutoBattleAi";
 
 interface ActiveBattle {
-  weaponLoadout:WeaponLoadout;
+  participants: Map<PlayerId, { weaponLoadout: WeaponLoadout; auto: boolean }>;
+  initialParticipantCount: number;
   encounterId: string;
   seed: number;
   state: BattleState;
   experienceReward: number;
   itemUsePending?: boolean;
-  autoBattle?: boolean;
 }
 
 export interface PlayerBattleOutcome {
@@ -42,9 +44,15 @@ export interface PlayerBattleOutcome {
   injuries: InjuryKind[];
 }
 
+export interface TrainingAward { weaponTraining?: { family: WeaponFamily; amount: number }; shieldTraining?: number; }
+
 export interface AppliedBattleCommand {
-  weaponTraining?:{family:WeaponFamily;amount:number};
-  shieldTraining?:number;
+  participantIds?: PlayerId[];
+  playerOutcomes?: Record<PlayerId, PlayerBattleOutcome>;
+  trainingAwards?: Record<PlayerId, TrainingAward>;
+  initialParticipantCount?: number;
+  weaponTraining?: { family: WeaponFamily; amount: number };
+  shieldTraining?: number;
   result: BattleResult;
   snapshot?: BattleSnapshot;
   finished: boolean;
@@ -59,82 +67,66 @@ export class BattleService {
   private readonly battlesByPlayer = new Map<PlayerId, ActiveBattle>();
 
   startBattle(character: CharacterSnapshot, encounterId: string): BattleSnapshot {
-    if (this.battlesByPlayer.get(character.playerId)?.itemUsePending) {
-      throw new Error("BATTLE_ACTION_PENDING");
+    const old = this.battlesByPlayer.get(character.playerId);
+    if (old?.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
+    // Preserve solo restart behavior without replacing one alias of a shared arena.
+    if (old?.initialParticipantCount === 1) this.removeBattleForPlayer(character.playerId);
+    return this.startPartyBattle([character], encounterId);
+  }
+
+  startPartyBattle(characters: readonly CharacterSnapshot[], encounterId: string): BattleSnapshot {
+    if (characters.length < 1 || characters.length > 5 || new Set(characters.map(c => c.playerId)).size !== characters.length) throw new Error("INVALID_BATTLE_PARTICIPANTS");
+    for (const character of characters) {
+      const old = this.battlesByPlayer.get(character.playerId);
+      if (old?.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
+      if (old) throw new Error("BATTLE_ALREADY_STARTED");
+      if (character.hp <= 0) throw new Error("COMBATANT_DOWN");
     }
-    const seed = 12345;
+    const initiator = characters[0]!, seed = 12345;
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
-    const playerStart = arena.playerStartCells[0];
-    const level = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
-    const statistics = character.statistics ?? getWeaponCombatStatistics(getCharacterStatistics(level),character.weaponTraining);
-    const combatStats: CombatStatistics = {
-      meleeDamage: statistics.meleeDamage,
-      rangedDamage: statistics.rangedDamage,
-      armor: statistics.armor,
-      ...(statistics.healingPower!==undefined ? {healingPower:statistics.healingPower} : {}),
-      ...(statistics.blockPercent!==undefined ? {blockPercent:statistics.blockPercent} : {})
-    };
-    const wolfCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
-    const healthFactor = wolfCount === 3 ? 0.65 : wolfCount === 2 ? 0.75 : 1;
-    const damageFactor = wolfCount === 3 ? 0.35 : wolfCount === 2 ? 0.5 : 1;
+    const level = Math.max(...characters.map(character => Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1))));
+    const soloCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
+    const wolfCount = Math.min(5, soloCount + characters.length - 1);
+    const healthFactor = soloCount === 3 ? 0.65 : soloCount === 2 ? 0.75 : 1;
+    const damageFactor = soloCount === 3 ? 0.35 : soloCount === 2 ? 0.5 : 1;
     const wolfHp = Math.round((120 + 28 * (level - 1)) * healthFactor);
     const wolfDamage = Math.round((10 + 2 * (level - 1)) * damageFactor);
-    // Mature packs need more mitigation as the hero gains additional attacks per turn.
     const wolfArmor = Math.floor(1.5 * (level - 1) + 3 * Math.max(0, level - 25));
-    const wolfInitiative = character.initiative - (character.injuries.includes("concussion") ? 2 : 0) - 1;
+    const wolfInitiative = initiator.initiative - (initiator.injuries.includes("concussion") ? 2 : 0) - 1;
     const enemyStarts = arena.enemyStartCells.slice(0, wolfCount);
-
-    if (!playerStart || enemyStarts.length !== wolfCount) {
-      throw new Error("ARENA_START_POSITION_MISSING");
-    }
-
+    if (arena.playerStartCells.length < characters.length || enemyStarts.length !== wolfCount) throw new Error("ARENA_START_POSITION_MISSING");
     const state = createBattleState({
-      id: `battle:${character.playerId}:${encounterId}`,
-      seed,
-      arena,
-      combatants: [
-        {
-          id: `hero:${character.playerId}`,
-          ownerPlayerId: character.playerId,
-          side: "player",
-          name: character.nickname,
-          level,
-          combatStats,
-          hp: character.hp,
-          maxHp: character.maxHp,
-          maxAp: character.maxAp,
-          initiative: character.initiative,
-          position: playerStart,
-          severelyInjured: character.severelyInjured,
-          injuries: [...character.injuries]
-        },
+id: `battle:${initiator.playerId}:${encounterId}:${randomUUID()}`, seed, arena, combatants: [
+        ...characters.map((character, index) => {
+          const characterLevel = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
+          const stats = character.statistics ?? getWeaponCombatStatistics(getCharacterStatistics(characterLevel), character.weaponTraining);
+          const combatStats: CombatStatistics = {
+meleeDamage: stats.meleeDamage, rangedDamage: stats.rangedDamage, armor: stats.armor,
+            ...(stats.healingPower !== undefined ? { healingPower: stats.healingPower } : {}), ...(stats.blockPercent !== undefined ? { blockPercent: stats.blockPercent } : {})
+};
+          return {
+id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "player" as const, name: character.nickname, level: characterLevel, combatStats,
+            hp: character.hp, maxHp: character.maxHp, maxAp: character.maxAp, initiative: character.initiative, position: arena.playerStartCells[index]!, severelyInjured: character.severelyInjured, injuries: [...character.injuries]
+};
+        }),
         ...enemyStarts.map((position, index) => ({
-          id: index === 0 ? `wolf:${encounterId}` : `wolf:${encounterId}:${index + 1}`,
-          side: "enemy" as const,
-          name: "Wolf",
-          level,
-          combatStats: {
-            meleeDamage: wolfDamage,
-            rangedDamage: 0,
-            armor: wolfArmor
-          },
-          hp: wolfHp,
-          maxHp: wolfHp,
-          maxAp: 4,
-          initiative: wolfInitiative,
-          position,
-          severelyInjured: false,
-          injuries: []
-        }))
+id: index === 0 ? `wolf:${encounterId}` : `wolf:${encounterId}:${index + 1}`, side: "enemy" as const, name: "Wolf", level,
+          combatStats: { meleeDamage: wolfDamage, rangedDamage: 0, armor: wolfArmor }, hp: wolfHp, maxHp: wolfHp, maxAp: 4, initiative: wolfInitiative, position, severelyInjured: false, injuries: []
+}))
       ]
-    });
-
-    this.battlesByPlayer.set(character.playerId, {
-      weaponLoadout:{...normalizeWeaponTraining(character.weaponTraining).loadout},
-      encounterId, seed, state, experienceReward: wolfCount * (25 + 15 * level)
-    });
-    return this.toSnapshot(state);
+});
+    const participants = new Map(characters.map(character => [character.playerId, { weaponLoadout: { ...normalizeWeaponTraining(character.weaponTraining).loadout }, auto: false }]));
+    const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: wolfCount * (25 + 15 * level) };
+    for (const id of participants.keys()) this.battlesByPlayer.set(id, active);
+    return this.snapshotFor(active, initiator.playerId);
   }
+
+  getParticipantIds(playerId: PlayerId): PlayerId[] { return [...(this.battlesByPlayer.get(playerId)?.participants.keys() ?? [])]; }
+  getActivePlayerId(playerId: PlayerId): PlayerId | undefined {
+    const active = this.battlesByPlayer.get(playerId);
+    return active && !active.state.finished ? active.state.combatants[active.state.activeCombatantId]?.ownerPlayerId : undefined;
+  }
+  isItemUsePending(playerId: PlayerId): boolean { return Boolean(this.battlesByPlayer.get(playerId)?.itemUsePending); }
 
   hasBattle(playerId: PlayerId): boolean {
     return this.battlesByPlayer.has(playerId);
@@ -142,40 +134,40 @@ export class BattleService {
 
   getSnapshot(playerId: PlayerId): BattleSnapshot | undefined {
     const active = this.battlesByPlayer.get(playerId);
-    return active ? this.toSnapshot(active.state,active.autoBattle) : undefined;
+    return active ? this.snapshotFor(active, playerId) : undefined;
   }
 
-  setAuto(playerId:PlayerId,enabled:boolean):BattleSnapshot {
-    const active=this.battlesByPlayer.get(playerId);
-    if(!active)throw new Error("BATTLE_NOT_FOUND");
-    if(active.state.finished)throw new Error("BATTLE_FINISHED");
-    if(active.itemUsePending)throw new Error("BATTLE_ACTION_PENDING");
-    active.autoBattle=enabled;
-    return this.toSnapshot(active.state,active.autoBattle);
+  setAuto(playerId: PlayerId, enabled: boolean): BattleSnapshot {
+    const active = this.battlesByPlayer.get(playerId);
+    if (!active) throw new Error("BATTLE_NOT_FOUND");
+    if (active.state.finished) throw new Error("BATTLE_FINISHED");
+    if (active.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
+    active.participants.get(playerId)!.auto = enabled;
+    return this.snapshotFor(active, playerId);
   }
 
-  isAuto(playerId:PlayerId):boolean {
-    const active=this.battlesByPlayer.get(playerId);
-    return Boolean(active?.autoBattle && !active.state.finished);
+  isAuto(playerId: PlayerId): boolean {
+    const active = this.battlesByPlayer.get(playerId);
+    return Boolean(active?.participants.get(playerId)?.auto && !active.state.finished);
   }
 
-  applyAutoCommand(playerId:PlayerId):AppliedBattleCommand {
-    const active=this.battlesByPlayer.get(playerId);
-    if(!active)return this.rejected("BATTLE_NOT_FOUND","No active battle.");
-    if(!active.autoBattle)return this.rejected("AUTO_BATTLE_DISABLED","Automatic combat is disabled.");
-    if(active.state.finished)return this.rejected("BATTLE_FINISHED","Battle is already finished.");
-    const actor=active.state.combatants[active.state.activeCombatantId];
-    if(actor?.ownerPlayerId!==playerId)return this.rejected("NOT_ACTIVE_TURN","The player is not active.");
-    return this.applyPlayerCommand(playerId,chooseAutoBattleCommand(active.state,playerId));
+  applyAutoCommand(playerId: PlayerId): AppliedBattleCommand {
+    const active = this.battlesByPlayer.get(playerId);
+    if (!active) return this.rejected("BATTLE_NOT_FOUND", "No active battle.");
+    if (!active.participants.get(playerId)?.auto) return this.rejected("AUTO_BATTLE_DISABLED", "Automatic combat is disabled.");
+    if (active.state.finished) return this.rejected("BATTLE_FINISHED", "Battle is already finished.");
+    const actor = active.state.combatants[active.state.activeCombatantId];
+    if (actor?.ownerPlayerId !== playerId) return this.rejected("NOT_ACTIVE_TURN", "The player is not active.");
+    return this.applyPlayerCommand(playerId, chooseAutoBattleCommand(active.state, playerId));
   }
 
   applyCommand(playerId: PlayerId, command: BattleCommand): AppliedBattleCommand {
-    if(this.battlesByPlayer.get(playerId)?.autoBattle)return this.rejected("AUTO_BATTLE_ACTIVE","Przejmij sterowanie, aby wydać polecenie.");
-    return this.applyPlayerCommand(playerId,command);
+    if (this.battlesByPlayer.get(playerId)?.participants.get(playerId)?.auto) return this.rejected("AUTO_BATTLE_ACTIVE", "Przejmij sterowanie, aby wydać polecenie.");
+    return this.applyPlayerCommand(playerId, command);
   }
 
-  private rejected(code:string,message:string):AppliedBattleCommand {
-    return {result:{ok:false,code,message},finished:false,victory:false};
+  private rejected(code: string, message: string): AppliedBattleCommand {
+    return { result: { ok: false, code, message }, finished: false, victory: false };
   }
 
   private applyPlayerCommand(playerId: PlayerId, command: BattleCommand): AppliedBattleCommand {
@@ -195,42 +187,53 @@ export class BattleService {
       };
     }
 
-    const beforeHero=Object.values(active.state.combatants).find(combatant=>combatant.ownerPlayerId===playerId);
-    const previousShieldBlocks=beforeHero?.shieldBlocks??0;
+    const beforeBlocks = this.shieldCounters(active);
     const playerResult = applyBattleCommand(active.state, playerId, command);
-    if (!playerResult.ok) {
-      return { result: playerResult, finished: false, victory: false };
-    }
-
+    if (!playerResult.ok) return { result: playerResult, finished: false, victory: false };
     active.state = this.runNpcTurns(playerResult.state);
-    const result: BattleResult = { ok: true, state: active.state };
-    const snapshot = this.toSnapshot(active.state,active.autoBattle);
-    const playerCombatant = Object.values(active.state.combatants).find(
-      (combatant) => combatant.ownerPlayerId === playerId
-    );
-    const victory = active.state.finished && Boolean(playerCombatant && playerCombatant.hp > 0);
-    const shieldTraining=Math.max(0,(playerCombatant?.shieldBlocks??0)-previousShieldBlocks);
-    const playerOutcome = active.state.finished && playerCombatant
-      ? {
-          hp: playerCombatant.hp,
-          severelyInjured: playerCombatant.severelyInjured,
-          injuries: [...playerCombatant.injuries]
-        }
-      : undefined;
+    return this.applied(active, playerId, beforeBlocks, command);
+  }
 
+  private shieldCounters(active: ActiveBattle): Map<PlayerId, number> {
+    return new Map(Object.values(active.state.combatants).flatMap(unit => unit.ownerPlayerId ? [[unit.ownerPlayerId, unit.shieldBlocks ?? 0] as const] : []));
+  }
+  private applied(active: ActiveBattle, actorId: PlayerId, beforeBlocks: Map<PlayerId, number>, command?: BattleCommand): AppliedBattleCommand {
+    const participantIds = [...active.participants.keys()], trainingAwards: Record<PlayerId, TrainingAward> = {};
+    for (const unit of Object.values(active.state.combatants)) {
+      const id = unit.ownerPlayerId; if (!id || !active.participants.has(id)) continue;
+      const shieldTraining = Math.max(0, (unit.shieldBlocks ?? 0) - (beforeBlocks.get(id) ?? 0));
+      if (shieldTraining > 0) trainingAwards[id] = { shieldTraining };
+    }
+    const loadout = active.participants.get(actorId)?.weaponLoadout;
+    let weaponTraining: TrainingAward["weaponTraining"];
+    if (command && loadout) {
+      if (command.type === "meleeAttack" || command.type === "rangedAttack") weaponTraining = { family: command.type === "meleeAttack" ? loadout.melee : loadout.ranged, amount: 1 };
+      else if (command.type === "healSelf" || command.type === "healAlly") weaponTraining = { family: "staff", amount: 1 };
+      if (weaponTraining) trainingAwards[actorId] = { ...trainingAwards[actorId], weaponTraining };
+    }
+    const playerOutcomes: Record<PlayerId, PlayerBattleOutcome> = {};
+    for (const unit of Object.values(active.state.combatants)) if (unit.ownerPlayerId && active.participants.has(unit.ownerPlayerId)) playerOutcomes[unit.ownerPlayerId] = { hp: unit.hp, severelyInjured: unit.severelyInjured, injuries: [...unit.injuries] };
+    const victory = active.state.finished && Object.values(active.state.combatants).some(unit => unit.side === "player" && unit.hp > 0);
+    const own = trainingAwards[actorId];
     return {
-      result,
-      snapshot,
-      ...((command.type==="meleeAttack" || command.type==="rangedAttack") ? {weaponTraining:{family:command.type==="meleeAttack" ? active.weaponLoadout.melee : active.weaponLoadout.ranged,amount:1}} : {}),
-      ...(command.type==="healSelf" ? {weaponTraining:{family:"staff" as const,amount:1}} : {}),
-      ...(shieldTraining>0 ? {shieldTraining} : {}),
-      finished: active.state.finished,
-      victory,
-      encounterId: active.encounterId,
-      seed: active.seed,
-      ...(playerOutcome ? { playerOutcome } : {}),
-      ...(victory ? { experienceReward: active.experienceReward } : {})
-    };
+result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, actorId), finished: active.state.finished, victory,
+      participantIds, initialParticipantCount: active.initialParticipantCount, encounterId: active.encounterId, seed: active.seed,
+      ...(Object.keys(trainingAwards).length ? { trainingAwards } : {}), ...(own?.weaponTraining ? { weaponTraining: own.weaponTraining } : {}), ...(own?.shieldTraining ? { shieldTraining: own.shieldTraining } : {}),
+      ...(active.state.finished ? { playerOutcomes, ...(playerOutcomes[actorId] ? { playerOutcome: playerOutcomes[actorId] } : {}) } : {}), ...(victory ? { experienceReward: active.experienceReward } : {})
+};
+  }
+
+  detachPlayer(playerId: PlayerId): { outcome?: PlayerBattleOutcome; applied?: AppliedBattleCommand } {
+    const active = this.battlesByPlayer.get(playerId); if (!active) return {};
+    if (active.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
+    const unit = Object.values(active.state.combatants).find(combatant => combatant.ownerPlayerId === playerId);
+    const outcome = unit ? { hp: unit.hp, severelyInjured: unit.severelyInjured, injuries: [...unit.injuries] } : undefined;
+    const beforeBlocks = this.shieldCounters(active);
+    this.battlesByPlayer.delete(playerId); active.participants.delete(playerId);
+    if (unit) active.state = removeBattleCombatant(active.state, unit.id);
+    active.state = this.runNpcTurns(active.state);
+    const remaining = [...active.participants.keys()];
+    return { ...(outcome ? { outcome } : {}), ...(remaining[0] ? { applied: this.applied(active, remaining[0], beforeBlocks) } : {}) };
   }
 
   async useConsumable(
@@ -242,7 +245,7 @@ export class BattleService {
     if (!active) throw new Error("BATTLE_NOT_FOUND");
     if (active.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
     if (active.state.finished) throw new Error("BATTLE_FINISHED");
-    if (active.autoBattle) throw new Error("AUTO_BATTLE_ACTIVE");
+    if (active.participants.get(playerId)?.auto) throw new Error("AUTO_BATTLE_ACTIVE");
     const actor = active.state.combatants[combatantId];
     if (!actor) throw new Error("COMBATANT_NOT_FOUND");
     if (actor.ownerPlayerId !== playerId) throw new Error("NOT_OWNER");
@@ -269,14 +272,16 @@ export class BattleService {
       });
       if (!staged || !outcome) throw new Error("ITEM_EFFECT_MISSING");
       active.state = staged;
-      return { snapshot: this.toSnapshot(staged), inventory, playerOutcome: outcome };
+      return { snapshot: this.snapshotFor(active, playerId), inventory, playerOutcome: outcome };
     } finally {
       active.itemUsePending = false;
     }
   }
 
   removeBattleForPlayer(playerId: PlayerId): void {
+    const active = this.battlesByPlayer.get(playerId);
     this.battlesByPlayer.delete(playerId);
+    active?.participants.delete(playerId);
   }
 
   private runNpcTurns(state: BattleState): BattleState {
@@ -300,9 +305,15 @@ export class BattleService {
     return next;
   }
 
-  private toSnapshot(state: BattleState,autoBattle=false): BattleSnapshot {
+  private snapshotFor(active: ActiveBattle, viewerId: PlayerId): BattleSnapshot {
+    const snapshot = this.toSnapshot(active.state, active.participants.get(viewerId)?.auto ?? false);
+    if (active.initialParticipantCount > 1) snapshot.participantIds = [...active.participants.keys()];
+    return snapshot;
+  }
+
+  private toSnapshot(state: BattleState, autoBattle = false): BattleSnapshot {
     return {
-      ...(autoBattle?{autoBattle:true}:{}),
+      ...(autoBattle ? { autoBattle: true } : {}),
       id: state.id,
       round: state.round,
       activeCombatantId: state.activeCombatantId,
@@ -319,7 +330,7 @@ export class BattleService {
         name: combatant.name,
         ...(combatant.level !== undefined ? { level: combatant.level } : {}),
         ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {}),
-        ...(combatant.healingUsedThisTurn ? {healingUsedThisTurn:true} : {}),
+        ...(combatant.healingUsedThisTurn ? { healingUsedThisTurn: true } : {}),
         hp: combatant.hp,
         maxHp: combatant.maxHp,
         ap: combatant.ap,

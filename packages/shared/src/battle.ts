@@ -40,6 +40,7 @@ export interface CombatantSnapshot {
 }
 
 export interface BattleSnapshot {
+  participantIds?: PlayerId[];
   autoBattle?: boolean;
   id: BattleId;
   round: number;
@@ -53,6 +54,7 @@ export interface BattleSnapshot {
 }
 
 export type BattleCommand =
+  | { type: "healAlly"; combatantId: EntityId; targetId: EntityId }
   | { type: "healSelf"; combatantId: EntityId }
   | { type: "move"; combatantId: EntityId; target: HexCoord }
   | { type: "meleeAttack"; combatantId: EntityId; targetId: EntityId }

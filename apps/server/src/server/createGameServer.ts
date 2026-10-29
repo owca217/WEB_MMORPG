@@ -10,7 +10,7 @@ import type {
 import type { Pool } from "pg";
 import { Server } from "socket.io";
 import type { AuthService } from "../auth/AuthService";
-import { BattleService } from "../battle/BattleService";
+import { BattleService, type AppliedBattleCommand } from "../battle/BattleService";
 import { ChatService } from "../chat/ChatService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
@@ -28,6 +28,7 @@ export interface GameServerOptions {
   authService: AuthService;
   characterLifecycle: CharacterLifecycleService;
   connections?: ActiveConnectionRegistry;
+  autoBattleStepMs?: number;
 }
 
 const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
@@ -47,6 +48,7 @@ const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
 };
 
 const BATTLE_ITEM_ERRORS: Readonly<Record<string, string>> = {
+  AUTO_BATTLE_ACTIVE: "Najpierw przejmij sterowanie w panelu walki.",
   BATTLE_NOT_FOUND: "Nie trwa teraz żadna walka.",
   BATTLE_FINISHED: "Walka już się zakończyła.",
   BATTLE_ACTION_PENDING: "Poczekaj na zakończenie używania przedmiotu.",
@@ -106,6 +108,9 @@ export function createGameServer(
   const pendingMerchantOperations = new Map<PlayerId, Promise<void>>();
   const pendingBattleRewards = new Map<PlayerId, Promise<void>>();
   const battleRewardTokens = new Map<PlayerId,string>();
+  const autoStepMs=Number.isFinite(options.autoBattleStepMs) ? Math.max(10,Math.min(2000,options.autoBattleStepMs!)) : 300;
+  const autoStops=new Set<()=>void>();
+  httpServer.once("close",()=>{for(const stop of autoStops)stop();autoStops.clear();});
   const pendingAccountCleanup = new Map<string, Promise<void>>();
   const pendingAccountAuthentication = new Map<string, Promise<void>>();
   const partyExperienceContexts = new Map<PlayerId,PartyExperienceContext|null>();
@@ -161,6 +166,15 @@ export function createGameServer(
     let unregisterConnection: (() => void) | null = null;
     let socketAuthentication = Promise.resolve();
     let characterVersion = 0;
+    let autoTimer:ReturnType<typeof setTimeout>|undefined;
+    let autoGeneration=0;
+    let autoStalls=0;
+    const stopAuto=():void=>{
+      autoGeneration+=1;
+      if(autoTimer!==undefined)clearTimeout(autoTimer);
+      autoTimer=undefined;
+    };
+    autoStops.add(stopAuto);
 
     const ownsCharacter = (target: PlayerId, version: number): boolean =>
       socket.connected && characterId === target && characterVersion === version &&
@@ -222,6 +236,7 @@ export function createGameServer(
     };
 
     const releaseCharacter = (): Promise<void> => {
+      stopAuto();
       const releasedCharacterId = characterId;
       const releasedAccountId = accountId;
       const releasedLocationId = locationId;
@@ -709,7 +724,7 @@ export function createGameServer(
       });
     });
 
-    socket.on("startEncounter", async ({ encounterId }) => {
+    socket.on("startEncounter", async (payload) => {
       if (!characterId) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
@@ -718,37 +733,35 @@ export function createGameServer(
       if (!currentLocationId || !character) return;
 
       try {
+        const encounterId=payload?.encounterId;
+        const mode=payload?.mode===undefined ? "manual" : payload.mode;
+        if(mode!=="manual" && mode!=="auto")throw new Error("INVALID_BATTLE_MODE");
+        if(typeof encounterId!=="string")throw new Error("ENCOUNTER_NOT_FOUND");
         if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
         await social.cancelForBattle(currentCharacterId);
         if(!ownsCharacter(currentCharacterId,currentCharacterVersion))return;
         if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
         if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_ALREADY_STARTED");
         world.startEncounter(currentCharacterId, encounterId);
-        const snapshot = battles.startBattle(character, encounterId);
+        let snapshot = battles.startBattle(character, encounterId);
+        stopAuto();autoStalls=0;
+        if(mode==="auto")snapshot=battles.setAuto(currentCharacterId,true);
         battleRewardTokens.set(currentCharacterId,randomUUID());
         partyExperienceContexts.set(currentCharacterId,social.parties.captureExperienceContext(currentCharacterId));
         social.markChanged();void broadcastSocial();
         socket.leave(`location:${currentLocationId}`);
         socket.emit("battleStarted", snapshot);
+        if(mode==="auto")scheduleAuto(currentCharacterId,currentCharacterVersion);
       } catch (error) {
         reject(error, "ENCOUNTER_REJECTED", "Encounter could not be started.");
       }
     });
 
-    socket.on("battleCommand", async (command) => {
-      if (!characterId) return;
-
-      const currentCharacterId = characterId;
-      const currentCharacterVersion = characterVersion;
-      if (pendingBattleItemUses.has(currentCharacterId) || pendingBattleRewards.has(currentCharacterId)) {
-        socket.emit("commandRejected", { code: "BATTLE_ACTION_PENDING", message: BATTLE_ITEM_ERRORS.BATTLE_ACTION_PENDING! });
-        return;
-      }
-      const applied = battles.applyCommand(currentCharacterId, command);
+    const finishBattleCommand=async(currentCharacterId:PlayerId,currentCharacterVersion:number,applied:AppliedBattleCommand):Promise<void>=>{
       if (!applied.result.ok) {
         socket.emit("commandRejected", {
           code: applied.result.code,
-          message: applied.result.message
+          message: applied.result.code==="AUTO_BATTLE_ACTIVE" ? "Najpierw przejmij sterowanie w panelu walki." : applied.result.message
         });
         return;
       }
@@ -757,6 +770,7 @@ export function createGameServer(
       socket.emit("battleState", applied.snapshot);
 
       if (!applied.finished) return;
+      stopAuto();
 
       let finishMutations!:()=>void;
       const mutationsDone=new Promise<void>(resolve=>{finishMutations=resolve;});
@@ -833,9 +847,70 @@ export function createGameServer(
       } finally {releaseMutations();}
       })();
       await settlement;
+    };
+
+    const scheduleAuto=(id:PlayerId,version:number):void=>{
+      if(autoTimer!==undefined || !ownsCharacter(id,version) || !battles.isAuto(id) || battles.getSnapshot(id)?.finished)return;
+      const generation=autoGeneration;
+      autoTimer=setTimeout(()=>{
+        autoTimer=undefined;
+        if(generation!==autoGeneration || !ownsCharacter(id,version) || !battles.isAuto(id))return;
+        if(pendingBattleItemUses.has(id) || pendingBattleRewards.has(id)){scheduleAuto(id,version);return;}
+        void(async()=>{
+          try {
+            const before=battles.getSnapshot(id);
+            const applied=battles.applyAutoCommand(id);
+            if(!applied.result.ok)throw new Error(applied.result.code);
+            const signature=(snapshot:typeof before)=>snapshot?.combatants.map(unit=>`${unit.id}:${unit.hp}:${unit.position.q},${unit.position.r}`).join(";");
+            autoStalls=signature(before)===signature(applied.snapshot) ? autoStalls+1 : 0;
+            await finishBattleCommand(id,version,applied);
+            if(generation!==autoGeneration || !ownsCharacter(id,version) || !battles.isAuto(id))return;
+            if(autoStalls>=40)throw new Error("AUTO_BATTLE_STALLED");
+            scheduleAuto(id,version);
+          }catch(error){
+            stopAuto();
+            if(!ownsCharacter(id,version))return;
+            try{socket.emit("battleState",battles.setAuto(id,false));}catch{/* Battle already settled. */}
+            const code=error instanceof Error && error.message==="AUTO_BATTLE_STALLED" ? error.message : "AUTO_BATTLE_FAILED";
+            socket.emit("commandRejected",{code,message:"Automat zatrzymał się. Możesz kontynuować walkę ręcznie."});
+          }
+        })();
+      },autoStepMs);
+      autoTimer.unref();
+    };
+
+    const autoModeRequests:number[]=[];
+    socket.on("setBattleAuto",(payload,ack)=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      if(!id || !ownsCharacter(id,version)){ack({ok:false,code:"AUTHENTICATION_REQUIRED",message:"Zaloguj się, aby zmienić tryb walki."});return;}
+      if(!payload || typeof payload.enabled!=="boolean"){ack({ok:false,code:"INVALID_BATTLE_MODE",message:"Wybierz poprawny tryb walki."});return;}
+      const now=Date.now();while(autoModeRequests[0]!==undefined && now-autoModeRequests[0]>=10000)autoModeRequests.shift();
+      if(autoModeRequests.length>=20){ack({ok:false,code:"AUTO_RATE_LIMITED",message:"Poczekaj chwilę przed kolejną zmianą trybu."});return;}
+      autoModeRequests.push(now);
+      try {
+        if(pendingBattleItemUses.has(id) || pendingBattleRewards.has(id))throw new Error("BATTLE_ACTION_PENDING");
+        const snapshot=battles.setAuto(id,payload.enabled);
+        stopAuto();autoStalls=0;
+        socket.emit("battleState",snapshot);ack({ok:true,snapshot});
+        if(payload.enabled)scheduleAuto(id,version);
+      }catch(error){
+        const code=error instanceof Error && ["BATTLE_NOT_FOUND","BATTLE_FINISHED","BATTLE_ACTION_PENDING"].includes(error.message) ? error.message : "AUTO_MODE_FAILED";
+        ack({ok:false,code,message:"Nie można teraz zmienić trybu walki."});
+      }
+    });
+
+    socket.on("battleCommand",async(command)=>{
+      if(!characterId || !ownsCharacter(characterId,characterVersion))return;
+      const id=characterId,version=characterVersion;
+      if(pendingBattleItemUses.has(id) || pendingBattleRewards.has(id)) {
+        socket.emit("commandRejected",{code:"BATTLE_ACTION_PENDING",message:BATTLE_ITEM_ERRORS.BATTLE_ACTION_PENDING!});return;
+      }
+      await finishBattleCommand(id,version,battles.applyCommand(id,command));
     });
 
     socket.on("disconnect", () => {
+      autoStops.delete(stopAuto);
       void releaseCharacter().catch((error) =>
         reject(error, "CHARACTER_SAVE_FAILED", "Character state could not be persisted.")
       );

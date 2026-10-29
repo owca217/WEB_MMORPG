@@ -99,6 +99,34 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
 describe("BattleScene completion", () => {
   let transport: EventEmitter;
 
+  it("returns to the world after reconnecting an abandoned automatic battle and removes the reconnect listener",()=>{
+    let reauthenticated!:(result:{ok:true;characterId:string;locationId:string})=>void;
+    const unsubscribe=vi.fn();
+    vi.spyOn(gameSocket,"onReauthenticated").mockImplementation(handler=>{reauthenticated=handler;return unsubscribe;});
+    const {start}=createScene({...initialBattle,autoBattle:true});
+    reauthenticated({ok:true,characterId:"character-1",locationId:"forest-settlement-01"});
+    expect(start).toHaveBeenCalledExactlyOnceWith("WorldScene",{playerId:"character-1"});
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("blocks manual actions during auto and resumes only after the server confirms takeover",async()=>{
+    const takeover=vi.spyOn(gameSocket,"setBattleAuto");
+    let acknowledge!:(value:unknown)=>void;
+    takeover.mockImplementation(()=>new Promise(resolve=>{acknowledge=resolve as typeof acknowledge;}));
+    const commands:unknown[]=[];transport.on("battleCommand",command=>commands.push(command));
+    const enemy={...initialBattle.combatants[0]!,id:"wolf",ownerPlayerId:"enemy",name:"Wilk",position:{q:1,r:0}};
+    const {events,zones}=createScene({...initialBattle,autoBattle:true,cells:[{q:0,r:0},{q:1,r:0}],combatants:[...initialBattle.combatants,enemy]});
+    zones[1]!.handlers.get("pointerup")!();
+    expect(commands).toEqual([]);
+    document.querySelector<HTMLButtonElement>('[data-action="auto"]')!.click();
+    expect(takeover).toHaveBeenCalledWith(false);
+    expect(document.querySelector<HTMLButtonElement>('[data-action="end"]')!.disabled).toBe(true);
+    acknowledge({ok:true,snapshot:{...initialBattle,cells:[{q:0,r:0},{q:1,r:0}],combatants:[...initialBattle.combatants,enemy]}});
+    await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[data-action="end"]')!.disabled).toBe(false));
+    document.querySelector<HTMLButtonElement>('[data-action="end"]')!.click();expect(commands).toHaveLength(1);
+    events.emit("shutdown");
+  });
+
   beforeEach(() => {
     document.body.replaceChildren();
     transport = new EventEmitter();

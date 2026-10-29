@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany `WEB-MMORPG-0.1.7.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany `WEB-MMORPG-0.1.8.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -21,6 +21,8 @@ Wersja 0.1.5 dodaje panel „Społeczność” obok ikony czatu. Drużyna mieśc
 Wersja 0.1.6 dodaje osobne skórki pixel art dla Borana, Ady i kupca Miro. Miro stoi przy placu osady, blisko miejsca startu. Podejdź i dotknij go, aby otworzyć sklep: bandaż (5 złota, 30 HP), Szmaciany worek (30 złota, 8 miejsc), mała mikstura leczenia (10 złota, 50 HP) i Tonik wigoru (12 złota, 3 PA). Przedmioty użytkowe działają w walce według obecnych zasad. Każda postać otrzymuje jednorazowo 100 złota, również postacie utworzone przed aktualizacją; zwycięstwo nad wilkami daje 15 złota. Stan portfela zapisuje się oddzielnie od pozycji i statystyk. Zakup wymaga obecności przy kupcu poza walką; złoto i przedmioty zapisują się w jednej transakcji. Ponowienie niepotwierdzonego zakupu używa tego samego identyfikatora i nie pobiera opłaty ponownie. Złoto jest widoczne w panelu gry i sklepie.
 
 Wersja 0.1.7 odświeża teren i roślinność Zielonego Brzegu. Trawa, ziemna droga i leśne podłoże otrzymują tekstury pixel art; drzewa liściaste, sosny, krzewy i niskie rośliny korzystają z osobnych grafik z przezroczystością. Podłoże powtarza małe tekstury, a roślinność pozostawia wolne przejścia, NPC i miejsce spotkania z wilkami. Zasoby są zawarte w APK i wczytywane razem z lokacją; przy niedostępnym obrazie pozostaje widoczny prosty odpowiednik.
+
+Wersja 0.1.8 dodaje menu przy potworze z opcjami „Walcz” i „Auto”. Samo dotknięcie potwora otwiera wybór; wybrana opcja uruchamia spotkanie w dotychczasowym zasięgu. Auto wykonuje ruchy i ataki po stronie serwera, priorytetowo eliminując możliwych do dobicia przeciwników i dobierając pozycję oraz ataki do kosztu PA, pancerza i przeszkód. Nie wydaje przedmiotów użytkowych. Panel walki pokazuje włączony automat i pozwala przejąć sterowanie lub ponownie włączyć auto. Wynik przyznaje zwykłe doświadczenie, złoto, premię drużyny i łup. Automat kończy się wraz z walką lub rozłączeniem; po ponownym połączeniu klient wraca do świata. Menu dopasowuje pozycję do kamery i ekranu telefonu.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

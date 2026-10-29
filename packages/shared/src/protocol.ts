@@ -1,4 +1,4 @@
-import type { BattleCommand, BattleSnapshot } from "./battle";
+import type { BattleAutoResult, BattleCommand, BattleMode, BattleSnapshot } from "./battle";
 import type { SocialAction, SocialActionResult, SocialSnapshot } from "./social";
 import type { MerchantPurchase, MerchantResult } from "./merchant";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
@@ -27,7 +27,8 @@ export interface ClientToServerEvents {
   ) => void;
   updateChatViewport: (payload: ChatViewport) => void;
   requestChatHistory: (ack: (result: ChatHistoryResult) => void) => void;
-  startEncounter: (payload: { encounterId: string }) => void;
+  startEncounter: (payload: { encounterId: string; mode?: BattleMode }) => void;
+  setBattleAuto: (payload: { enabled: boolean }, ack: (result: BattleAutoResult) => void) => void;
   battleCommand: (payload: BattleCommand) => void;
   useBattleItem: (
     payload: { combatantId: string; itemInstanceId: string },

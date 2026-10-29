@@ -13,6 +13,7 @@ interface BattleHudHandlers {
   onEndTurn: () => void;
   onUseItem: (instanceId: string) => Promise<InventoryUpdateResult>;
   onInventoryChanged: (inventory: InventorySnapshot) => void;
+  onToggleAuto?: () => void;
 }
 
 const INJURY_LABELS: Record<InjuryKind, string> = {
@@ -29,12 +30,15 @@ export class BattleHud {
   private readonly itemsElement: HTMLElement;
   private readonly feedbackElement: HTMLElement;
   private readonly endButton: HTMLButtonElement;
+  private readonly autoButton: HTMLButtonElement;
   private ownCombatant: CombatantSnapshot | undefined;
   private character: CharacterSnapshot | undefined;
   private ownedTurn = false;
   private inventory: InventorySnapshot = { items: [] };
   private pending = false;
   private destroyed = false;
+  private autoBattle = false;
+  private autoPending = false;
 
   constructor(private readonly handlers: BattleHudHandlers) {
     this.root = document.createElement("div");
@@ -73,6 +77,8 @@ export class BattleHud {
       </section>
       <section class="battle-hud__turn" aria-label="Akcje tury">
         <p class="battle-hud__turn-status" data-turn-status>Oczekiwanie na postać</p>
+        <p class="battle-hud__auto-status" data-auto-status hidden>Auto: wyłączone</p>
+        <button type="button" class="battle-hud__auto" data-action="auto" hidden>Włącz auto</button>
         <button type="button" class="battle-hud__end-turn" data-action="end" disabled>Koniec tury</button>
       </section>
       <p class="battle-hud__feedback" data-battle-feedback role="status" aria-live="polite"></p>
@@ -84,6 +90,11 @@ export class BattleHud {
     this.itemsElement = this.requireElement("[data-battle-items]");
     this.feedbackElement = this.requireElement("[data-battle-feedback]");
     this.endButton = this.requireElement<HTMLButtonElement>("[data-action='end']");
+    this.autoButton = this.requireElement<HTMLButtonElement>("[data-action='auto']");
+    this.autoButton.hidden = !handlers.onToggleAuto;
+    this.autoButton.addEventListener("click", () => {
+      if (!this.destroyed && !this.pending && !this.autoPending && this.ownCombatant && this.ownCombatant.hp > 0) this.handlers.onToggleAuto?.();
+    });
     this.endButton.addEventListener("click", () => {
       if (this.canAct()) this.handlers.onEndTurn();
     });
@@ -92,7 +103,7 @@ export class BattleHud {
   }
 
   get busy(): boolean {
-    return this.pending;
+    return this.pending || this.autoPending;
   }
 
   update(
@@ -113,6 +124,14 @@ export class BattleHud {
     if (this.destroyed) return;
     this.feedbackElement.textContent = message;
     this.feedbackElement.dataset.state = "info";
+  }
+
+  setAutoBattle(enabled: boolean, pending = false): void {
+    if (this.destroyed) return;
+    if (this.autoBattle === enabled && this.autoPending === pending) return;
+    this.autoBattle = enabled;
+    this.autoPending = pending;
+    this.render();
   }
 
   destroy(): void {
@@ -147,7 +166,13 @@ export class BattleHud {
       : combatant.hp <= 0 ? "Postać pokonana"
         : this.ownedTurn ? "Twoja tura" : "Tura przeciwnika";
     this.root.dataset.ownedTurn = `${this.ownedTurn}`;
-    this.root.setAttribute("aria-busy", `${this.pending}`);
+    this.root.setAttribute("aria-busy", `${this.pending || this.autoPending}`);
+    const autoStatus = this.requireElement("[data-auto-status]");
+    autoStatus.hidden = !this.autoBattle && !this.autoPending;
+    autoStatus.textContent = this.autoPending ? "Zmiana sterowania…" : "Auto: włączone";
+    this.autoButton.textContent = this.autoBattle ? "Przejmij sterowanie" : "Włącz auto";
+    this.autoButton.disabled = this.pending || this.autoPending || !combatant || combatant.hp <= 0;
+    this.root.dataset.autoBattle = String(this.autoBattle);
     this.endButton.disabled = !this.canAct();
     this.renderItems();
   }
@@ -217,7 +242,7 @@ export class BattleHud {
   }
 
   private canAct(): boolean {
-    return !this.destroyed && !this.pending && this.ownedTurn && !!this.ownCombatant && this.ownCombatant.hp > 0;
+    return !this.destroyed && !this.pending && !this.autoBattle && !this.autoPending && this.ownedTurn && !!this.ownCombatant && this.ownCombatant.hp > 0;
   }
 
   private itemDisabledReason(item: InventoryItem): string | undefined {
@@ -228,6 +253,8 @@ export class BattleHud {
     const combatant = this.ownCombatant;
     if (!combatant) return "Brak postaci w walce";
     if (combatant.hp <= 0) return "Postać pokonana";
+    if (this.autoBattle) return "Przejmij sterowanie, aby użyć przedmiotu.";
+    if (this.autoPending) return "Oczekiwanie na zmianę sterowania…";
     if (!this.ownedTurn) return "Poczekaj na swoją turę";
     if (this.pending) return "Oczekiwanie na serwer…";
     if (combatant.ap < BATTLE_ITEM_AP_COST) return `Potrzeba ${BATTLE_ITEM_AP_COST} AP`;

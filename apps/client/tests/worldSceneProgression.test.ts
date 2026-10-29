@@ -12,7 +12,7 @@ vi.mock("../src/world/ForestSettlementRenderer", () => ({ ForestSettlementRender
   render() {} destroy() {}
 } }));
 vi.mock("../src/world/WorldEntitiesRenderer", () => ({ WorldEntitiesRenderer: class {
-  destroy() {}
+  render() {} destroy() {}
 } }));
 
 import { gameSocket } from "../src/net/GameSocket";
@@ -21,6 +21,24 @@ import { playerStateStore } from "../src/state/PlayerStateStore";
 import { socialStateStore } from "../src/state/SocialStateStore";
 
 let transport: EventEmitter;
+
+it("opens the monster menu without starting combat and forwards the explicit mode choice",()=>{
+  const start=vi.spyOn(gameSocket,"startEncounter");
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],npcs:[],encounters:[{id:"wolf-pack-01",label:"Wilki",x:800,y:400}]});
+  const renderer=(scene as unknown as {entitiesRenderer:{onEncounterSelected:(id:string)=>void}}).entitiesRenderer;
+  renderer.onEncounterSelected("wolf-pack-01");
+  expect(start).not.toHaveBeenCalled();
+  expect(document.querySelector<HTMLElement>("[data-encounter-menu]")?.hidden).toBe(false);
+  document.querySelector<HTMLButtonElement>('[data-encounter-mode="auto"]')!.click();
+  expect(start).toHaveBeenCalledExactlyOnceWith("wolf-pack-01","auto");
+  renderer.onEncounterSelected("wolf-pack-01");
+  document.querySelector<HTMLButtonElement>('[data-encounter-mode="manual"]')!.click();
+  expect(start).toHaveBeenLastCalledWith("wolf-pack-01","manual");
+  events.emit("shutdown");expect(document.querySelector("[data-encounter-menu]")).toBeNull();
+});
 
 it("releases captured movement keys while typing chat and restores them when the window closes", async () => {
   vi.spyOn(gameSocket,"onConnectionState").mockImplementation(handler=>{handler("connected");return ()=>{};});

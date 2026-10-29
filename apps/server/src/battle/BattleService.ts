@@ -20,6 +20,7 @@ import {
   type BattleState
 } from "./BattleEngine";
 import { chooseWolfCommand } from "./NpcBattleAi";
+import { chooseAutoBattleCommand } from "./AutoBattleAi";
 
 interface ActiveBattle {
   encounterId: string;
@@ -27,6 +28,7 @@ interface ActiveBattle {
   state: BattleState;
   experienceReward: number;
   itemUsePending?: boolean;
+  autoBattle?: boolean;
 }
 
 export interface PlayerBattleOutcome {
@@ -130,10 +132,43 @@ export class BattleService {
 
   getSnapshot(playerId: PlayerId): BattleSnapshot | undefined {
     const active = this.battlesByPlayer.get(playerId);
-    return active ? this.toSnapshot(active.state) : undefined;
+    return active ? this.toSnapshot(active.state,active.autoBattle) : undefined;
+  }
+
+  setAuto(playerId:PlayerId,enabled:boolean):BattleSnapshot {
+    const active=this.battlesByPlayer.get(playerId);
+    if(!active)throw new Error("BATTLE_NOT_FOUND");
+    if(active.state.finished)throw new Error("BATTLE_FINISHED");
+    if(active.itemUsePending)throw new Error("BATTLE_ACTION_PENDING");
+    active.autoBattle=enabled;
+    return this.toSnapshot(active.state,active.autoBattle);
+  }
+
+  isAuto(playerId:PlayerId):boolean {
+    const active=this.battlesByPlayer.get(playerId);
+    return Boolean(active?.autoBattle && !active.state.finished);
+  }
+
+  applyAutoCommand(playerId:PlayerId):AppliedBattleCommand {
+    const active=this.battlesByPlayer.get(playerId);
+    if(!active)return this.rejected("BATTLE_NOT_FOUND","No active battle.");
+    if(!active.autoBattle)return this.rejected("AUTO_BATTLE_DISABLED","Automatic combat is disabled.");
+    if(active.state.finished)return this.rejected("BATTLE_FINISHED","Battle is already finished.");
+    const actor=active.state.combatants[active.state.activeCombatantId];
+    if(actor?.ownerPlayerId!==playerId)return this.rejected("NOT_ACTIVE_TURN","The player is not active.");
+    return this.applyPlayerCommand(playerId,chooseAutoBattleCommand(active.state,playerId));
   }
 
   applyCommand(playerId: PlayerId, command: BattleCommand): AppliedBattleCommand {
+    if(this.battlesByPlayer.get(playerId)?.autoBattle)return this.rejected("AUTO_BATTLE_ACTIVE","Przejmij sterowanie, aby wydać polecenie.");
+    return this.applyPlayerCommand(playerId,command);
+  }
+
+  private rejected(code:string,message:string):AppliedBattleCommand {
+    return {result:{ok:false,code,message},finished:false,victory:false};
+  }
+
+  private applyPlayerCommand(playerId: PlayerId, command: BattleCommand): AppliedBattleCommand {
     const active = this.battlesByPlayer.get(playerId);
     if (active?.itemUsePending) {
       return {
@@ -157,7 +192,7 @@ export class BattleService {
 
     active.state = this.runNpcTurns(playerResult.state);
     const result: BattleResult = { ok: true, state: active.state };
-    const snapshot = this.toSnapshot(active.state);
+    const snapshot = this.toSnapshot(active.state,active.autoBattle);
     const playerCombatant = Object.values(active.state.combatants).find(
       (combatant) => combatant.ownerPlayerId === playerId
     );
@@ -191,6 +226,7 @@ export class BattleService {
     if (!active) throw new Error("BATTLE_NOT_FOUND");
     if (active.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
     if (active.state.finished) throw new Error("BATTLE_FINISHED");
+    if (active.autoBattle) throw new Error("AUTO_BATTLE_ACTIVE");
     const actor = active.state.combatants[combatantId];
     if (!actor) throw new Error("COMBATANT_NOT_FOUND");
     if (actor.ownerPlayerId !== playerId) throw new Error("NOT_OWNER");
@@ -248,8 +284,9 @@ export class BattleService {
     return next;
   }
 
-  private toSnapshot(state: BattleState): BattleSnapshot {
+  private toSnapshot(state: BattleState,autoBattle=false): BattleSnapshot {
     return {
+      ...(autoBattle?{autoBattle:true}:{}),
       id: state.id,
       round: state.round,
       activeCombatantId: state.activeCombatantId,

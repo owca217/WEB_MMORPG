@@ -1,5 +1,7 @@
 import type {
   BattleCommand,
+  BattleAutoResult,
+  BattleMode,
   ChatChannel,
   ChatMessage,
   ChatSendResult,
@@ -260,8 +262,24 @@ export class GameSocket {
     }
   }
 
-  startEncounter(encounterId: string): void {
-    this.connect().emit("startEncounter", { encounterId });
+  startEncounter(encounterId: string, mode: BattleMode = "manual"): void {
+    this.connect().emit("startEncounter", { encounterId, mode });
+  }
+
+  async setBattleAuto(enabled: boolean): Promise<BattleAutoResult> {
+    const socket=this.connect(),version=this.authenticationVersion;
+    if(!this.sessionToken || this.authenticating || !socket.connected) {
+      return {ok:false,code:"AUTHENTICATION_REQUIRED",message:"Połącz się ponownie, aby zmienić tryb walki."};
+    }
+    try {
+      const result=await socket.timeout(10_000).emitWithAck("setBattleAuto",{enabled});
+      if(this.socket!==socket || version!==this.authenticationVersion) {
+        return {ok:false,code:"SESSION_REPLACED",message:"Połączenie zmieniło się. Odśwież walkę."};
+      }
+      return result;
+    } catch {
+      return {ok:false,code:"AUTO_MODE_REQUEST_FAILED",message:"Nie otrzymano potwierdzenia zmiany trybu walki."};
+    }
   }
 
   async useBattleItem(combatantId: string, itemInstanceId: string): Promise<InventoryUpdateResult> {

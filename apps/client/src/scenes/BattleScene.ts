@@ -39,6 +39,8 @@ export class BattleScene extends Phaser.Scene {
   private layout: ReturnType<typeof calculateBattleLayout> | null = null;
   private pendingCommand = false;
   private pendingItem = false;
+  private modePending=false;
+  private modeVersion=0;
   private disposed = true;
   private chat: ChatController | null = null;
   private social:SocialController|null=null;
@@ -47,6 +49,7 @@ export class BattleScene extends Phaser.Scene {
   private unsubscribeEnded: (() => void) | undefined;
   private unsubscribeRejected: (() => void) | undefined;
   private unsubscribePlayer: (() => void) | undefined;
+  private unsubscribeReauthenticated:(()=>void)|undefined;
   private hudObserver: ResizeObserver | undefined;
   private readonly onResize = () => this.renderSnapshot();
 
@@ -60,6 +63,7 @@ export class BattleScene extends Phaser.Scene {
     this.selectedTargetId = null;
     this.pendingCommand = false;
     this.pendingItem = false;
+    this.modePending=false;this.modeVersion+=1;
   }
 
   create(): void {
@@ -69,7 +73,8 @@ export class BattleScene extends Phaser.Scene {
     this.hud = new BattleHud({
       onUseItem: (instanceId) => this.useItem(instanceId),
       onInventoryChanged: (inventory) => this.applyInventory(inventory),
-      onEndTurn: () => this.requestEndTurn()
+      onEndTurn: () => this.requestEndTurn(),
+      onToggleAuto:()=>{void this.toggleAuto();}
     });
     this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
     this.chat = new ChatController({nearbyAvailable:false,onTypingChange:()=>this.updateKeyboardCapture()});
@@ -110,16 +115,21 @@ export class BattleScene extends Phaser.Scene {
       playerStateStore.set(state);
       this.refreshHud();
     });
+    this.unsubscribeReauthenticated=gameSocket.onReauthenticated(result=>{
+      if(result.ok && !this.disposed)this.scene.start("WorldScene",{playerId:result.characterId});
+    });
 
     this.renderSnapshot();
     gameSocket.requestPlayerState();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.disposed = true;
+      this.modeVersion+=1;
       this.unsubscribeState?.();
       this.unsubscribeEnded?.();
       this.unsubscribeRejected?.();
       this.unsubscribePlayer?.();
+      this.unsubscribeReauthenticated?.();
       this.scale.off("resize", this.onResize);
       this.hudObserver?.disconnect();
       this.hudObserver = undefined;
@@ -249,7 +259,7 @@ export class BattleScene extends Phaser.Scene {
 
   private activeOwnedCombatant(): CombatantSnapshot | undefined {
     const snapshot = this.snapshot;
-    if (!snapshot || snapshot.finished || this.pendingCommand || this.pendingItem) return undefined;
+    if (!snapshot || snapshot.finished || snapshot.autoBattle || this.modePending || this.pendingCommand || this.pendingItem) return undefined;
     return snapshot.combatants.find(
       (combatant) =>
         combatant.id === snapshot.activeCombatantId &&
@@ -306,7 +316,9 @@ export class BattleScene extends Phaser.Scene {
     const player = playerStateStore.get();
     const state = player?.character.playerId === this.playerId ? player : null;
     const own = this.ownCombatant();
-    this.hud.update(own, Boolean(this.activeOwnedCombatant()), state?.inventory ?? { items: [] }, state?.character);
+    const ownedTurn=Boolean(own && own.hp>0 && !snapshot.finished && snapshot.activeCombatantId===own.id && !this.pendingCommand && !this.pendingItem && !this.modePending);
+    this.hud.update(own, ownedTurn, state?.inventory ?? { items: [] }, state?.character);
+    this.hud.setAutoBattle(Boolean(snapshot.autoBattle),this.modePending);
   }
 
   private ownCombatant(): CombatantSnapshot | undefined {
@@ -341,6 +353,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshAttackCard(): void {
+    if(this.snapshot?.autoBattle || this.modePending){this.attackCard?.hide();return;}
     const own = this.ownCombatant();
     const target = this.snapshot?.combatants.find(unit => unit.id === this.selectedTargetId);
     const preview = own && target && this.snapshot ? getBattleAttackPreview(this.snapshot, own.id, target.id) : null;
@@ -359,6 +372,21 @@ export class BattleScene extends Phaser.Scene {
     finally {
       this.pendingItem = false;
       if (!this.disposed) { this.refreshHud(); this.refreshAttackCard(); }
+    }
+  }
+
+  private async toggleAuto():Promise<void> {
+    if(!this.snapshot || this.snapshot.finished || this.modePending || this.pendingCommand || this.pendingItem || this.hud?.busy)return;
+    const version=this.modeVersion;
+    this.modePending=true;this.selectedTargetId=null;
+    this.refreshHud();this.refreshAttackCard();
+    try {
+      const result=await gameSocket.setBattleAuto(!this.snapshot.autoBattle);
+      if(this.disposed || version!==this.modeVersion)return;
+      if(result.ok)this.snapshot=result.snapshot;
+      else this.hud?.setStatus(result.message);
+    }finally {
+      if(!this.disposed && version===this.modeVersion){this.modePending=false;this.renderSnapshot();}
     }
   }
 

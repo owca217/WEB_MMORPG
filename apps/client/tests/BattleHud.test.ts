@@ -46,6 +46,22 @@ function handlers(onUseItem: (instanceId: string) => Promise<InventoryUpdateResu
 
 beforeEach(() => document.body.replaceChildren());
 
+it("shows automatic control and blocks manual actions until the player takes over",()=>{
+  const callbacks={...handlers(),onToggleAuto:vi.fn()};
+  const hud=new BattleHud(callbacks);hud.update(hero,true,{items:[medicine()]});
+  hud.setAutoBattle(true);
+  expect(text("[data-auto-status]")).toContain("Auto: włączone");
+  expect(button("[data-action='end']").disabled).toBe(true);
+  expect(useButton().disabled).toBe(true);
+  button("[data-action='auto']").click();
+  expect(callbacks.onToggleAuto).toHaveBeenCalledOnce();
+  hud.setAutoBattle(true,true);
+  button("[data-action='auto']").click();expect(callbacks.onToggleAuto).toHaveBeenCalledOnce();
+  hud.setAutoBattle(false);
+  expect(button("[data-action='end']").disabled).toBe(false);
+  expect(useButton().disabled).toBe(false);hud.destroy();
+});
+
 it("keeps the player's battle resources visible during an enemy turn and separates feedback from localized injuries", () => {
   const hud = new BattleHud(handlers());
   hud.update(hero, false, { items: [] }, character);

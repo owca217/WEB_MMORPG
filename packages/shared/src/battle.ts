@@ -6,6 +6,12 @@ export interface HexCoord {
   r: number;
 }
 
+export type BattleMode = "manual" | "auto";
+
+export type BattleAutoResult =
+  | { ok: true; snapshot: BattleSnapshot }
+  | { ok: false; code: string; message: string };
+
 export type InjuryKind =
   | "brokenArm"
   | "legTrauma"
@@ -33,6 +39,7 @@ export interface CombatantSnapshot {
 }
 
 export interface BattleSnapshot {
+  autoBattle?: boolean;
   id: BattleId;
   round: number;
   activeCombatantId: EntityId;

@@ -1,4 +1,4 @@
-import type { ContainerSlotIndex, InventorySnapshot, NpcInteractionPayload, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, EncounterSnapshot, InventorySnapshot, NpcInteractionPayload, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
@@ -14,6 +14,7 @@ import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { MerchantPanel } from "../ui/ShopPanel";
+import { EncounterMenu } from "../ui/EncounterMenu";
 import { ContainerPicker } from "../ui/ContainerPicker";
 import { ContainerContentsPanel } from "../ui/ContainerContentsPanel";
 import { WorldHud } from "../ui/WorldHud";
@@ -55,6 +56,9 @@ export class WorldScene extends Phaser.Scene {
   private dialoguePanel: DialoguePanel | undefined;
   private merchantPanel: MerchantPanel | undefined;
   private merchantRequestVersion = 0;
+  private encounterMenu:EncounterMenu|undefined;
+  private encounters:EncounterSnapshot[]=[];
+  private selectedEncounterId:string|null=null;
   private adminPanel: AdminPanel | undefined;
   private chat: ChatController | undefined;
   private social:SocialController|undefined;
@@ -72,6 +76,7 @@ export class WorldScene extends Phaser.Scene {
     this.authoritativePosition = null;
     this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
     this.cameraFollowing = false;
+    this.encounters=[];this.selectedEncounterId=null;
   }
 
   preload(): void {
@@ -122,13 +127,23 @@ export class WorldScene extends Phaser.Scene {
     this.backgroundRenderer.render();
 
     this.entitiesRenderer = new WorldEntitiesRenderer(this, this.playerId);
+    this.encounterMenu=new EncounterMenu({onSelect:(encounterId,mode)=>{
+      this.selectedEncounterId=null;
+      this.pointerTarget=null;
+      gameSocket.startEncounter(encounterId,mode);
+    }});
     this.entitiesRenderer.onNpcSelected = (npcId) => {
+      this.encounterMenu?.hide();this.selectedEncounterId=null;
       this.pointerTarget = null;
       gameSocket.interactNpc(npcId);
     };
     this.entitiesRenderer.onEncounterSelected = (encounterId) => {
       this.pointerTarget = null;
-      gameSocket.startEncounter(encounterId);
+      const encounter=this.encounters.find(item=>item.id===encounterId);
+      const anchor=encounter ? this.encounterAnchor(encounter) : null;
+      if(!encounter || !anchor)return;
+      this.selectedEncounterId=encounterId;
+      this.encounterMenu?.show({...encounter,label:encounter.id==="wolf-pack-01" ? "Wilki" : encounter.label},anchor);
     };
 
     this.containerPicker = new ContainerPicker({
@@ -219,7 +234,7 @@ export class WorldScene extends Phaser.Scene {
       gameSocket.onNpcInteraction((payload) => {void this.openNpc(payload);}),
       gameSocket.onConnectionState((state) => {
         this.hud?.setConnectionState(state);
-        if(state!=="connected"){this.merchantRequestVersion+=1;this.merchantPanel?.hide();}
+        if(state!=="connected"){this.merchantRequestVersion+=1;this.merchantPanel?.hide();this.encounterMenu?.hide();this.selectedEncounterId=null;}
       }),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.showToast(WORLD_ERROR_LABELS[code] ?? message);
@@ -299,6 +314,8 @@ export class WorldScene extends Phaser.Scene {
 
     this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x, this.localPosition.y);
     this.entitiesRenderer?.updateRemotePlayers();
+    const selected=this.encounters.find(item=>item.id===this.selectedEncounterId);
+    if(selected)this.encounterMenu?.reposition(this.encounterAnchor(selected));
 
     if ((hasKeyboardIntent || this.pointerTarget) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
@@ -354,6 +371,10 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private renderWorld(snapshot: WorldStateSnapshot): void {
+    this.encounters=snapshot.encounters.map(item=>({...item}));
+    if(this.selectedEncounterId && !this.encounters.some(item=>item.id===this.selectedEncounterId)) {
+      this.encounterMenu?.hide();this.selectedEncounterId=null;
+    }
     this.entitiesRenderer?.render(snapshot);
     const local = snapshot.players.find((player) => player.id === this.playerId);
     if (!local) return;
@@ -386,6 +407,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.encounterMenu?.destroy();this.encounterMenu=undefined;
+    this.encounters=[];this.selectedEncounterId=null;
     this.merchantRequestVersion+=1;
     this.merchantPanel?.destroy();this.merchantPanel=undefined;
     this.scale?.off("resize", this.onChatResize);
@@ -414,6 +437,14 @@ export class WorldScene extends Phaser.Scene {
   private updateChatViewport(): void {
     const zoom = this.cameras.main.zoom || 1;
     this.chat?.updateViewport({width: (this.scale?.width ?? window.innerWidth) / zoom, height: (this.scale?.height ?? window.innerHeight) / zoom});
+  }
+  private encounterAnchor(encounter:EncounterSnapshot):{x:number;y:number} {
+    const camera=this.cameras.main;
+    const x=encounter.x-(camera.scrollX??0),y=encounter.y-(camera.scrollY??0);
+    const point=camera.getViewMatrix?.().transformPoint(encounter.x,encounter.y)??{x:x*(camera.zoom??1)+(camera.x??0),y:y*(camera.zoom??1)+(camera.y??0)};
+    const canvas=this.game?.canvas?.getBoundingClientRect();
+    const width=this.scale?.width??window.innerWidth,height=this.scale?.height??window.innerHeight;
+    return {x:(canvas?.left??0)+point.x*(canvas?.width??width)/width,y:(canvas?.top??0)+point.y*(canvas?.height??height)/height};
   }
   private updateKeyboardCapture():void {
     this.pointerTarget=null;

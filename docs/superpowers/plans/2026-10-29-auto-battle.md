@@ -1,0 +1,7 @@
+# Encounter menu and automatic battle
+
+Clicking a monster in the world opens a small nearby menu with Walcz and Auto; no encounter starts before selecting an option. The menu follows the encounter under camera motion, stays inside the phone viewport, closes outside/Escape and keeps existing interaction range validation. Walcz starts the current manual encounter; Auto starts that encounter with server-owned automatic actions.
+
+Automatic combat uses the existing BattleEngine, AP, movement, armor, injuries, line of sight and reward rules. A bounded tactical planner prioritizes kills, useful damage and AP efficiency, considering reachable attack positions. It performs movements and attacks, without automatically spending inventory. The server schedules one action per300ms, publishes snapshots, serializes settlement and stops timers on finish/disconnect/ownership change. Repeated non-progress stops automation. The player can take manual control during the fight or enable auto from the battle HUD.
+
+Work: shared mode/ACK contracts; tactical chooser and BattleService mode guard; authenticated socket scheduler using the existing battle completion path; anchored encounter menu and HUD control; focused planner, transport/session/timer and UI tests; browser walkthrough on desktop/mobile; signed Android0.1.8 and deployment verification. Existing gold, loot and party XP remain on one settlement path. DB tests use only local web_mmorpg_test, sequentially.

@@ -47,6 +47,19 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("sends the chosen encounter mode and guards auto-mode ACKs against session replacement",async()=>{
+    const requested=deferred<unknown>(),pending=deferred<(value:unknown)=>void>();
+    const game=await startServer((_token,ack,socket)=>{
+      socket.on("startEncounter",payload=>requested.resolve(payload));
+      socket.on("setBattleAuto",(payload,reply)=>{expect(payload).toEqual({enabled:true});pending.resolve(reply);});
+      ack(authenticated);
+    });
+    await game.authenticate("auto-player");game.startEncounter("wolf-pack-01","auto");
+    expect(await requested.promise).toEqual({encounterId:"wolf-pack-01",mode:"auto"});
+    const result=game.setBattleAuto(true),reply=await pending.promise;
+    await game.authenticate("replacement");reply({ok:true,snapshot:{id:"old",autoBattle:true}});
+    expect(await result).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+  });
   it("requests a merchant shop, forwards receipt IDs and rejects purchase ACKs from a replaced session",async()=>{
     const shop={npcId:"merchant-miro",npcName:"Miro",gold:100,offers:[]};
     const pending=deferred<(result:unknown)=>void>();

@@ -24,6 +24,8 @@
 .encounter-menu__header strong { min-width: 0; overflow-wrap: anywhere; }
 .encounter-menu button { min-height: 44px; border: 1px solid #9c8857; border-radius: 6px; background: #424f35; color: #fff0c8; font: 700 14px/1.2 "Trebuchet MS", sans-serif; cursor: pointer; touch-action: manipulation; }
 .encounter-menu button:hover { background: #536442; }
+.encounter-menu button:disabled { opacity: .45; cursor: default; background: #31372d; }
+.encounter-menu [data-encounter-status] { margin: 3px 0 10px; color: #d6c28f; }
 .encounter-menu button:focus-visible { outline: 2px solid #f1d48a; outline-offset: 2px; }
 .encounter-menu__header [data-close] { width: 44px; min-height: 44px; flex: 0 0 44px; padding: 0; border-color: transparent; background: transparent; font-size: 22px; }
 .encounter-menu__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }

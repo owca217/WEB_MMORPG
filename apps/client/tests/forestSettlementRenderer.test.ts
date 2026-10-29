@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("phaser",()=>({default:{Textures:{FilterMode:{NEAREST:0}}}}));
 import { ForestSettlementRenderer } from "../src/world/ForestSettlementRenderer";
+import { EasternForestRenderer } from "../src/world/EasternForestRenderer";
+import { EASTERN_FOREST_LAYOUT, isForestClearing } from "../src/world/EasternForestLayout";
 import { preloadEnvironmentAssets, registerEnvironmentFrames } from "../src/world/environmentAssets";
 
 class ObjectView {
@@ -65,5 +67,22 @@ describe("ForestSettlementRenderer environment assets",()=>{
     renderer.destroy();
     expect(objects.every(object=>object.destroyed===1)).toBe(true);
     expect(masks.every(mask=>mask.destroyed===1)).toBe(true);
+  });
+});
+
+describe("Eastern forest",()=>{
+  it("keeps the forest dense while leaving its entry, paths and encounters clear",()=>{
+    expect(EASTERN_FOREST_LAYOUT.trees.length).toBeGreaterThan(100);
+    expect(EASTERN_FOREST_LAYOUT.clearings.every(point=>isForestClearing(point))).toBe(true);
+    expect(EASTERN_FOREST_LAYOUT.trees.every(point=>!isForestClearing(point))).toBe(true);
+    expect(EASTERN_FOREST_LAYOUT.paths.some(path=>path[0]?.x===0)).toBe(true);
+  });
+  it.each([false,true])("renders and releases the woodland with or without downloaded textures (loaded=%s)",loaded=>{
+    const {scene,objects}=createScene(loaded);registerEnvironmentFrames(scene);
+    const renderer=new EasternForestRenderer(scene);renderer.render();
+    expect(objects.some(object=>object.kind==="text")).toBe(true);
+    expect(objects.some(object=>object.kind==="tileSprite")).toBe(loaded);
+    expect(objects.some(object=>object.kind==="image")).toBe(loaded);
+    renderer.destroy();expect(objects.every(object=>object.destroyed===1)).toBe(true);
   });
 });

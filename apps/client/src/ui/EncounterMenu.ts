@@ -1,4 +1,6 @@
 import "./EncounterMenu.css";
+import type { EncounterSnapshot } from "@web-mmorpg/shared";
+import { encounterAvailable, encounterLabel, encounterStatusText } from "../world/encounterPresentation";
 
 interface EncounterMenuHandlers {
   onSelect: (encounterId: string, mode: "manual" | "auto") => void;
@@ -9,6 +11,8 @@ interface MenuAnchor { x: number; y: number }
 export class EncounterMenu {
   private readonly root: HTMLDivElement;
   private readonly label: HTMLElement;
+  private readonly status: HTMLElement;
+  private available=true;
   private encounterId: string | null = null;
   private anchor: MenuAnchor = { x: 0, y: 0 };
   private destroyed = false;
@@ -32,13 +36,15 @@ export class EncounterMenu {
     this.root.setAttribute("aria-label", "Wybierz tryb walki");
     this.root.innerHTML = `
       <div class="encounter-menu__header"><strong data-encounter-label></strong><button type="button" data-close aria-label="Zamknij menu potwora">×</button></div>
+      <p data-encounter-status role="status" hidden></p>
       <div class="encounter-menu__actions"><button type="button" data-encounter-mode="manual">Walcz</button><button type="button" data-encounter-mode="auto">Auto</button></div>`;
     this.label = this.root.querySelector<HTMLElement>("[data-encounter-label]")!;
+    this.status = this.root.querySelector<HTMLElement>("[data-encounter-status]")!;
     this.root.querySelector<HTMLButtonElement>("[data-close]")!.addEventListener("click", () => this.hide());
     for (const mode of ["manual", "auto"] as const) {
       this.root.querySelector<HTMLButtonElement>(`[data-encounter-mode="${mode}"]`)!.addEventListener("click", () => {
         const id = this.encounterId;
-        if (this.destroyed || this.root.hidden || !id) return;
+        if (this.destroyed || this.root.hidden || !id || !this.available) return;
         this.hide();
         this.handlers.onSelect(id, mode);
       });
@@ -55,12 +61,21 @@ export class EncounterMenu {
     this.viewport?.addEventListener("scroll", this.onResize);
   }
 
-  show(encounter: { id: string; label: string }, anchor: MenuAnchor): void {
+  show(encounter: Pick<EncounterSnapshot,"id"|"label"|"status"|"respawnAt">, anchor: MenuAnchor,serverNow=Date.now()): void {
     if (this.destroyed) return;
     this.encounterId = encounter.id;
-    this.label.textContent = encounter.label;
     this.root.hidden = false;
+    this.update(encounter,serverNow);
     this.reposition(anchor);
+  }
+
+  update(encounter:Pick<EncounterSnapshot,"id"|"label"|"status"|"respawnAt">,serverNow=Date.now()):void {
+    if(this.destroyed || this.encounterId!==encounter.id)return;
+    this.label.textContent=encounterLabel(encounter);
+    this.available=encounterAvailable(encounter);
+    this.status.textContent=encounterStatusText(encounter,serverNow);
+    this.status.hidden=!this.status.textContent;
+    for(const button of this.root.querySelectorAll<HTMLButtonElement>("[data-encounter-mode]"))button.disabled=!this.available;
   }
 
   reposition(anchor: MenuAnchor): void {

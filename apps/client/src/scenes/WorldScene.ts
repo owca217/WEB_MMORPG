@@ -25,6 +25,7 @@ import { ChatController } from "../ui/ChatController";
 import { SocialController } from "../ui/SocialController";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
+import { EasternForestRenderer } from "../world/EasternForestRenderer";
 import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
 import { preloadEnvironmentAssets, registerEnvironmentFrames } from "../world/environmentAssets";
 
@@ -34,7 +35,9 @@ interface WorldSceneData {
 }
 
 const WORLD_ERROR_LABELS: Record<string, string> = {
-  ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do wilków.",
+  ENCOUNTER_OUT_OF_RANGE: "Podejdź bliżej do przeciwnika.",
+  ENCOUNTER_RESPAWNING: "Ten przeciwnik jeszcze się nie odrodził.",
+  ENCOUNTER_ENGAGED: "Ta grupa przeciwników już walczy.",
   NPC_OUT_OF_RANGE: "Podejdź bliżej do tej postaci.",
   NPC_NOT_FOUND: "Nie znaleziono tej postaci.",
   HEAL_REJECTED: "Leczenie nie jest teraz dostępne."
@@ -50,7 +53,11 @@ export class WorldScene extends Phaser.Scene {
   private authoritativePosition: { x: number; y: number } | null = null;
   private lastIntentSentAt = 0;
   private cameraFollowing = false;
-  private backgroundRenderer: ForestSettlementRenderer | undefined;
+  private backgroundRenderer: ForestSettlementRenderer | EasternForestRenderer | undefined;
+  private locationId:string|null=null;
+  private worldBounds:{width:number;height:number}={width:1600,height:900};
+  private serverTimeOffset=0;
+  private lastCountdownSecond=-1;
   private entitiesRenderer: WorldEntitiesRenderer | undefined;
   private hud: WorldHud | undefined;
   private containerPicker: ContainerPicker | undefined;
@@ -85,6 +92,8 @@ export class WorldScene extends Phaser.Scene {
     this.authoritativePosition = null;
     this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
     this.cameraFollowing = false;
+    this.locationId=null;this.worldBounds={width:1600,height:900};
+    this.serverTimeOffset=0;this.lastCountdownSecond=-1;
     this.encounters=[];this.selectedEncounterId=null;
     this.npcs=[];this.selectedNpcId=null;this.pendingDialogueNpcId=null;
     this.pendingNpcAction=null;
@@ -138,9 +147,15 @@ export class WorldScene extends Phaser.Scene {
     this.backgroundRenderer.render();
 
     this.entitiesRenderer = new WorldEntitiesRenderer(this, this.playerId);
+    this.entitiesRenderer.onTeleportSelected=point=>{
+      this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
+      this.pointerTarget={...point};
+    };
     this.encounterMenu=new EncounterMenu({onSelect:(encounterId,mode)=>{
       this.selectedEncounterId=null;
       this.pointerTarget=null;
+      const encounter=this.encounters.find(item=>item.id===encounterId);
+      if(encounter?.status && encounter.status!=="alive")return;
       gameSocket.startEncounter(encounterId,mode);
     }});
     this.npcMenu=new NpcMenu({onSelect:(npcId,action)=>{
@@ -167,7 +182,7 @@ export class WorldScene extends Phaser.Scene {
       const anchor=encounter ? this.worldAnchor(encounter) : null;
       if(!encounter || !anchor)return;
       this.selectedEncounterId=encounterId;
-      this.encounterMenu?.show({...encounter,label:encounter.id==="wolf-pack-01" ? "Wilki" : encounter.label},anchor);
+      this.encounterMenu?.show(encounter,anchor,this.serverNow());
     };
 
     this.containerPicker = new ContainerPicker({
@@ -259,8 +274,8 @@ export class WorldScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       this.pendingNpcAction=null;
       this.pointerTarget = {
-        x: Phaser.Math.Clamp(pointer.worldX, 0, FOREST_SETTLEMENT_LAYOUT.width),
-        y: Phaser.Math.Clamp(pointer.worldY, 0, FOREST_SETTLEMENT_LAYOUT.height)
+        x: Phaser.Math.Clamp(pointer.worldX, 0, this.worldBounds.width),
+        y: Phaser.Math.Clamp(pointer.worldY, 0, this.worldBounds.height)
       };
     });
 
@@ -318,12 +333,12 @@ export class WorldScene extends Phaser.Scene {
         x: Phaser.Math.Clamp(
           this.localPosition.x + keyboardIntent.dx * travel,
           0,
-          FOREST_SETTLEMENT_LAYOUT.width
+          this.worldBounds.width
         ),
         y: Phaser.Math.Clamp(
           this.localPosition.y + keyboardIntent.dy * travel,
           0,
-          FOREST_SETTLEMENT_LAYOUT.height
+          this.worldBounds.height
         )
       };
     } else if (this.pendingNpcAction) {
@@ -369,12 +384,18 @@ export class WorldScene extends Phaser.Scene {
     this.entitiesRenderer?.updateRemotePlayers();
     const selected=this.encounters.find(item=>item.id===this.selectedEncounterId);
     if(selected)this.encounterMenu?.reposition(this.worldAnchor(selected));
+    const countdownSecond=Math.floor(this.serverNow()/1000);
+    if(countdownSecond!==this.lastCountdownSecond) {
+      this.lastCountdownSecond=countdownSecond;
+      this.entitiesRenderer?.updateEncounters(this.serverNow());
+      if(selected)this.encounterMenu?.update(selected,this.serverNow());
+    }
     const selectedNpc=this.npcs.find(item=>item.id===this.selectedNpcId);
     if(selectedNpc)this.npcMenu?.reposition(this.worldAnchor(selectedNpc));
 
     if ((hasKeyboardIntent || this.pointerTarget || this.pendingNpcAction) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
-      gameSocket.sendMoveIntent(this.localPosition);
+      gameSocket.sendMoveIntent({...this.localPosition,...(this.locationId ? {locationId:this.locationId} : {})});
     }
   }
 
@@ -460,6 +481,24 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private renderWorld(snapshot: WorldStateSnapshot): void {
+    const changed=this.locationId!==null && this.locationId!==snapshot.locationId;
+    if(snapshot.serverTime!==undefined)this.serverTimeOffset=snapshot.serverTime-Date.now();
+    if(this.locationId!==snapshot.locationId) {
+      this.locationId=snapshot.locationId;
+      this.worldBounds={width:snapshot.location?.width??1600,height:snapshot.location?.height??900};
+      this.cameras.main.setBounds(0,0,this.worldBounds.width,this.worldBounds.height);
+      this.physics.world.setBounds(0,0,this.worldBounds.width,this.worldBounds.height);
+      this.backgroundRenderer?.destroy();
+      this.backgroundRenderer=snapshot.location?.theme==="dense-forest" ? new EasternForestRenderer(this) : new ForestSettlementRenderer(this);
+      this.backgroundRenderer.render();
+      this.hud?.setLocation(snapshot.location?.name??"Osada Zielony Brzeg");
+    }
+    if(changed) {
+      this.pointerTarget=null;this.authoritativePosition=null;
+      this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
+      this.characterPanel?.hide();this.healingPanel?.hide();this.containerPicker?.hide();this.containerContents?.hide();
+      this.cameras.main.stopFollow?.();this.cameraFollowing=false;
+    }
     this.npcs=snapshot.npcs.map(item=>({...item}));
     if(this.selectedNpcId && !this.npcs.some(item=>item.id===this.selectedNpcId))this.dismissNpcWindows();
     if(this.pendingDialogueNpcId && !this.npcs.some(item=>item.id===this.pendingDialogueNpcId))this.pendingDialogueNpcId=null;
@@ -468,6 +507,8 @@ export class WorldScene extends Phaser.Scene {
     if(this.selectedEncounterId && !this.encounters.some(item=>item.id===this.selectedEncounterId)) {
       this.encounterMenu?.hide();this.selectedEncounterId=null;
     }
+    const selected=this.encounters.find(item=>item.id===this.selectedEncounterId);
+    if(selected)this.encounterMenu?.update(selected,this.serverNow());
     this.entitiesRenderer?.render(snapshot);
     const local = snapshot.players.find((player) => player.id === this.playerId);
     if (!local) {this.pendingNpcAction=null;this.authoritativePosition=null;return;}
@@ -477,6 +518,7 @@ export class WorldScene extends Phaser.Scene {
       this.entitiesRenderer?.setLocalPlayerPosition(local.x, local.y);
     }
     this.authoritativePosition = { x: local.x, y: local.y };
+    if(changed)this.cameras.main.centerOn?.(local.x,local.y);
     this.resolvePendingNpcAction();
 
     if (!this.cameraFollowing) {
@@ -487,6 +529,8 @@ export class WorldScene extends Phaser.Scene {
       }
     }
   }
+
+  private serverNow():number {return Date.now()+this.serverTimeOffset;}
 
   private showToast(message: string): void {
     const toast = this.add.text(this.cameras.main.centerX, 92, message, {

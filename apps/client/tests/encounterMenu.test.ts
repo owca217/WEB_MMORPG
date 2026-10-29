@@ -4,6 +4,21 @@ import { EncounterMenu } from "../src/ui/EncounterMenu";
 
 afterEach(()=>{document.body.replaceChildren();vi.restoreAllMocks();});
 
+it("blocks unavailable encounters and refreshes an open menu without granting early respawn",()=>{
+  const onSelect=vi.fn();const menu=new EncounterMenu({onSelect});
+  menu.show({id:"boar",label:"Dzik",status:"respawning",respawnAt:181000},{x:300,y:250},1000);
+  const attack=document.querySelector<HTMLButtonElement>('[data-encounter-mode="manual"]')!;
+  expect(attack.disabled).toBe(true);
+  expect(document.querySelector('[data-encounter-status]')?.textContent).toContain("03:00");
+  attack.click();expect(onSelect).not.toHaveBeenCalled();
+  menu.update({id:"boar",label:"Dzik",status:"respawning",respawnAt:181000},182000);
+  expect(attack.disabled).toBe(true);
+  menu.update({id:"boar",label:"Dzik",status:"alive"},182000);
+  expect(attack.disabled).toBe(false);
+  attack.click();expect(onSelect).toHaveBeenCalledExactlyOnceWith("boar","manual");
+  menu.destroy();
+});
+
 it("waits for an explicit battle choice and closes before dispatching the selected mode",()=>{
   const onSelect=vi.fn(()=>expect(document.querySelector<HTMLElement>("[data-encounter-menu]")?.hidden).toBe(true));
   const menu=new EncounterMenu({onSelect});

@@ -1,11 +1,13 @@
 import type { InventoryReward } from "../inventory/InventoryService";
+import { getEncounterDefinition } from "../world/encounterDefinitions";
 
 export class LootService {
   rollEncounterLoot(encounterId: string, _seed: number): InventoryReward[] {
-    if (encounterId !== "wolf-pack-01") return [];
+    const definition = getEncounterDefinition(encounterId);
+    if (!definition) return [];
 
     return [
-      { itemId: "wolf-pelt", quantity: 1 },
+      ...(definition.enemyKind === "wolf" ? [{ itemId: "wolf-pelt", quantity: 1 }] : []),
       { itemId: "field-bandage", quantity: 2 }
     ];
   }

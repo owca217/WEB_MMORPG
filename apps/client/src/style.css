@@ -309,6 +309,8 @@ button {
   pointer-events: auto;
 }
 
+.world-hud__location { color: #c7c19b; font: 12px/1.4 Georgia, serif; }
+
 .world-hud__identity,
 .world-hud__stats,
 .world-hud__actions {

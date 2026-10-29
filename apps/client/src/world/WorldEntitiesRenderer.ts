@@ -5,6 +5,7 @@ import {
   type NpcSnapshot,
   type PlayerId,
   type WorldPlayerSnapshot,
+  type TeleportZoneSnapshot,
   type WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
@@ -16,6 +17,13 @@ import {
 import { getCharacterSkinTextureKey } from "../characters/characterSkinAssets";
 import { getCharacterWalkAnimationKey } from "../characters/characterSkinSprites";
 import { getNpcSkinAsset, getNpcSkinTextureKey } from "../characters/npcSkinAssets";
+import { encounterAvailable, encounterLabel, encounterStatusText } from "./encounterPresentation";
+
+interface EncounterView {
+  container:Phaser.GameObjects.Container;
+  label:Phaser.GameObjects.Text;
+  encounter:EncounterSnapshot;
+}
 
 interface PlayerView {
   container: Phaser.GameObjects.Container;
@@ -46,11 +54,13 @@ const MAX_PENDING_SPEECH_BUBBLES = 50;
 export class WorldEntitiesRenderer {
   onNpcSelected?: (npcId: string) => void;
   onEncounterSelected?: (encounterId: string) => void;
+  onTeleportSelected?: (point:{x:number;y:number})=>void;
 
   private readonly playerViews = new Map<PlayerId, PlayerView>();
   private readonly pendingSpeechBubbles = new Map<PlayerId, PendingSpeechBubble>();
   private readonly npcViews = new Map<string, Phaser.GameObjects.Container>();
-  private readonly encounterViews = new Map<string, Phaser.GameObjects.Container>();
+  private readonly encounterViews = new Map<string, EncounterView>();
+  private readonly teleportViews = new Map<string, Phaser.GameObjects.Container>();
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -61,6 +71,8 @@ export class WorldEntitiesRenderer {
     this.renderPlayers(snapshot.players);
     this.renderNpcs(snapshot.npcs);
     this.renderEncounters(snapshot.encounters);
+    this.updateEncounters(snapshot.serverTime??Date.now());
+    this.renderTeleports(snapshot.teleports??[],snapshot.location?.width??1600);
   }
 
   updateRemotePlayers(): void {
@@ -112,11 +124,13 @@ export class WorldEntitiesRenderer {
       view.container.destroy(true);
     }
     for (const view of this.npcViews.values()) view.destroy(true);
-    for (const view of this.encounterViews.values()) view.destroy(true);
+    for (const view of this.encounterViews.values()) view.container.destroy(true);
+    for (const view of this.teleportViews.values()) view.destroy(true);
     this.playerViews.clear();
     this.pendingSpeechBubbles.clear();
     this.npcViews.clear();
     this.encounterViews.clear();
+    this.teleportViews.clear();
   }
 
   private renderPlayers(players: WorldPlayerSnapshot[]): void {
@@ -316,25 +330,49 @@ export class WorldEntitiesRenderer {
     const present = new Set(encounters.map((encounter) => encounter.id));
     for (const [id, view] of this.encounterViews) {
       if (present.has(id)) continue;
-      view.destroy(true);
+      view.container.destroy(true);
       this.encounterViews.delete(id);
     }
 
     for (const encounter of encounters) {
-      if (this.encounterViews.has(encounter.id)) continue;
-      this.encounterViews.set(encounter.id, this.createEncounter(encounter));
+      const view=this.encounterViews.get(encounter.id);
+      if(view){view.encounter={...encounter};view.container.setPosition(encounter.x,encounter.y);}
+      else this.encounterViews.set(encounter.id, this.createEncounter(encounter));
     }
   }
 
-  private createEncounter(encounter: EncounterSnapshot): Phaser.GameObjects.Container {
+  updateEncounters(serverNow=Date.now()):void {
+    for(const view of this.encounterViews.values()) {
+      const status=encounterStatusText(view.encounter,serverNow);
+      view.label.setText(`${encounterLabel(view.encounter)}${status ? `\n${status}` : ""}`);
+      const available=encounterAvailable(view.encounter);
+      view.container.setAlpha(available ? 1 : 0.55);
+      if(available)view.container.setInteractive({useHandCursor:true});
+      else view.container.disableInteractive();
+    }
+  }
+
+  private createEncounter(encounter: EncounterSnapshot): EncounterView {
     const container = this.scene.add.container(encounter.x, encounter.y).setDepth(17);
     const shadow = this.scene.add.ellipse(0, 14, 88, 30, 0x111611, 0.35);
-    const wolves = [-25, 0, 25].map((x, index) => {
+    const kind=encounter.enemyKind??"wolf";
+    const wolves = (kind==="wolf" ? [-25,0,25] : [0]).map((x, index) => {
+      if(kind==="forest-spider") {
+        const spider=this.scene.add.container(x,2);
+        const legs=[-1,1].flatMap(side=>[-10,0,10].map(y=>this.scene.add.rectangle(side*17,y,24,3,0x38332a)));
+        spider.add([...legs,this.scene.add.ellipse(0,0,29,34,0x66523a).setStrokeStyle(2,0x2d281f),this.scene.add.circle(-4,-12,2,0xde865f),this.scene.add.circle(4,-12,2,0xde865f)]);
+        return spider;
+      }
+      if(kind==="boar") {
+        const boar=this.scene.add.container(x,2);
+        boar.add([this.scene.add.ellipse(0,2,52,31,0x79563d).setStrokeStyle(2,0x392d24),this.scene.add.ellipse(24,4,18,19,0x654733),this.scene.add.triangle(27,10,-4,4,4,4,2,-5,0xe7d8a3)]);
+        return boar;
+      }
       const wolf = this.scene.add.ellipse(x, index === 1 ? -2 : 6, 31, 19, index === 1 ? 0x5b5d58 : 0x4b4e49);
       wolf.setStrokeStyle(2, 0x292d2a);
       return wolf;
     });
-    const label = this.scene.add.text(0, -36, "Wilki", {
+    const label = this.scene.add.text(0, -42, encounterLabel(encounter), {
       fontFamily: "Georgia, serif",
       fontSize: "15px",
       color: "#f2c8af",
@@ -343,7 +381,26 @@ export class WorldEntitiesRenderer {
     }).setOrigin(0.5);
     container.add([shadow, ...wolves, label]);
     container.setSize(110, 70).setInteractive({ useHandCursor: true });
-    container.on("pointerup", () => this.onEncounterSelected?.(encounter.id));
-    return container;
+    const view={container,label,encounter:{...encounter}};
+    container.on("pointerup", () => {if(encounterAvailable(view.encounter))this.onEncounterSelected?.(encounter.id);});
+    return view;
+  }
+
+  private renderTeleports(zones:TeleportZoneSnapshot[],worldWidth:number):void {
+    const present=new Set(zones.map(zone=>zone.id));
+    for(const [id,view] of this.teleportViews)if(!present.has(id)){view.destroy(true);this.teleportViews.delete(id);}
+    for(const zone of zones) {
+      if(this.teleportViews.has(zone.id))continue;
+      const center={x:zone.x+zone.width/2,y:zone.y+zone.height/2};
+      const view=this.scene.add.container(center.x,center.y).setDepth(16);
+      const edgeRight=center.x>worldWidth/2;
+      const area=this.scene.add.rectangle(0,0,zone.width,zone.height,0x82c4b4,0.18).setStrokeStyle(3,0xc2dfb0,0.9);
+      const arrow=this.scene.add.text(0,-18,edgeRight ? "→" : "←",{fontFamily:"sans-serif",fontSize:"34px",color:"#f0e9b8"}).setOrigin(0.5);
+      const label=this.scene.add.text(edgeRight ? -zone.width/2-10 : zone.width/2+10,25,zone.label,{fontFamily:"Georgia, serif",fontSize:"15px",color:"#f0edcf",backgroundColor:"#16251ddd",padding:{x:7,y:5}}).setOrigin(edgeRight ? 1 : 0,0.5);
+      view.add([area,arrow,label]);
+      view.setSize(zone.width,zone.height).setInteractive({useHandCursor:true});
+      view.on("pointerup",()=>this.onTeleportSelected?.(center));
+      this.teleportViews.set(zone.id,view);
+    }
   }
 }

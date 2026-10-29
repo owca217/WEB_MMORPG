@@ -25,7 +25,7 @@ export interface ClientToServerEvents {
     payload: { sessionToken: string },
     ack: (result: SocketAuthResult) => void
   ) => void;
-  moveIntent: (payload: { x: number; y: number }) => void;
+  moveIntent: (payload: { x: number; y: number; locationId?: LocationId }) => void;
   sendChatMessage: (
     payload: { channel: ChatChannel; text: string },
     ack: (result: ChatSendResult) => void

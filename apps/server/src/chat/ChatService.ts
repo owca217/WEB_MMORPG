@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CHAT_MAX_MESSAGE_LENGTH, type ChatMessage, type ChatSendResult, type ChatViewport } from "@web-mmorpg/shared";
 import type { WorldService } from "../world/WorldService";
-import { FOREST_SETTLEMENT_01 } from "../world/worldFixtures";
+import { FOREST_SETTLEMENT_01, getWorldFixture } from "../world/worldFixtures";
 
 const HISTORY_LIMIT = 50;
 const MIN_MESSAGE_INTERVAL = 1000;
@@ -67,10 +67,7 @@ export class ChatService {
     const { width, height } = viewport as Record<string, unknown>;
     if (typeof width !== "number" || typeof height !== "number" ||
       !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
-    this.viewports.set(playerId, {
-      width: Math.min(width, FOREST_SETTLEMENT_01.width),
-      height: Math.min(height, FOREST_SETTLEMENT_01.height)
-    });
+    this.viewports.set(playerId, { width, height });
   }
 
   removePlayer(playerId: string): void {
@@ -80,15 +77,17 @@ export class ChatService {
   nearbyRecipients(message: ChatMessage): string[] {
     if (message.channel !== "nearby" || !message.locationId || !message.worldPosition || this.hasBattle(message.senderId)) return [];
     const position = message.worldPosition;
+    const fixture=getWorldFixture(message.locationId)??FOREST_SETTLEMENT_01;
     return this.world.snapshot(message.locationId).players.filter((recipient) => {
       if (this.hasBattle(recipient.id)) return false;
       if (recipient.id === message.senderId) return true;
       const viewport = this.viewports.get(recipient.id);
       if (!viewport) return false;
-      const left = Math.max(0, Math.min(FOREST_SETTLEMENT_01.width - viewport.width, recipient.x - viewport.width / 2));
-      const top = Math.max(0, Math.min(FOREST_SETTLEMENT_01.height - viewport.height, recipient.y - viewport.height / 2));
-      return position.x >= left && position.x <= left + viewport.width &&
-        position.y >= top && position.y <= top + viewport.height;
+      const width=Math.min(viewport.width,fixture.width),height=Math.min(viewport.height,fixture.height);
+      const left = Math.max(0, Math.min(fixture.width - width, recipient.x - width / 2));
+      const top = Math.max(0, Math.min(fixture.height - height, recipient.y - height / 2));
+      return position.x >= left && position.x <= left + width &&
+        position.y >= top && position.y <= top + height;
     }).map((recipient) => recipient.id);
   }
 

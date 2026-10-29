@@ -27,6 +27,7 @@ import {
 } from "./BattleEngine";
 import { chooseWolfCommand } from "./NpcBattleAi";
 import { chooseAutoBattleCommand } from "./AutoBattleAi";
+import { getEncounterDefinition, LEGACY_WOLF_DEFINITION } from "../world/encounterDefinitions";
 
 interface ActiveBattle {
   participants: Map<PlayerId, { weaponLoadout: WeaponLoadout; auto: boolean }>;
@@ -84,14 +85,15 @@ export class BattleService {
     }
     const initiator = characters[0]!, seed = 12345;
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
-    const level = Math.max(...characters.map(character => Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1))));
+    const definition = getEncounterDefinition(encounterId) ?? LEGACY_WOLF_DEFINITION;
+    const level = Math.max(definition.minimumLevel, ...characters.map(character => Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1))));
     const soloCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
     const wolfCount = Math.min(5, soloCount + characters.length - 1);
     const healthFactor = soloCount === 3 ? 0.65 : soloCount === 2 ? 0.75 : 1;
     const damageFactor = soloCount === 3 ? 0.35 : soloCount === 2 ? 0.5 : 1;
-    const wolfHp = Math.round((120 + 28 * (level - 1)) * healthFactor);
-    const wolfDamage = Math.round((10 + 2 * (level - 1)) * damageFactor);
-    const wolfArmor = Math.floor(1.5 * (level - 1) + 3 * Math.max(0, level - 25));
+    const wolfHp = Math.round((definition.baseHp + definition.hpPerLevel * (level - 1)) * healthFactor);
+    const wolfDamage = Math.round((definition.baseDamage + definition.damagePerLevel * (level - 1)) * damageFactor);
+    const wolfArmor = Math.floor(definition.baseArmor + definition.armorPerLevel * (level - 1) + 3 * Math.max(0, level - 25));
     const wolfInitiative = initiator.initiative - (initiator.injuries.includes("concussion") ? 2 : 0) - 1;
     const enemyStarts = arena.enemyStartCells.slice(0, wolfCount);
     if (arena.playerStartCells.length < characters.length || enemyStarts.length !== wolfCount) throw new Error("ARENA_START_POSITION_MISSING");
@@ -110,7 +112,7 @@ id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "play
 };
         }),
         ...enemyStarts.map((position, index) => ({
-id: index === 0 ? `wolf:${encounterId}` : `wolf:${encounterId}:${index + 1}`, side: "enemy" as const, name: "Wolf", level,
+id: index === 0 ? `${definition.enemyKind}:${encounterId}` : `${definition.enemyKind}:${encounterId}:${index + 1}`, side: "enemy" as const, name: definition.enemyName, level,
           combatStats: { meleeDamage: wolfDamage, rangedDamage: 0, armor: wolfArmor }, hp: wolfHp, maxHp: wolfHp, maxAp: 4, initiative: wolfInitiative, position, severelyInjured: false, injuries: []
 }))
       ]

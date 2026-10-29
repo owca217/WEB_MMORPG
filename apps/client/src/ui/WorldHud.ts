@@ -48,6 +48,7 @@ export class WorldHud {
         <strong data-name>—</strong>
         <span data-connection>Łączenie…</span>
       </div>
+      <div class="world-hud__location" data-location-name>Osada Zielony Brzeg</div>
       <div class="world-hud__stats">
         <span>Poziom <b data-level>—</b></span>
         <span>HP <b data-hp>—</b></span>
@@ -113,6 +114,10 @@ export class WorldHud {
       "click",
       handlers.onLogout ?? (() => undefined)
     );
+  }
+
+  setLocation(name:string):void {
+    this.require("[data-location-name]").textContent=name;
   }
 
   updateSession(role: UserRole): void {

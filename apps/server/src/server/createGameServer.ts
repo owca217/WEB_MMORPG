@@ -19,6 +19,8 @@ import { CharacterService } from "../character/CharacterService";
 import { InventoryService } from "../inventory/InventoryService";
 import { LootService } from "../loot/LootService";
 import { WorldService } from "../world/WorldService";
+import { EncounterRespawnService } from "../world/EncounterRespawnService";
+import { getEncounterDefinition } from "../world/encounterDefinitions";
 import { ActiveConnectionRegistry } from "./ActiveConnectionRegistry";
 import { SocialService } from "../social/SocialService";
 import type { PartyExperienceContext } from "../social/PartyService";
@@ -130,6 +132,7 @@ export function createGameServer(
   const pendingPartyStarts=new Map<PlayerId,symbol>();
   const battleSettlements=new Map<string,Promise<void>>();
   const battleRewardTokens = new Map<PlayerId,string>();
+  const battleEncounterLeases = new Map<string,string>();
   const autoStepMs=Number.isFinite(options.autoBattleStepMs) ? Math.max(10,Math.min(2000,options.autoBattleStepMs!)) : 300;
   const autoStops=new Set<()=>void>();
   httpServer.once("close",()=>{for(const stop of autoStops)stop();autoStops.clear();});
@@ -153,6 +156,14 @@ export function createGameServer(
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: true, credentials: false }
   });
+  const respawns = new EncounterRespawnService(options.pool,world,zone=>{
+    io.to(`location:${zone}`).emit("worldState",world.snapshot(zone));
+  });
+  const respawnRefresh=setInterval(()=>respawns.refresh(),1000);
+  respawnRefresh.unref();
+  // Authentication and startup await this same readiness promise.
+  void respawns.ready.catch(()=>undefined);
+  httpServer.once("close",()=>{clearInterval(respawnRefresh);respawns.dispose();});
   const social = new SocialService(options.pool, id => {
     const owner=characterOwners.get(id);
     const character=characters.getSnapshot(id);
@@ -214,13 +225,21 @@ export function createGameServer(
     const rewards=new Map<PlayerId,{experienceGained:number;levelsGained:number;partyBonusExperience:number;goldGained:number}>();
     const operation=Promise.resolve().then(async()=>{
       try {
+        let rewardVictory=applied.victory;
+        try {
+          await respawns.finish(battleEncounterLeases.get(battleId),applied.victory);
+          battleEncounterLeases.delete(battleId);
+        }catch {
+          rewardVictory=false;
+          for(const owner of owners.values())owner?.error("ENCOUNTER_SAVE_FAILED","Nie udało się zapisać odrodzenia przeciwnika. Nagrody zostały wstrzymane.");
+        }finally{battleEncounterLeases.delete(battleId);}
         for(const id of ids) {
           const before=characters.getSnapshot(id);
           if(!before)continue;
           const outcome=applied.playerOutcomes?.[id]??(ids.length===1 ? applied.playerOutcome : undefined);
           if(outcome)characters.applyBattleResult(id,outcome);
           let experienceGained=0,levelsGained=0,partyBonusExperience=0;
-          if(applied.victory) {
+          if(rewardVictory) {
             const base=Math.floor((applied.experienceReward??0)/Math.max(1,applied.initialParticipantCount??ids.length));
             const context=partyExperienceContexts.get(id);
             const party=social.parties.getParty(id);
@@ -244,11 +263,12 @@ export function createGameServer(
           const owner=owners.get(id);
           if(!owner)return;
           try {
-            if(applied.victory && applied.encounterId && applied.seed!==undefined) {
+            if(rewardVictory && applied.encounterId && applied.seed!==undefined) {
               await inventory.addItems(id,loot.rollEncounterLoot(applied.encounterId,applied.seed));
-              if(applied.encounterId==="wolf-pack-01") {
-                await merchant.rewardVictory(id,rewardToken,15);
-                const reward=rewards.get(id);if(reward)reward.goldGained=15;
+              const goldReward=getEncounterDefinition(applied.encounterId)?.goldReward??0;
+              if(goldReward>0) {
+                await merchant.rewardVictory(id,rewardToken,goldReward);
+                const reward=rewards.get(id);if(reward)reward.goldGained=goldReward;
               }
             }
           }catch{owner.error("BATTLE_REWARD_FAILED","Nie udało się zapisać wszystkich nagród za walkę.");}
@@ -406,7 +426,14 @@ export function createGameServer(
             await Promise.allSettled(items);
           }
           await pendingBattleRewards.get(releasedCharacterId);
+          const departingBattle=battles.getSnapshot(releasedCharacterId);
+          const wasFinalParticipant=battles.getParticipantIds(releasedCharacterId).length===1;
           const detached=battles.detachPlayer(releasedCharacterId);
+          if(departingBattle && wasFinalParticipant) {
+            const lease=battleEncounterLeases.get(departingBattle.id);
+            if(lease)respawns.release(lease);
+            battleEncounterLeases.delete(departingBattle.id);
+          }
           if(detached.outcome) {
             characters.applyBattleResult(releasedCharacterId,detached.outcome);
             if(detached.outcome.hp<=0){characters.recoverAfterDefeat(releasedCharacterId);world.resetPlayerToSpawn(releasedCharacterId);}
@@ -484,6 +511,7 @@ export function createGameServer(
 
     socket.on("authenticate", async ({ sessionToken }, ack) => {
       try {
+        await respawns.ready;
         const validated = await options.authService.validateToken(sessionToken);
         if (!validated) {
           ack({
@@ -562,7 +590,13 @@ export function createGameServer(
             enterBattle:snapshot=>{if(!current())return;stopAuto();autoStalls=0;if(locationId)socket.leave(`location:${locationId}`);socket.emit("battleStarted",snapshot);},
             battleState:snapshot=>{if(current())socket.emit("battleState",snapshot);},
             battleEnded:payload=>{if(current())socket.emit("battleEnded",payload);},
-            resumeWorld:()=>{if(!current())return;locationId=world.getPlayerLocationId(persisted.id)??locationId;if(locationId){socket.join(`location:${locationId}`);io.to(`location:${locationId}`).emit("worldState",world.snapshot(locationId));}},
+            resumeWorld:()=>{
+              if(!current())return;
+              const previous=locationId;
+              locationId=world.getPlayerLocationId(persisted.id)??locationId;
+              if(previous && previous!==locationId){socket.leave(`location:${previous}`);io.to(`location:${previous}`).emit("worldState",world.snapshot(previous));}
+              if(locationId){socket.join(`location:${locationId}`);io.to(`location:${locationId}`).emit("worldState",world.snapshot(locationId));}
+            },
             stopAuto,scheduleAuto:()=>scheduleAuto(persisted.id,registeredVersion),
             error:(code,message)=>{if(current())socket.emit("commandRejected",{code,message});}
           });
@@ -742,17 +776,26 @@ export function createGameServer(
     });
 
     socket.on("moveIntent", (intent) => {
-      if (!characterId || battles.hasBattle(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
+      if (!characterId || !ownsCharacter(characterId,characterVersion) || battles.hasBattle(characterId) || pendingPartyStarts.has(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
       if (!currentLocationId) return;
+      if(intent?.locationId!==undefined && intent.locationId!==currentLocationId)return;
 
       try {
         world.movePlayer(currentCharacterId, intent);
+        const destination=world.getPlayerLocationId(currentCharacterId)!;
+        if(destination!==currentLocationId) {
+          socket.leave(`location:${currentLocationId}`);
+          locationId=destination;
+          socket.join(`location:${destination}`);
+          io.to(`location:${currentLocationId}`).emit("worldState",world.snapshot(currentLocationId));
+          social.markChanged();void broadcastSocial();
+        }
         void social.checkDistance(currentCharacterId).then(changed=>{if(changed)void broadcastSocial();});
-        io.to(`location:${currentLocationId}`).emit(
+        io.to(`location:${destination}`).emit(
           "worldState",
-          world.snapshot(currentLocationId)
+          world.snapshot(destination)
         );
         void persistGameplayState(currentCharacterId).catch((error) =>
           reject(error, "CHARACTER_SAVE_FAILED", "Character position could not be persisted.")
@@ -956,8 +999,12 @@ export function createGameServer(
       const id=characterId,version=characterVersion,zone=locationId;
       if(!id || !zone || !ownsCharacter(id,version))return;
       const reservation=Symbol("party-start"),reserved:PlayerId[]=[];
+      let encounterLease:string|undefined,leaseTransferred=false;
       const busy=(target:PlayerId)=>battles.hasBattle(target)||pendingPartyStarts.has(target)||pendingBattleItemUses.has(target)||pendingBattleRewards.has(target)||pendingWeaponSelections.has(target)||pendingMerchantOperations.has(target)||Boolean(healing.pendingFor(target))||social.isBusy(target);
       try {
+        await respawns.ready;
+        if(!ownsCharacter(id,version) || world.getPlayerLocationId(id)!==zone)return;
+        respawns.refresh();
         const encounterId=payload?.encounterId,mode=payload?.mode??"manual";
         if(mode!=="manual" && mode!=="auto")throw new Error("INVALID_BATTLE_MODE");
         if(typeof encounterId!=="string")throw new Error("ENCOUNTER_NOT_FOUND");
@@ -986,7 +1033,10 @@ export function createGameServer(
         if(!members.includes(id))throw new Error("BATTLE_ACTION_PENDING");
         world.startEncounter(id,encounterId);
         const ordered=[id,...members.filter(member=>member!==id)];
-        battles.startPartyBattle(ordered.map(member=>characters.getSnapshot(member)!),encounterId);
+        // This claim and battle creation are synchronous after all admission awaits.
+        encounterLease=respawns.reserve(encounterId);
+        const initial=battles.startPartyBattle(ordered.map(member=>characters.getSnapshot(member)!),encounterId);
+        if(encounterLease){battleEncounterLeases.set(initial.id,encounterLease);leaseTransferred=true;}
         if(mode==="auto")battles.setAuto(id,true);
         const token=randomUUID();
         for(const member of ordered) {
@@ -996,7 +1046,10 @@ export function createGameServer(
         }
         social.markChanged();void broadcastSocial();scheduleActive(ordered);
       }catch(error){reject(error,"ENCOUNTER_REJECTED","Nie można rozpocząć walki drużyny.");}
-      finally{for(const target of reserved)if(pendingPartyStarts.get(target)===reservation)pendingPartyStarts.delete(target);}
+      finally{
+        if(encounterLease && !leaseTransferred)respawns.release(encounterLease);
+        for(const target of reserved)if(pendingPartyStarts.get(target)===reservation)pendingPartyStarts.delete(target);
+      }
     });
 
     const finishBattleCommand=(id:PlayerId,_version:number,applied:AppliedBattleCommand):Promise<void>=>dispatchBattle(id,applied);
@@ -1071,6 +1124,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, loot, battles, characters, connections, chat, social, merchant, healing }
+    services: { world, inventory, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
   };
 }

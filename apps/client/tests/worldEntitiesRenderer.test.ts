@@ -31,6 +31,8 @@ class DisplayObject {
   setDisplaySize(width: number, height: number) { this.displayWidth = width; this.displayHeight = height; return this; }
   setSize(width: number, height: number) { this.width = width; this.height = height; return this; }
   setInteractive() { this.interactive = true; return this; }
+  disableInteractive() { this.interactive = false; return this; }
+  setAlpha() { return this; }
   on(event: string, callback: () => void) { this.handlers.set(event, callback); return this; }
   add(objects: DisplayObject | DisplayObject[]) {
     for (const object of Array.isArray(objects) ? objects : [objects]) {
@@ -125,6 +127,38 @@ const friend: WorldPlayerSnapshot = { id: "friend", nickname: "Przyjaciel", x: 3
 function snapshot(players: WorldPlayerSnapshot[]): WorldStateSnapshot {
   return { locationId: "forest-settlement", players, npcs: [], encounters: [] };
 }
+
+it("updates a defeated encounter in place and waits for server confirmation before enabling it",()=>{
+  const fake=createScene(),renderer=new WorldEntitiesRenderer(fake.scene,hero.id),selected=vi.fn();
+  renderer.onEncounterSelected=selected;
+  const boar={id:"boar",label:"Dzik",enemyKind:"boar" as const,x:480,y:410};
+  renderer.render({...snapshot([]),serverTime:1000,encounters:[boar]});
+  const label=fake.text("Dzik")!,container=label.parent!;
+  expect(container.interactive).toBe(true);
+  renderer.render({...snapshot([]),serverTime:1000,encounters:[{...boar,status:"respawning",respawnAt:181000}]});
+  expect(label.destroyed).toBe(false);
+  expect(container.interactive).toBe(false);
+  expect(label.text).toContain("03:00");
+  container.handlers.get("pointerup")?.();expect(selected).not.toHaveBeenCalled();
+  renderer.updateEncounters(182000);
+  expect(container.interactive).toBe(false);
+  renderer.render({...snapshot([]),serverTime:182000,encounters:[{...boar,status:"alive"}]});
+  expect(container.interactive).toBe(true);
+  container.handlers.get("pointerup")?.();expect(selected).toHaveBeenCalledWith("boar");
+  renderer.destroy();
+});
+
+it("makes an edge portal walkable by click and removes it on leaving the location",()=>{
+  const fake=createScene(),renderer=new WorldEntitiesRenderer(fake.scene,hero.id),walk=vi.fn();
+  renderer.onTeleportSelected=walk;
+  renderer.render({...snapshot([]),teleports:[{id:"east",label:"Do lasu",x:1510,y:350,width:90,height:200,destinationLocationId:"eastern-forest-01"}]});
+  const label=fake.text("Do lasu")!;
+  label.parent?.handlers.get("pointerup")?.();
+  expect(walk).toHaveBeenCalledExactlyOnceWith({x:1555,y:450});
+  renderer.render(snapshot([]));
+  expect(label.destroyed).toBe(true);
+  renderer.destroy();
+});
 
 describe("world chat speech bubbles", () => {
   it("draws literal wrapped text above names and follows both local and remote players", () => {

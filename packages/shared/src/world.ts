@@ -13,6 +13,26 @@ export interface EncounterSnapshot {
   x: number;
   y: number;
   label: string;
+  enemyKind?: "wolf" | "boar" | "forest-spider";
+  status?: "alive" | "engaged" | "respawning";
+  respawnAt?: number;
+}
+
+export interface TeleportZoneSnapshot {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  destinationLocationId: LocationId;
+}
+
+export interface LocationPresentation {
+  name: string;
+  width: number;
+  height: number;
+  theme: "settlement" | "dense-forest";
 }
 
 export type NpcKind = "guide" | "healer" | "merchant";
@@ -40,4 +60,7 @@ export interface WorldStateSnapshot {
   players: WorldPlayerSnapshot[];
   encounters: EncounterSnapshot[];
   npcs: NpcSnapshot[];
+  location?: LocationPresentation;
+  teleports?: TeleportZoneSnapshot[];
+  serverTime?: number;
 }

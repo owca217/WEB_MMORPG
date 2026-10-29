@@ -121,6 +121,16 @@ describe("ChatService", () => {
     expect(chat.nearbyRecipients(send("speaker", "Cleared", "nearby", 2000))).toEqual(["speaker"]);
   });
 
+  it("uses the larger forest bounds for nearby chat at its eastern and southern edges",()=>{
+    const {chat,add,send}=setup();
+    add("speaker",1800,1100,"eastern-forest-01");
+    add("listener",1840,1100,"eastern-forest-01");
+    add("settler",1500,800,"forest-settlement-01");
+    chat.setViewport("listener",{width:400,height:300});
+    chat.setViewport("settler",{width:1600,height:900});
+    expect(chat.nearbyRecipients(send("speaker"))).toEqual(["speaker","listener"]);
+  });
+
   it("excludes battle participants from nearby chat while preserving global chat", () => {
     const { chat, fighting, add, send } = setup();
     add("speaker"); add("fighter"); add("listener");

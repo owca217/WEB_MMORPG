@@ -144,7 +144,7 @@ export class GameSocket {
     this.setConnectionState("disconnected");
   }
 
-  sendMoveIntent(position: { x: number; y: number }): void {
+  sendMoveIntent(position: { x: number; y: number; locationId?:string }): void {
     this.connect().emit("moveIntent", position);
   }
 

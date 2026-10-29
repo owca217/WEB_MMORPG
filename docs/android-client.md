@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany `WEB-MMORPG-0.1.13.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [WEB-MMORPG-0.1.14.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.14/WEB-MMORPG-0.1.14.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -33,6 +33,8 @@ Wersja 0.1.11 dodaje siedem biegłości broni w panelu postaci: miecze, topory, 
 Wersja 0.1.12 dodaje kostury leczące i tarcze do stylów walki. Kostur leczy siebie w walce za 3 AP, raz na turę; na mapie pozwala leczyć siebie i pobliskich członków drużyny w tej samej lokacji (zasięg 160, odnowienie 10 sekund, poza walka). Nie usuwa urazow ani nie wskrzesza. Biegłość kosturów rosnie tylko za faktycznie przywrócone HP. Tarcza pasywnie ogranicza obrażenia atakow po pancerzu o 10-25%, zostawiajac co najmniej 1 obrażenie; rozwija się przy skutecznie ograniczonych uderzeniach, bez treningu za krwawienie. Auto moze uleczyć siebie przy HP do 35%, jeśli akcja jest dostępna.
 
 Wersja 0.1.13 dodaje wspólne walki drużynowe. Rozpoczęcie spotkania dołącza dostępnych, żywych członków drużyny online w tej samej lokacji, niezależnie od odległości; postacie już walczące lub zajęte są pomijane. Wszyscy widzą tę samą arenę, a każdy steruje własną postacią podczas jej tury i osobno włącza Auto. Kostur może leczyć żywego sojusznika w zasięgu 6 pól i linii widzenia za 3 AP, raz na turę; nie wskrzesza. Pula doświadczenia jest dzielona przez liczbę uczestników na początku walki, a złoto, łup i premia drużyny rozliczane osobno. Rozłączenie usuwa tylko daną postać, zachowuje jej bieżące HP i urazy oraz pozbawia ją nagród za tę walkę; pozostali mogą kontynuować. Po zakończeniu żywi wracają na poprzednie pozycje, a pokonani odradzają się w osadzie.
+
+Wersja 0.1.14 dodaje „Gęsty Las” na wschód od osady. Wejście w oznaczony obszar przy prawej krawędzi osady przenosi do lasu, a obszar przy lewej krawędzi lasu prowadzi z powrotem. Las zawiera nowe grupy dzików, pająków leśnych i wilków. Pokonana grupa odradza się po 3 minutach; znacznik pokazuje pozostały czas i blokuje ponowną walkę. Licznik jest wspólny dla graczy i zapisany na serwerze, więc ponowne logowanie ani restart serwera go nie skracają.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

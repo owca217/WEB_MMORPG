@@ -5,7 +5,7 @@ import { getEnvironmentTextureKey, VEGETATION_FRAMES, type TerrainTextureId, typ
 const ROAD_EDGE = [
   [240, 435], [325, 432], [410, 437], [490, 433], [575, 438], [655, 433], [735, 435],
   [820, 432], [905, 435], [985, 429], [1075, 426], [1160, 422], [1240, 423], [1327, 419],
-  [1350, 438], [1350, 480], [1324, 492], [1245, 488], [1163, 494], [1079, 495], [992, 503],
+  [1440, 419], [1600, 419], [1600, 490], [1440, 492], [1324, 492], [1245, 488], [1163, 494], [1079, 495], [992, 503],
   [909, 504], [823, 509], [739, 505], [655, 509], [575, 503], [493, 507], [410, 502], [325, 507], [240, 503]
 ] as const;
 
@@ -30,12 +30,12 @@ export class ForestSettlementRenderer {
     } else this.keep(this.scene.add.rectangle(510, 445, 820, 570, 0x667b49, 0.7).setDepth(-29));
     const woodland = this.tile("forest-floor", 1285, 450, 630, 900, -28);
     if (woodland) this.mask(woodland, [[980, 0], [1600, 0], [1600, 900], [980, 900], [995, 810], [967, 715], [995, 620], [973, 540], [991, 420], [970, 315], [998, 215], [976, 100]]);
-    const road = this.tile("worn-earth", 795, 465, 1130, 110, -26);
+    const road = this.tile("worn-earth", 920, 465, 1360, 110, -26);
     if (road) this.mask(road, ROAD_EDGE);
     else {
       const path = this.keep(this.scene.add.graphics().setDepth(-26));
-      path.lineStyle(70, 0x8b744e, 1).beginPath().moveTo(250, 470).lineTo(930, 470).lineTo(1325, 455).strokePath();
-      path.lineStyle(42, 0xa38a5e, 0.7).beginPath().moveTo(250, 470).lineTo(930, 470).lineTo(1325, 455).strokePath();
+      path.lineStyle(70, 0x8b744e, 1).beginPath().moveTo(250, 470).lineTo(930, 470).lineTo(1600, 455).strokePath();
+      path.lineStyle(42, 0xa38a5e, 0.7).beginPath().moveTo(250, 470).lineTo(930, 470).lineTo(1600, 455).strokePath();
     }
     for (const building of layout.buildings) {
       this.keep(this.scene.add.rectangle(building.x, building.y, building.width, building.height,

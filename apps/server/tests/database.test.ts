@@ -29,6 +29,7 @@ describeDatabase("item catalog database", () => {
         "accounts",
         "account_sessions",
         "characters",
+        "encounter_respawns",
         "admin_audit_log",
         "category_allowed_stats",
         "item_categories",
@@ -58,7 +59,8 @@ describeDatabase("item catalog database", () => {
       { migration_name: "006_container_slots" },
       { migration_name: "007_social" },
       { migration_name: "008_merchant" },
-      { migration_name: "009_weapon_proficiencies" }
+      { migration_name: "009_weapon_proficiencies" },
+      { migration_name: "010_encounter_respawns" }
     ]);
   });
 

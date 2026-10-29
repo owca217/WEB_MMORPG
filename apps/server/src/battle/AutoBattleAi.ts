@@ -1,4 +1,4 @@
-import { mitigatedBattleDamage, movementApCost, rangedAttackApCost, type BattleCommand, type HexCoord, type PlayerId } from "@web-mmorpg/shared";
+import { mitigatedBattleDamage, movementApCost, rangedAttackApCost, STAFF_HEAL_AP_COST, type BattleCommand, type HexCoord, type PlayerId } from "@web-mmorpg/shared";
 import type { BattleState } from "./BattleEngine";
 import type { CombatantState } from "./injuries";
 import { hexDistance, hexKey, hexNeighbors } from "./hex";
@@ -24,10 +24,10 @@ function attackOptions(actor:CombatantState,position:HexCoord,enemies:CombatantS
     const distance=hexDistance(position,enemy.position);
     const result:AttackOption[]=[];
     if(distance===1)result.push({command:{type:"meleeAttack",combatantId:actor.id,targetId:enemy.id},target,
-      damage:mitigatedBattleDamage(actor.combatStats?.meleeDamage??20,enemy.combatStats?.armor??0),cost:2});
+      damage:mitigatedBattleDamage(actor.combatStats?.meleeDamage??20,enemy.combatStats?.armor??0,enemy.combatStats?.blockPercent??0),cost:2});
     if(distance>0 && distance<=6 && hasLineOfSight(position,enemy.position,blockers))result.push({
       command:{type:"rangedAttack",combatantId:actor.id,targetId:enemy.id},target,
-      damage:mitigatedBattleDamage(actor.combatStats?.rangedDamage??15,enemy.combatStats?.armor??0),cost:rangedAttackApCost(actor)});
+      damage:mitigatedBattleDamage(actor.combatStats?.rangedDamage??15,enemy.combatStats?.armor??0,enemy.combatStats?.blockPercent??0),cost:rangedAttackApCost(actor)});
     return result;
   });
 }
@@ -80,6 +80,10 @@ export function chooseAutoBattleCommand(state:BattleState,playerId:PlayerId):Bat
   const enemies=Object.values(state.combatants).filter(unit=>unit.side!==actor.side && unit.hp>0)
     .sort((a,b)=>a.hp-b.hp || a.id.localeCompare(b.id));
   if(!enemies.length)return end;
+  const healingPower=actor.combatStats?.healingPower??0;
+  if(actor.hp<=actor.maxHp*0.35 && actor.hp<actor.maxHp && Number.isFinite(healingPower) && healingPower>=1 && !actor.healingUsedThisTurn && actor.ap>=STAFF_HEAL_AP_COST) {
+    return {type:"healSelf",combatantId:actor.id};
+  }
   const blockers=new Set(state.arena.blockedCells.map(hexKey));
   const budget=Math.min(8,actor.ap);
   let best:PositionPlan|undefined;

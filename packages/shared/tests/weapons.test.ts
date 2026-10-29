@@ -4,10 +4,10 @@ import { getWeaponCombatStatistics, getWeaponProficiency, isWeaponLoadout, norma
 it("normalizes legacy, malformed and out-of-range training without sharing mutable state",()=>{
   const input={experience:{sword:12.9,axe:-2,hammer:Infinity,dagger:"30",spear:30000,bow:NaN,crossbow:40},loadout:{melee:"axe",ranged:"crossbow"}};
   const normalized=normalizeWeaponTraining(input);
-  expect(normalized).toEqual({experience:{sword:12,axe:0,hammer:0,dagger:0,spear:25250,bow:0,crossbow:40},loadout:{melee:"axe",ranged:"crossbow"}});
+  expect(normalized).toEqual({experience:{sword:12,axe:0,hammer:0,dagger:0,spear:25250,bow:0,crossbow:40,staff:0,shield:0},loadout:{melee:"axe",ranged:"crossbow"}});
   normalized.experience.sword=99;normalized.loadout.melee="sword";
   expect(input.experience.sword).toBe(12.9);expect(input.loadout.melee).toBe("axe");
-  expect(normalizeWeaponTraining(null)).toEqual({experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0},loadout:{melee:"sword",ranged:"bow"}});
+  expect(normalizeWeaponTraining(null)).toEqual({experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow"}});
   expect(normalizeWeaponTraining({experience:[],loadout:{melee:"bow",ranged:"axe"}}).loadout).toEqual({melee:"sword",ranged:"bow"});
 });
 

@@ -44,6 +44,7 @@ export interface PlayerBattleOutcome {
 
 export interface AppliedBattleCommand {
   weaponTraining?:{family:WeaponFamily;amount:number};
+  shieldTraining?:number;
   result: BattleResult;
   snapshot?: BattleSnapshot;
   finished: boolean;
@@ -69,7 +70,9 @@ export class BattleService {
     const combatStats: CombatStatistics = {
       meleeDamage: statistics.meleeDamage,
       rangedDamage: statistics.rangedDamage,
-      armor: statistics.armor
+      armor: statistics.armor,
+      ...(statistics.healingPower!==undefined ? {healingPower:statistics.healingPower} : {}),
+      ...(statistics.blockPercent!==undefined ? {blockPercent:statistics.blockPercent} : {})
     };
     const wolfCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
     const healthFactor = wolfCount === 3 ? 0.65 : wolfCount === 2 ? 0.75 : 1;
@@ -192,6 +195,8 @@ export class BattleService {
       };
     }
 
+    const beforeHero=Object.values(active.state.combatants).find(combatant=>combatant.ownerPlayerId===playerId);
+    const previousShieldBlocks=beforeHero?.shieldBlocks??0;
     const playerResult = applyBattleCommand(active.state, playerId, command);
     if (!playerResult.ok) {
       return { result: playerResult, finished: false, victory: false };
@@ -204,6 +209,7 @@ export class BattleService {
       (combatant) => combatant.ownerPlayerId === playerId
     );
     const victory = active.state.finished && Boolean(playerCombatant && playerCombatant.hp > 0);
+    const shieldTraining=Math.max(0,(playerCombatant?.shieldBlocks??0)-previousShieldBlocks);
     const playerOutcome = active.state.finished && playerCombatant
       ? {
           hp: playerCombatant.hp,
@@ -216,6 +222,8 @@ export class BattleService {
       result,
       snapshot,
       ...((command.type==="meleeAttack" || command.type==="rangedAttack") ? {weaponTraining:{family:command.type==="meleeAttack" ? active.weaponLoadout.melee : active.weaponLoadout.ranged,amount:1}} : {}),
+      ...(command.type==="healSelf" ? {weaponTraining:{family:"staff" as const,amount:1}} : {}),
+      ...(shieldTraining>0 ? {shieldTraining} : {}),
       finished: active.state.finished,
       victory,
       encounterId: active.encounterId,
@@ -311,6 +319,7 @@ export class BattleService {
         name: combatant.name,
         ...(combatant.level !== undefined ? { level: combatant.level } : {}),
         ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {}),
+        ...(combatant.healingUsedThisTurn ? {healingUsedThisTurn:true} : {}),
         hp: combatant.hp,
         maxHp: combatant.maxHp,
         ap: combatant.ap,

@@ -28,6 +28,7 @@ export interface CombatantSnapshot {
   name: string;
   level?: number;
   combatStats?: CombatStatistics;
+  healingUsedThisTurn?: boolean;
   hp: number;
   maxHp: number;
   ap: number;
@@ -52,6 +53,7 @@ export interface BattleSnapshot {
 }
 
 export type BattleCommand =
+  | { type: "healSelf"; combatantId: EntityId }
   | { type: "move"; combatantId: EntityId; target: HexCoord }
   | { type: "meleeAttack"; combatantId: EntityId; targetId: EntityId }
   | { type: "rangedAttack"; combatantId: EntityId; targetId: EntityId }

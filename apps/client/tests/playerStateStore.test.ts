@@ -44,7 +44,7 @@ describe("PlayerStateStore", () => {
 
   it("returns defensive copies so UI code cannot mutate shared state", () => {
     const store = new PlayerStateStore();
-    const state:PlayerStateSnapshot={...snapshot,character:{...snapshot.character,weaponTraining:{experience:{sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0},loadout:{melee:"sword",ranged:"bow"}}}};
+    const state:PlayerStateSnapshot={...snapshot,character:{...snapshot.character,weaponTraining:{experience:{sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow"}}}};
     store.subscribe(received=>{received.character.weaponTraining!.experience.axe=100;});
     store.set(state);
     state.character.weaponTraining!.experience.sword=0;

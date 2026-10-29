@@ -64,7 +64,7 @@ export class CharacterPanel {
     const training = normalizeWeaponTraining(character.weaponTraining);
     const sameCharacter = this.character?.playerId === character.playerId;
     const dirty = this.draft && this.savedLoadout &&
-      (this.draft.melee !== this.savedLoadout.melee || this.draft.ranged !== this.savedLoadout.ranged);
+      (this.draft.melee !== this.savedLoadout.melee || this.draft.ranged !== this.savedLoadout.ranged || this.draft.support !== this.savedLoadout.support || this.draft.defense !== this.savedLoadout.defense);
     if (!sameCharacter) {
       this.requestVersion += 1;
       this.saving = false;
@@ -73,9 +73,7 @@ export class CharacterPanel {
     if (!sameCharacter || !this.draft || (!this.saving && !dirty)) this.draft = { ...training.loadout };
     this.savedLoadout = { ...training.loadout };
     this.character = structuredClone(character);
-    const focusedMode = this.isTyping
-      ? (document.activeElement as HTMLElement).hasAttribute("data-weapon-melee") ? "melee" : "ranged"
-      : undefined;
+    const focusedMode = this.isTyping ? (["melee", "ranged", "support", "defense"] as const).find(mode => document.activeElement?.hasAttribute(`data-weapon-${mode}`)) : undefined;
     const injuries = character.injuries.length
       ? character.injuries.map((injury) => INJURY_LABELS[injury]).join(", ")
       : "Brak";
@@ -116,19 +114,22 @@ export class CharacterPanel {
           <div><dt>Obrażenia wręcz</dt><dd data-stat="meleeDamage">${statistics.meleeDamage}</dd></div>
           <div><dt>Obrażenia dystansowe</dt><dd data-stat="rangedDamage">${statistics.rangedDamage}</dd></div>
           <div><dt>Pancerz</dt><dd data-stat="armor">${statistics.armor}</dd></div>
+          ${statistics.healingPower ? `<div><dt>Moc leczenia</dt><dd data-stat="healingPower">${statistics.healingPower} HP</dd></div>` : ""}
+          ${statistics.blockPercent ? `<div><dt>Redukcja tarczy</dt><dd data-stat="blockPercent">${new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(statistics.blockPercent)}%</dd></div>` : ""}
         </dl>
         <p>STR zwiększa obrażenia wręcz, DEX obrażenia dystansowe, a VIT maksymalne HP. Pancerz zmniejsza otrzymywane obrażenia.</p>
         <p>Obrażenia podano przed pancerzem celu i wpływem urazów.</p>
       </section>
       <section class="character-sheet__section">
         <h3>Władanie bronią</h3>
-        <p>Każdy skuteczny atak rozwija używany styl o 1 punkt treningu, także w trybie Auto. Biegłość 0–100 zwiększa obrażenia do 25%. Nowy bonus działa od następnej walki.</p>
+        <p>Skuteczne ataki rozwijają broń, rzeczywiste leczenie rozwija kostury, a ograniczone tarczą ataki przeciwnika rozwijają tarcze. Trening działa także w Auto. Biegłości mają poziomy 0–100; nowe premie walki działają od kolejnego starcia.</p>
         <div class="weapon-proficiencies">
           ${WEAPON_FAMILIES.map(family => {
             const skill = getWeaponProficiency(training.experience[family.id]);
-            const bonus = new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(skill.damageBonusPercent);
+            const format = (value:number) => new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(value);
+            const bonus = family.mode === "defense" ? `${format(10 + skill.level * 0.15)}% redukcji` : `+${format(skill.damageBonusPercent)}% ${family.mode === "support" ? "leczenia" : "obrażeń"}`;
             return `<div class="weapon-proficiency" data-weapon-family="${family.id}">
-              <div class="weapon-proficiency__summary"><strong>${family.label}</strong><span data-weapon-level>${skill.level}/100</span><span data-weapon-bonus>+${bonus}% obrażeń</span></div>
+              <div class="weapon-proficiency__summary"><strong>${family.label}</strong><span data-weapon-level>${skill.level}/100</span><span data-weapon-bonus>${bonus}</span></div>
               <div class="weapon-proficiency__bar" role="progressbar" aria-label="Biegłość: ${family.label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${skill.percentage}"><span style="width:${skill.percentage}%"></span></div>
               <small>${skill.level === 100 ? "Maksymalna biegłość" : `${skill.current} / ${skill.required} punktów do kolejnego poziomu`}</small>
             </div>`;
@@ -138,9 +139,11 @@ export class CharacterPanel {
           <legend>Stosowany styl broni</legend>
           <label>Walka wręcz<select data-weapon-melee>${WEAPON_FAMILIES.filter(family => family.mode === "melee").map(family => `<option value="${family.id}" ${this.draft?.melee === family.id ? "selected" : ""}>${family.label}</option>`).join("")}</select></label>
           <label>Walka dystansowa<select data-weapon-ranged>${WEAPON_FAMILIES.filter(family => family.mode === "ranged").map(family => `<option value="${family.id}" ${this.draft?.ranged === family.id ? "selected" : ""}>${family.label}</option>`).join("")}</select></label>
+          <label>Wsparcie<select data-weapon-support><option value="none">Bez kostura</option><option value="staff" ${this.draft?.support === "staff" ? "selected" : ""}>Kostur leczący</option></select></label>
+          <label>Obrona<select data-weapon-defense><option value="none">Bez tarczy</option><option value="shield" ${this.draft?.defense === "shield" ? "selected" : ""}>Tarcza</option></select></label>
           <button type="button" data-save-weapon-style ${this.saving ? "disabled" : ""}>${this.saving ? "Zapisywanie…" : "Zapisz style"}</button>
         </fieldset>
-        <p>Wybór stylu określa biegłość trenowaną przez ataki wręcz i dystansowe. Można go zmienić poza walką; nie zakłada przedmiotu z ekwipunku.</p>
+        <p>Wybierz style ataku, opcjonalny kostur leczący i tarczę. Kostur leczy siebie w walce oraz pobliskich członków drużyny na mapie. Tarcza ogranicza obrażenia ataków. Style można zmieniać poza walką; wybór nie zakłada przedmiotu z ekwipunku.</p>
         <p role="status" data-weapon-style-status></p>
       </section>
       <section class="character-sheet__section">
@@ -159,7 +162,7 @@ export class CharacterPanel {
     const injuryElement = this.content.querySelector<HTMLElement>("[data-injuries]");
     if (injuryElement) injuryElement.textContent = injuries;
     this.require<HTMLElement>("[data-weapon-style-status]").textContent = this.status;
-    for (const mode of ["melee", "ranged"] as const) {
+    for (const mode of ["melee", "ranged", "support", "defense"] as const) {
       const select = this.require<HTMLSelectElement>(`[data-weapon-${mode}]`);
       select.addEventListener("change", () => {
         if (this.draft) Object.assign(this.draft, { [mode]: select.value });

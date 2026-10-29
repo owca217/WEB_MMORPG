@@ -1,4 +1,4 @@
-import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
+import { normalizeWeaponTraining, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
 import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { experienceProgressMarkup } from "./ExperienceProgress";
@@ -7,6 +7,7 @@ interface WorldHudHandlers {
   onInventory?: () => void;
   onContainerSlot?: (slotIndex: ContainerSlotIndex) => void;
   onCharacter: () => void;
+  onHealing?: () => void;
   onAdmin: () => void;
   onLogout?: () => void;
 }
@@ -21,6 +22,8 @@ export class WorldHud {
   private readonly ap: HTMLElement;
   private readonly gold: HTMLElement;
   private readonly connection: HTMLElement;
+  private readonly healingButton:HTMLButtonElement;
+  private readonly hasHealing:boolean;
   private readonly adminButton: HTMLButtonElement;
   private readonly containerSlots: HTMLButtonElement[] = [];
   private readonly content: HTMLElement;
@@ -59,13 +62,18 @@ export class WorldHud {
       </div>
       <div class="world-hud__actions">
         <button type="button" data-character>Postać</button>
+        <button type="button" data-healing hidden>Leczenie</button>
         <button type="button" data-admin hidden>Panel ADMIN</button>
         <button type="button" data-logout>Wyloguj</button>
       </div>
       </div>
     `;
+    for(const type of ["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend"])this.root.addEventListener(type,event=>event.stopPropagation());
     document.body.appendChild(this.root);
 
+    this.healingButton=this.require<HTMLButtonElement>("[data-healing]");
+    this.hasHealing=Boolean(handlers.onHealing);
+    this.healingButton.addEventListener("click",()=>{if(!this.healingButton.hidden)handlers.onHealing?.();});
     this.content = this.require("[data-hud-content]");
     this.toggleButton = this.require<HTMLButtonElement>("[data-hud-toggle]");
     this.compactViewport = typeof window.matchMedia === "function"
@@ -113,6 +121,7 @@ export class WorldHud {
 
   update(state: PlayerStateSnapshot): void {
     const character = state.character;
+    this.healingButton.hidden=!this.hasHealing || normalizeWeaponTraining(character.weaponTraining).loadout.support!=="staff";
     this.name.textContent = character.nickname;
     this.hp.textContent = `${character.hp}/${character.maxHp}`;
     this.level.textContent = `${character.level}`;

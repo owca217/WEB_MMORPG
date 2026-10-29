@@ -148,3 +148,12 @@ describe("WorldHud session controls", () => {
     hud.destroy();
   });
 });
+
+it("offers world healing only while a staff style is active",()=>{
+ const onHealing=vi.fn(),hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onHealing});
+ const character={playerId:"hero",nickname:"Hero",level:1,hp:50,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+ hud.update({character,inventory:{items:[]}});
+ const healing=document.querySelector<HTMLButtonElement>('[data-healing]')!;expect(healing.hidden).toBe(true);healing.click();expect(onHealing).not.toHaveBeenCalled();
+ hud.update({character:{...character,weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}},inventory:{items:[]}});
+ expect(healing.hidden).toBe(false);healing.click();expect(onHealing).toHaveBeenCalledOnce();hud.destroy();
+});

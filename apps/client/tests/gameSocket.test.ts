@@ -47,6 +47,19 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("guards healing requests and ignores acknowledgements from a replaced session",async()=>{
+    const pending=deferred<(value:unknown)=>void>();
+    const game=await startServer((_token,ack,socket)=>{
+      socket.removeAllListeners("castHealing");socket.removeAllListeners("requestHealingTargets");
+      socket.on("requestHealingTargets",reply=>reply({ok:true,targets:[],healingPower:20,cooldownMs:0}));
+      socket.on("castHealing",(payload,reply)=>{expect(payload).toEqual({requestId:"heal-1",targetId:"ally"});pending.resolve(reply);});ack(authenticated);
+    });
+    expect(await game.requestHealingTargets()).toMatchObject({ok:false,code:"AUTHENTICATION_REQUIRED"});
+    await game.authenticate("healer");expect(await game.requestHealingTargets()).toMatchObject({ok:true,targets:[]});
+    const healing=game.castHealing({requestId:"heal-1",targetId:"ally"}),reply=await pending.promise;
+    await game.authenticate("replacement");reply({ok:true,requestId:"heal-1",targetId:"ally",restoredHp:20,cooldownMs:10000});
+    expect(await healing).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+  });
   it("sends weapon styles and rejects acknowledgements from a replaced or foreign character",async()=>{
     const pending=deferred<(value:unknown)=>void>();
     const game=await startServer((_token,ack,socket)=>{

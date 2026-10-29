@@ -1,5 +1,6 @@
 import {
   BATTLE_ITEM_AP_COST,
+  getBattleHealingPreview,
   type CharacterSnapshot,
   type CombatantSnapshot,
   type InjuryKind,
@@ -11,6 +12,7 @@ import "./BattleHud.css";
 
 interface BattleHudHandlers {
   onEndTurn: () => void;
+  onHealSelf?: () => void;
   onUseItem: (instanceId: string) => Promise<InventoryUpdateResult>;
   onInventoryChanged: (inventory: InventorySnapshot) => void;
   onToggleAuto?: () => void;
@@ -31,6 +33,7 @@ export class BattleHud {
   private readonly feedbackElement: HTMLElement;
   private readonly endButton: HTMLButtonElement;
   private readonly autoButton: HTMLButtonElement;
+  private healingPreview:ReturnType<typeof getBattleHealingPreview>|undefined;
   private ownCombatant: CombatantSnapshot | undefined;
   private character: CharacterSnapshot | undefined;
   private ownedTurn = false;
@@ -67,6 +70,8 @@ export class BattleHud {
           <div><dt>Wręcz</dt><dd data-melee-damage>—</dd></div>
           <div><dt>Dystans</dt><dd data-ranged-damage>—</dd></div>
           <div><dt>Pancerz</dt><dd data-armor>—</dd></div>
+          <div data-staff-stat hidden><dt>Leczenie</dt><dd data-healing-power>—</dd></div>
+          <div data-shield-stat hidden><dt>Tarcza</dt><dd data-shield-block>—</dd></div>
         </dl>
         <dl class="battle-hud__stats battle-hud__attributes" data-attributes hidden>
           <div><dt>Siła</dt><dd data-stat="strength">—</dd></div>
@@ -79,6 +84,7 @@ export class BattleHud {
         <p class="battle-hud__turn-status" data-turn-status>Oczekiwanie na postać</p>
         <p class="battle-hud__auto-status" data-auto-status hidden>Auto: wyłączone</p>
         <button type="button" class="battle-hud__auto" data-action="auto" hidden>Włącz auto</button>
+        <button type="button" class="battle-hud__heal" data-action="heal-self" hidden disabled>Leczenie kosturem</button>
         <button type="button" class="battle-hud__end-turn" data-action="end" disabled>Koniec tury</button>
       </section>
       <p class="battle-hud__feedback" data-battle-feedback role="status" aria-live="polite"></p>
@@ -95,6 +101,7 @@ export class BattleHud {
     this.autoButton.addEventListener("click", () => {
       if (!this.destroyed && !this.pending && !this.autoPending && this.ownCombatant && this.ownCombatant.hp > 0) this.handlers.onToggleAuto?.();
     });
+    this.requireElement<HTMLButtonElement>("[data-action='heal-self']").addEventListener("click",()=>{if(this.canAct() && this.healingPreview?.available)this.handlers.onHealSelf?.();});
     this.endButton.addEventListener("click", () => {
       if (this.canAct()) this.handlers.onEndTurn();
     });
@@ -110,13 +117,15 @@ export class BattleHud {
     ownCombatant: CombatantSnapshot | undefined,
     ownedTurn: boolean,
     inventory: InventorySnapshot,
-    character?: CharacterSnapshot
+    character?: CharacterSnapshot,
+    healingPreview?:ReturnType<typeof getBattleHealingPreview>
   ): void {
     if (this.destroyed) return;
     this.ownCombatant = ownCombatant;
     this.ownedTurn = ownedTurn;
     this.inventory = inventory;
     this.character = character;
+    this.healingPreview=healingPreview;
     this.render();
   }
 
@@ -152,6 +161,11 @@ export class BattleHud {
     this.requireElement("[data-melee-damage]").textContent = combatant?.combatStats ? `${combatant.combatStats.meleeDamage}` : "—";
     this.requireElement("[data-ranged-damage]").textContent = combatant?.combatStats ? `${combatant.combatStats.rangedDamage}` : "—";
     this.requireElement("[data-armor]").textContent = combatant?.combatStats ? `${combatant.combatStats.armor}` : "—";
+    const healingPower=combatant?.combatStats?.healingPower??0,blockPercent=combatant?.combatStats?.blockPercent??0;
+    this.requireElement("[data-staff-stat]").hidden=healingPower<=0;
+    this.requireElement("[data-healing-power]").textContent=`${healingPower} HP`;
+    this.requireElement("[data-shield-stat]").hidden=blockPercent<=0;
+    this.requireElement("[data-shield-block]").textContent=`${new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(blockPercent)}%`;
     const attributes = this.character?.statistics;
     this.requireElement("[data-attributes]").hidden = !combatant || !attributes;
     for (const stat of ["strength", "dexterity", "vitality"] as const) {
@@ -174,6 +188,11 @@ export class BattleHud {
     this.autoButton.disabled = this.pending || this.autoPending || !combatant || combatant.hp <= 0;
     this.root.dataset.autoBattle = String(this.autoBattle);
     this.endButton.disabled = !this.canAct();
+    const heal=this.requireElement<HTMLButtonElement>("[data-action='heal-self']");
+    heal.hidden=!this.handlers.onHealSelf || !(combatant?.combatStats?.healingPower);
+    heal.disabled=!this.canAct() || !this.healingPreview?.available;
+    heal.textContent=`Ulecz siebie · ${this.healingPreview?.amount??0} HP · ${this.healingPreview?.apCost??3} AP`;
+    heal.title=this.healingPreview?.reason??"Leczenie kosturem raz na turę";
     this.renderItems();
   }
 

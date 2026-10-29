@@ -7,12 +7,15 @@ import type { InventorySnapshot, InventoryUpdateResult, SetContainerSlotResult }
 import type { LocationId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 import type { WeaponLoadout, WeaponLoadoutResult } from "./weapons";
+import type { HealingRequest, HealingResult, HealingTargetsResult } from "./healing";
 
 export type SocketAuthResult =
   | { ok: true; characterId: string; locationId: LocationId }
   | { ok: false; code: string; message: string };
 
 export interface ClientToServerEvents {
+  requestHealingTargets: (ack: (result: HealingTargetsResult) => void) => void;
+  castHealing: (payload: HealingRequest, ack: (result: HealingResult) => void) => void;
   setWeaponLoadout: (payload:WeaponLoadout,ack:(result:WeaponLoadoutResult)=>void)=>void;
   requestMerchantShop: (payload: { npcId: string }, ack: (result: MerchantResult) => void) => void;
   purchaseMerchantItem: (payload: MerchantPurchase, ack: (result: MerchantResult) => void) => void;

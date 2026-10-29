@@ -127,6 +127,21 @@ describe("BattleScene completion", () => {
     events.emit("shutdown");
   });
 
+  it("sends one staff heal command and disables it after acknowledged use or while auto controls combat",()=>{
+    const commands:unknown[]=[];transport.on("battleCommand",value=>commands.push(value));
+    const actor={...initialBattle.combatants[0]!,hp:50,combatStats:{meleeDamage:20,rangedDamage:15,armor:0,healingPower:20,blockPercent:10}};
+    const battle={...initialBattle,combatants:[actor]};const {events}=createScene(battle);
+    const heal=document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')!;
+    expect(document.querySelector("[data-healing-power]")?.textContent).toBe("20 HP");
+    expect(document.querySelector("[data-shield-block]")?.textContent).toContain("10%");
+    expect(heal.hidden).toBe(false);expect(heal.disabled).toBe(false);heal.click();heal.click();
+    expect(commands).toEqual([{type:"healSelf",combatantId:actor.id}]);
+    transport.emit("battleState",{...battle,combatants:[{...actor,hp:70,ap:2,healingUsedThisTurn:true}]});
+    expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);events.emit("shutdown");
+    const automatic=createScene({...battle,autoBattle:true});
+    expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);automatic.events.emit("shutdown");
+  });
+
   beforeEach(() => {
     document.body.replaceChildren();
     transport = new EventEmitter();

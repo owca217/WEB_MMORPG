@@ -12,6 +12,7 @@ import { playerStateStore } from "../state/PlayerStateStore";
 import { sessionStateStore } from "../state/SessionStateStore";
 import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
+import { HealingPanel } from "../ui/HealingPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { MerchantPanel } from "../ui/ShopPanel";
@@ -54,6 +55,7 @@ export class WorldScene extends Phaser.Scene {
   private hud: WorldHud | undefined;
   private containerPicker: ContainerPicker | undefined;
   private containerContents: ContainerContentsPanel | undefined;
+  private healingPanel:HealingPanel|undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private merchantPanel: MerchantPanel | undefined;
@@ -177,6 +179,7 @@ export class WorldScene extends Phaser.Scene {
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
       onChangeContainer: (slotIndex) => this.containerPicker?.show(slotIndex)
     });
+    this.healingPanel=new HealingPanel({requestTargets:()=>gameSocket.requestHealingTargets(),cast:request=>gameSocket.castHealing(request)});
     const characterPanel = new CharacterPanel({
       onSetWeaponLoadout: loadout => gameSocket.setWeaponLoadout(loadout),
       onChanged: character => {
@@ -225,6 +228,7 @@ export class WorldScene extends Phaser.Scene {
     this.hud = new WorldHud({
       onContainerSlot: (slotIndex) => this.openContainerSlot(slotIndex),
       onCharacter: () => this.characterPanel?.toggle(),
+      onHealing:()=>{this.pointerTarget=null;this.pendingNpcAction=null;this.dismissNpcWindows();this.characterPanel?.hide();void this.healingPanel?.show();},
       onAdmin: () => {
         if (this.adminPanel) void this.adminPanel.showCatalog();
       },
@@ -269,12 +273,13 @@ export class WorldScene extends Phaser.Scene {
         this.containerPicker?.update(state.inventory);
         this.containerContents?.update(state.inventory);
         this.characterPanel?.update(state.character);
+        if(normalizeWeaponTraining(state.character.weaponTraining).loadout.support!=="staff")this.healingPanel?.hide();
         if(state.gold!==undefined)this.merchantPanel?.updateGold(state.gold);
       }),
       gameSocket.onNpcInteraction((payload) => this.showNpcDialogue(payload)),
       gameSocket.onConnectionState((state) => {
         this.hud?.setConnectionState(state);
-        if(state!=="connected"){this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
+        if(state!=="connected"){this.healingPanel?.hide();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
       }),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.pendingDialogueNpcId=null;
@@ -496,6 +501,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.healingPanel?.destroy();this.healingPanel=undefined;
     this.npcMenu?.destroy();this.npcMenu=undefined;
     this.npcs=[];this.selectedNpcId=null;this.pendingDialogueNpcId=null;
     this.pendingNpcAction=null;

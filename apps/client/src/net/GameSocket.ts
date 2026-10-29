@@ -1,4 +1,7 @@
 import type {
+  HealingRequest,
+  HealingResult,
+  HealingTargetsResult,
   BattleCommand,
   BattleAutoResult,
   BattleMode,
@@ -216,6 +219,25 @@ export class GameSocket {
 
   requestMerchantShop(npcId: string): Promise<MerchantResult> {
     return this.merchantRequest({ npcId });
+  }
+
+  async requestHealingTargets():Promise<HealingTargetsResult> {
+    const socket=this.connect(),version=this.authenticationVersion,playerId=this.socialCharacterId;
+    if(!this.sessionToken || this.authenticating || !socket.connected || !playerId)return {ok:false,code:"AUTHENTICATION_REQUIRED",message:"Połącz się z grą, aby używać kostura."};
+    try {
+      const result=await socket.timeout(10000).emitWithAck("requestHealingTargets");
+      if(this.socket!==socket || version!==this.authenticationVersion || playerId!==this.socialCharacterId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie zmieniło się. Otwórz leczenie ponownie."};
+      return result;
+    }catch{return {ok:false,code:"HEAL_TARGETS_FAILED",message:"Nie udało się pobrać celów leczenia."};}
+  }
+  async castHealing(payload:HealingRequest):Promise<HealingResult> {
+    const socket=this.connect(),version=this.authenticationVersion,playerId=this.socialCharacterId;
+    if(!this.sessionToken || this.authenticating || !socket.connected || !playerId)return {ok:false,code:"AUTHENTICATION_REQUIRED",message:"Połącz się z grą, aby używać kostura."};
+    try {
+      const result=await socket.timeout(10000).emitWithAck("castHealing",payload);
+      if(this.socket!==socket || version!==this.authenticationVersion || playerId!==this.socialCharacterId || (result.ok && (result.requestId!==payload.requestId || result.targetId!==payload.targetId)))return {ok:false,code:"SESSION_REPLACED",message:"Połączenie zmieniło się. Otwórz leczenie ponownie."};
+      return result;
+    }catch{return {ok:false,code:"HEAL_REQUEST_UNCERTAIN",message:"Brak potwierdzenia. Sprawdź wynik tego samego leczenia."};}
   }
 
   async setWeaponLoadout(loadout: WeaponLoadout): Promise<WeaponLoadoutResult> {

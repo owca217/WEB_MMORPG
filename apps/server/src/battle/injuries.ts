@@ -8,6 +8,8 @@ export interface CombatantState {
   name: string;
   level?: number;
   combatStats?: CombatStatistics;
+  healingUsedThisTurn?: boolean;
+  shieldBlocks?: number;
   hp: number;
   maxHp: number;
   ap: number;

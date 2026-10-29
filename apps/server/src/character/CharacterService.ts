@@ -86,7 +86,8 @@ export class CharacterService {
   setWeaponLoadout(playerId:PlayerId,loadout:WeaponLoadout):CharacterSnapshot {
     if(!isWeaponLoadout(loadout))throw new Error("INVALID_WEAPON_LOADOUT");
     const character=this.require(playerId);
-    character.weaponTraining={...normalizeWeaponTraining(character.weaponTraining),loadout:{...loadout}};
+    const training=normalizeWeaponTraining(character.weaponTraining);
+    character.weaponTraining=normalizeWeaponTraining({...training,loadout:{...training.loadout,...loadout}});
     character.statistics=getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
     return this.clone(character);
   }
@@ -122,6 +123,15 @@ export class CharacterService {
     const character = this.require(playerId);
     character.hp = character.maxHp;
     return this.clone(character);
+  }
+
+  restoreHp(playerId:PlayerId,amount:number):number {
+    if(!Number.isSafeInteger(amount) || amount<=0)throw new Error("INVALID_HEAL_AMOUNT");
+    const character=this.require(playerId);
+    if(character.hp<=0)throw new Error("COMBATANT_DOWN");
+    const restored=Math.max(0,Math.min(amount,character.maxHp-character.hp));
+    character.hp+=restored;
+    return restored;
   }
 
   removePlayer(playerId: PlayerId): void {

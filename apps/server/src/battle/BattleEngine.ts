@@ -5,7 +5,7 @@ import type {
   HexCoord,
   PlayerId
 } from "@web-mmorpg/shared";
-import { mitigatedBattleDamage } from "@web-mmorpg/shared";
+import { mitigatedBattleDamage, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
 import { findPath, hexDistance, hexKey } from "./hex";
 import { hasLineOfSight } from "./lineOfSight";
 import {
@@ -140,6 +140,7 @@ function advanceTurn(state: BattleState): BattleState {
   next.activeCombatantId = next.turnOrder[nextIndex]!;
   const active = next.combatants[next.activeCombatantId]!;
   active.ap = active.maxAp;
+  delete active.healingUsedThisTurn;
   return next;
 }
 
@@ -195,7 +196,9 @@ function applyAttack(
   const next = cloneState(state);
   const attacker = next.combatants[attackerId]!;
   const target = next.combatants[targetId]!;
-  const mitigatedDamage = mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0);
+  const armorDamage=mitigatedBattleDamage(damage,target.combatStats?.armor??0);
+  const mitigatedDamage = mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0,target.combatStats?.blockPercent??0);
+  if(mitigatedDamage<armorDamage)target.shieldBlocks=(target.shieldBlocks??0)+1;
   attacker.ap -= apCost;
   next.combatants[targetId] = applyDamageWithInjuries(target, mitigatedDamage, next.seed + next.round);
   next.finished = battleFinished(next.combatants);
@@ -207,6 +210,18 @@ function applyValidatedCommand(
   actor: CombatantState,
   command: BattleCommand
 ): BattleResult {
+  if(command.type==="healSelf") {
+    const power=actor.combatStats?.healingPower??0;
+    if(!Number.isFinite(power) || power<=0)return reject("HEAL_NO_STAFF","Wybierz kostur leczący przed walką.");
+    if(actor.healingUsedThisTurn)return reject("HEAL_ALREADY_USED","Kostur został już użyty w tej turze.");
+    if(actor.hp>=actor.maxHp)return reject("NO_HEAL_EFFECT","Masz pełne HP.");
+    if(actor.ap<STAFF_HEAL_AP_COST)return reject("INSUFFICIENT_AP",`Leczenie wymaga ${STAFF_HEAL_AP_COST} AP.`);
+    const amount=Math.min(actor.maxHp-actor.hp,Math.floor(power));
+    if(amount<=0)return reject("NO_HEAL_EFFECT","Kostur nie przywróci teraz HP.");
+    const next=cloneState(state),healed=next.combatants[actor.id]!;
+    healed.hp+=amount;healed.ap-=STAFF_HEAL_AP_COST;healed.healingUsedThisTurn=true;
+    return {ok:true,state:next};
+  }
   if (command.type === "move") {
     const allowed = new Set(state.arena.cells.map(hexKey));
     const blocked = new Set(state.arena.blockedCells.map(hexKey));

@@ -10,6 +10,7 @@ export * from "./social";
 export * from "./merchant";
 export * from "./characterProgression";
 export * from "./weapons";
+export * from "./healing";
 export * from "./characterSkins";
 export * from "./items";
 export * from "./admin";

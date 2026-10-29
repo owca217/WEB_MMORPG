@@ -1,0 +1,5 @@
+.game-panel.healing-panel { position:fixed; z-index:32; top:max(12px,var(--safe-area-top,0px)); right:max(12px,var(--safe-area-right,0px)); left:auto; transform:none; width:min(480px,calc(100vw - 24px)); max-height:calc(100dvh - 24px - var(--safe-area-top,0px) - var(--safe-area-bottom,0px)); overflow:auto; box-sizing:border-box; }
+.healing-panel[hidden] { display:none; }
+.healing-panel [data-healing-targets] { display:grid; gap:8px; }
+.healing-panel [data-heal-target] { min-height:44px; text-align:left; white-space:normal; }
+.healing-panel [data-healing-feedback] { min-height:1.4em; }

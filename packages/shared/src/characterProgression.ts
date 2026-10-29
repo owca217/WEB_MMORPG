@@ -2,6 +2,8 @@ export interface CombatStatistics {
   meleeDamage: number;
   rangedDamage: number;
   armor: number;
+  healingPower?: number;
+  blockPercent?: number;
 }
 
 export interface CharacterStatistics extends CombatStatistics {

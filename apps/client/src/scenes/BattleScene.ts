@@ -1,6 +1,7 @@
 import {
   areBattleEnemies,
   getBattleAttackPreview,
+  getBattleHealingPreview,
   getReachableBattleCells,
   hexKey,
   type InventorySnapshot,
@@ -74,6 +75,7 @@ export class BattleScene extends Phaser.Scene {
       onUseItem: (instanceId) => this.useItem(instanceId),
       onInventoryChanged: (inventory) => this.applyInventory(inventory),
       onEndTurn: () => this.requestEndTurn(),
+      onHealSelf: () => this.requestHealSelf(),
       onToggleAuto:()=>{void this.toggleAuto();}
     });
     this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
@@ -297,6 +299,13 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
+  private requestHealSelf():void {
+    const active=this.activeOwnedCombatant();
+    if(!active || !this.snapshot || !getBattleHealingPreview(this.snapshot,active.id).available)return;
+    this.pendingCommand=true;this.selectedTargetId=null;this.attackCard?.hide();this.refreshHud();
+    gameSocket.sendBattleCommand({type:"healSelf",combatantId:active.id});
+  }
+
   private requestEndTurn(): void {
     const active = this.activeOwnedCombatant();
     if (!active) return;
@@ -317,7 +326,7 @@ export class BattleScene extends Phaser.Scene {
     const state = player?.character.playerId === this.playerId ? player : null;
     const own = this.ownCombatant();
     const ownedTurn=Boolean(own && own.hp>0 && !snapshot.finished && snapshot.activeCombatantId===own.id && !this.pendingCommand && !this.pendingItem && !this.modePending);
-    this.hud.update(own, ownedTurn, state?.inventory ?? { items: [] }, state?.character);
+    this.hud.update(own, ownedTurn, state?.inventory ?? { items: [] }, state?.character, own ? getBattleHealingPreview(snapshot,own.id) : undefined);
     this.hud.setAutoBattle(Boolean(snapshot.autoBattle),this.modePending);
   }
 

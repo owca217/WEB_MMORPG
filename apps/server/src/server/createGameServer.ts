@@ -17,6 +17,9 @@ import { InventoryService } from "../inventory/InventoryService";
 import { LootService } from "../loot/LootService";
 import { WorldService } from "../world/WorldService";
 import { ActiveConnectionRegistry } from "./ActiveConnectionRegistry";
+import { SocialService } from "../social/SocialService";
+import type { PartyExperienceContext } from "../social/PartyService";
+import { socialFailure } from "../social/socialErrors";
 
 export interface GameServerOptions {
   pool: Pool;
@@ -75,6 +78,7 @@ export function createGameServer(
   const pendingBattleItemUses = new Map<PlayerId, Promise<void>>();
   const pendingAccountCleanup = new Map<string, Promise<void>>();
   const pendingAccountAuthentication = new Map<string, Promise<void>>();
+  const partyExperienceContexts = new Map<PlayerId,PartyExperienceContext|null>();
 
   const serializeAuthentication = <T>(account: string, authenticate: () => Promise<T>): Promise<T> => {
     const previous = pendingAccountAuthentication.get(account) ?? Promise.resolve();
@@ -92,6 +96,33 @@ export function createGameServer(
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: true, credentials: false }
   });
+  const social = new SocialService(options.pool, id => {
+    const owner=characterOwners.get(id);
+    const character=characters.getSnapshot(id);
+    if(!owner || !io.sockets.sockets.get(owner)?.connected || !character)return undefined;
+    return {id,nickname:character.nickname,level:character.level,online:true,inBattle:battles.hasBattle(id)};
+  }, id=>{
+    const player=world.getPlayer(id);const locationId=world.getPlayerLocationId(id);
+    return player && locationId ? {locationId,x:player.x,y:player.y} : undefined;
+  },()=>[...characterOwners.keys()]);
+  let socialDirty=false;
+  let socialBroadcast:Promise<void>|null=null;
+  const broadcastSocial = ():Promise<void> => {
+    socialDirty=true;
+    if(socialBroadcast)return socialBroadcast;
+    socialBroadcast=(async()=>{
+      while(socialDirty) {
+        socialDirty=false;
+        await Promise.allSettled([...characterOwners].map(async([id,owner])=>{
+          const target=io.sockets.sockets.get(owner);
+          if(!target?.connected)return;
+          const snapshot=await social.getSnapshot(id);
+          if(target.connected && characterOwners.get(id)===owner)target.emit("socialState",snapshot);
+        }));
+      }
+    })().finally(()=>{socialBroadcast=null;});
+    return socialBroadcast;
+  };
 
   io.on("connection", (socket) => {
     let characterId: PlayerId | null = null;
@@ -161,10 +192,10 @@ export function createGameServer(
       const releasedAccountId = accountId;
       const releasedLocationId = locationId;
       const pendingItemUse = releasedCharacterId ? pendingBattleItemUses.get(releasedCharacterId) : undefined;
+      const socialCleanup = releasedCharacterId && characterOwners.get(releasedCharacterId)===socket.id
+        ? social.removeDisconnected(releasedCharacterId) : Promise.resolve();
       const save = releasedCharacterId
-        ? pendingItemUse
-          ? pendingItemUse.catch(() => undefined).then(() => persistGameplayState(releasedCharacterId))
-          : persistGameplayState(releasedCharacterId)
+        ? Promise.allSettled([pendingItemUse,socialCleanup]).then(()=>persistGameplayState(releasedCharacterId))
         : Promise.resolve();
       unregisterConnection?.();
       unregisterConnection = null;
@@ -182,9 +213,11 @@ export function createGameServer(
         // A delayed old socket must never remove a newly hydrated projection.
         if (characterOwners.get(releasedCharacterId) !== socket.id) return;
         characterOwners.delete(releasedCharacterId);
+        partyExperienceContexts.delete(releasedCharacterId);
         battles.removeBattleForPlayer(releasedCharacterId);
         world.removePlayer(releasedCharacterId);
         characters.removePlayer(releasedCharacterId);
+        void broadcastSocial();
         if (releasedLocationId) {
           io.to(`location:${releasedLocationId}`).emit("worldState", world.snapshot(releasedLocationId));
         }
@@ -308,6 +341,8 @@ export function createGameServer(
             locationId: persisted.locationId
           });
           await emitPlayerState(persisted.id);
+          social.markChanged();
+          void broadcastSocial();
           io.to(`location:${persisted.locationId}`).emit(
             "worldState",
             world.snapshot(persisted.locationId)
@@ -334,6 +369,53 @@ export function createGameServer(
     socket.on("requestWorldState", () => {
       if (!characterId || !locationId) return;
       socket.emit("worldState", world.snapshot(locationId));
+    });
+
+    let socialRead:Promise<import("@web-mmorpg/shared").SocialSnapshot>|null=null;
+    let socialReadAt=0;
+    let socialReadOwner:string|null=null;
+    let socialReadVersion=-1;
+    const socialActionTimes:number[]=[];
+    socket.on("requestSocialState",async ack=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      if(!id || !ownsCharacter(id,version)){ack(socialFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
+      try {
+        if(!socialRead || socialReadOwner!==id || socialReadVersion!==version || Date.now()-socialReadAt>500) {
+          socialReadAt=Date.now();socialReadOwner=id;socialReadVersion=version;socialRead=social.getSnapshot(id);
+        }
+        const snapshot=await socialRead;
+        if(!ownsCharacter(id,version))throw new Error("SESSION_REPLACED");
+        ack({ok:true,social:snapshot});
+      }catch(error){socialRead=null;ack(socialFailure(error));}
+    });
+    socket.on("socialAction",async(payload,ack)=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      if(!id || !ownsCharacter(id,version)){ack(socialFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
+      const now=Date.now();while(socialActionTimes[0]!==undefined && now-socialActionTimes[0]>=10000)socialActionTimes.shift();
+      if(socialActionTimes.length>=20){ack(socialFailure(new Error("SOCIAL_RATE_LIMITED")));return;}
+      socialActionTimes.push(now);
+      try {
+        const completedTrade=await social.execute(id,payload);socialRead=null;
+        const trade=completedTrade??social.trades.getSnapshot(id);
+        let updatedInventory:import("@web-mmorpg/shared").InventorySnapshot|undefined;
+        if(payload.type==="confirmTrade" && trade?.status==="completed") {
+          for(const participant of trade.participants) {
+            const owner=characterOwners.get(participant.player.id);
+            const target=owner ? io.sockets.sockets.get(owner) : undefined;
+            const character=characters.getSnapshot(participant.player.id);
+            if(!target?.connected || !character)continue;
+            const items=await inventory.getSnapshot(participant.player.id);
+            if(participant.player.id===id)updatedInventory=items;
+            if(characterOwners.get(participant.player.id)===owner)target.emit("playerState",{character,inventory:items});
+          }
+        }
+        const snapshot=await social.getSnapshot(id);
+        if(!ownsCharacter(id,version))throw new Error("SESSION_REPLACED");
+        ack({ok:true,social:snapshot,...(updatedInventory ? {inventory:updatedInventory} : {})});
+        void broadcastSocial();
+      }catch(error){social.markChanged();socialRead=null;ack(socialFailure(error));void broadcastSocial();}
     });
 
     socket.on("updateChatViewport", (viewport) => {
@@ -373,13 +455,14 @@ export function createGameServer(
     });
 
     socket.on("moveIntent", (intent) => {
-      if (!characterId || battles.hasBattle(characterId)) return;
+      if (!characterId || battles.hasBattle(characterId) || social.isBusy(characterId)) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
       if (!currentLocationId) return;
 
       try {
         world.movePlayer(currentCharacterId, intent);
+        void social.checkDistance(currentCharacterId).then(changed=>{if(changed)void broadcastSocial();});
         io.to(`location:${currentLocationId}`).emit(
           "worldState",
           world.snapshot(currentLocationId)
@@ -536,17 +619,22 @@ export function createGameServer(
       });
     });
 
-    socket.on("startEncounter", ({ encounterId }) => {
+    socket.on("startEncounter", async ({ encounterId }) => {
       if (!characterId) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
+      const currentCharacterVersion = characterVersion;
       const character = characters.getSnapshot(currentCharacterId);
       if (!currentLocationId || !character) return;
 
       try {
+        await social.cancelForBattle(currentCharacterId);
+        if(!ownsCharacter(currentCharacterId,currentCharacterVersion))return;
         if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_ALREADY_STARTED");
         world.startEncounter(currentCharacterId, encounterId);
         const snapshot = battles.startBattle(character, encounterId);
+        partyExperienceContexts.set(currentCharacterId,social.parties.captureExperienceContext(currentCharacterId));
+        social.markChanged();void broadcastSocial();
         socket.leave(`location:${currentLocationId}`);
         socket.emit("battleStarted", snapshot);
       } catch (error) {
@@ -581,13 +669,17 @@ export function createGameServer(
         const beforeReward = characters.getSnapshot(currentCharacterId);
         let experienceGained = 0;
         let levelsGained = 0;
+        let partyBonusExperience = 0;
         if (applied.playerOutcome) {
           characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
         }
 
         if (applied.victory && applied.encounterId && applied.seed !== undefined) {
           // Disconnect saves must include earned XP even while loot persistence is pending.
-          const progressed = characters.awardExperience(currentCharacterId, applied.experienceReward ?? 0);
+          const baseExperience=applied.experienceReward??0;
+          const bonusPercent=social.parties.getExperienceBonus(currentCharacterId,partyExperienceContexts.get(currentCharacterId));
+          partyBonusExperience=Math.floor(baseExperience*bonusPercent/100);
+          const progressed = characters.awardExperience(currentCharacterId, baseExperience+partyBonusExperience);
           experienceGained = (progressed.experience ?? 0) - (beforeReward?.experience ?? 0);
           levelsGained = progressed.level - (beforeReward?.level ?? progressed.level);
           const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
@@ -613,10 +705,13 @@ export function createGameServer(
           inventory: inventorySnapshot,
           character,
           experienceGained,
-          levelsGained
+          levelsGained,
+          ...(partyBonusExperience ? {partyBonusExperience} : {})
         });
 
         battles.removeBattleForPlayer(currentCharacterId);
+        partyExperienceContexts.delete(currentCharacterId);
+        social.markChanged();void broadcastSocial();
         socket.join(`location:${currentLocationId}`);
         io.to(`location:${currentLocationId}`).emit(
           "worldState",
@@ -636,6 +731,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, loot, battles, characters, connections, chat }
+    services: { world, inventory, loot, battles, characters, connections, chat, social }
   };
 }

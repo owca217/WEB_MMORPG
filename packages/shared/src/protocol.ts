@@ -1,4 +1,5 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
+import type { SocialAction, SocialActionResult, SocialSnapshot } from "./social";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type { ChatChannel, ChatHistoryResult, ChatMessage, ChatSendResult, ChatViewport } from "./chat";
 import type { InventorySnapshot, InventoryUpdateResult, SetContainerSlotResult } from "./inventory";
@@ -10,6 +11,8 @@ export type SocketAuthResult =
   | { ok: false; code: string; message: string };
 
 export interface ClientToServerEvents {
+  socialAction: (payload: SocialAction, ack: (result: SocialActionResult) => void) => void;
+  requestSocialState: (ack: (result: SocialActionResult) => void) => void;
   authenticate: (
     payload: { sessionToken: string },
     ack: (result: SocketAuthResult) => void
@@ -42,6 +45,7 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  socialState: (snapshot: SocialSnapshot) => void;
   chatMessage: (message: ChatMessage) => void;
   worldState: (snapshot: WorldStateSnapshot) => void;
   playerState: (snapshot: PlayerStateSnapshot) => void;
@@ -54,6 +58,7 @@ export interface ServerToClientEvents {
     character: CharacterSnapshot;
     experienceGained?: number;
     levelsGained?: number;
+    partyBonusExperience?: number;
   }) => void;
   commandRejected: (payload: { code: string; message: string }) => void;
 }

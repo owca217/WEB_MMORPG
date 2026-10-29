@@ -18,6 +18,7 @@ vi.mock("../src/world/WorldEntitiesRenderer", () => ({ WorldEntitiesRenderer: cl
 import { gameSocket } from "../src/net/GameSocket";
 import { WorldScene } from "../src/scenes/WorldScene";
 import { playerStateStore } from "../src/state/PlayerStateStore";
+import { socialStateStore } from "../src/state/SocialStateStore";
 
 let transport: EventEmitter;
 
@@ -30,6 +31,13 @@ it("releases captured movement keys while typing chat and restores them when the
   document.querySelector<HTMLButtonElement>("[data-chat-toggle]")!.click();
   await Promise.resolve();
   expect(keyboard.enabled).toBe(false);expect(keyboard.disableGlobalCapture).toHaveBeenCalled();
+  socialStateStore.set({selfId:"hero",onlinePlayers:[],friends:[],incomingFriendRequests:[],outgoingFriendRequests:[],party:null,partyInvites:[],trade:null});
+  document.querySelector<HTMLButtonElement>("[data-social-toggle]")!.click();
+  document.querySelector<HTMLButtonElement>('[data-social-tab="friends"]')!.click();
+  document.querySelector<HTMLInputElement>("[data-friend-nickname]")!.focus();
+  await Promise.resolve();expect(keyboard.enabled).toBe(false);
+  document.querySelector<HTMLTextAreaElement>("[data-chat-input]")!.focus();
+  await Promise.resolve();expect(keyboard.enabled).toBe(false);
   document.querySelector<HTMLTextAreaElement>("[data-chat-input]")!.value="wasd";
   document.querySelector<HTMLButtonElement>("[data-chat-panel] [data-close]")!.click();
   await Promise.resolve();
@@ -38,6 +46,7 @@ it("releases captured movement keys while typing chat and restores them when the
   events.emit("shutdown");
   expect(transport.listenerCount("chatMessage")).toBe(0);
   expect(document.querySelector("[data-chat-widget]")).toBeNull();
+  expect(document.querySelector("[data-social-widget]")).toBeNull();socialStateStore.reset();
 });
 
 beforeEach(() => {

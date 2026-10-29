@@ -55,7 +55,8 @@ describeDatabase("item catalog database", () => {
       { migration_name: "003_item_icon_assets" },
       { migration_name: "004_item_special_fields" },
       { migration_name: "005_character_progression" },
-      { migration_name: "006_container_slots" }
+      { migration_name: "006_container_slots" },
+      { migration_name: "007_social" }
     ]);
   });
 

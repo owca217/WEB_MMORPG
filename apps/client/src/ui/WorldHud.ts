@@ -141,7 +141,8 @@ export class WorldHud {
   showBattleResult(result: BattleResultSummary): void {
     const outcome = result.outcome === "victory" ? "Zwycięstwo!" : "Porażka.";
     const growth = result.levelsGained > 0 ? ` Awans na poziom ${result.level}!` : "";
-    this.battleResult.textContent = `${outcome} +${result.experienceGained} XP.${growth}`;
+    const party = result.partyBonusExperience ? ` (w tym premia drużyny: +${result.partyBonusExperience} XP)` : "";
+    this.battleResult.textContent = `${outcome} +${result.experienceGained} XP${party}.${growth}`;
     this.battleResult.hidden = false;
   }
 

@@ -16,6 +16,7 @@ import { ContainerPicker } from "../ui/ContainerPicker";
 import { ContainerContentsPanel } from "../ui/ContainerContentsPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { ChatController } from "../ui/ChatController";
+import { SocialController } from "../ui/SocialController";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
 import { WorldEntitiesRenderer } from "../world/WorldEntitiesRenderer";
@@ -51,6 +52,7 @@ export class WorldScene extends Phaser.Scene {
   private dialoguePanel: DialoguePanel | undefined;
   private adminPanel: AdminPanel | undefined;
   private chat: ChatController | undefined;
+  private social:SocialController|undefined;
   private readonly onChatResize = () => this.updateChatViewport();
   private readonly cleanups: Array<() => void> = [];
 
@@ -162,16 +164,9 @@ export class WorldScene extends Phaser.Scene {
     this.chat = new ChatController({
       nearbyAvailable: true,
       onNearbyMessage: (message) => this.entitiesRenderer?.showSpeechBubble(message.senderId, message.text),
-      onTypingChange: (typing) => {
-        this.pointerTarget = null;
-        const keyboard = this.input.keyboard;
-        if (!keyboard) return;
-        keyboard.resetKeys?.();
-        keyboard.enabled = !typing;
-        if (typing) keyboard.disableGlobalCapture?.();
-        else keyboard.enableGlobalCapture?.();
-      }
+      onTypingChange: () => this.updateKeyboardCapture()
     });
+    this.social=new SocialController({inBattle:false,onTypingChange:()=>this.updateKeyboardCapture(),onInventoryChanged:inventory=>this.applyInventoryUpdate(inventory)});
     this.updateChatViewport();
     this.scale?.on("resize", this.onChatResize);
 
@@ -216,7 +211,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const typing = this.chat?.isTyping ?? false;
+    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping);
     if (typing) this.pointerTarget = null;
     const keyboardIntent = resolveKeyboardIntent({
       left: !typing && Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
@@ -355,6 +350,7 @@ export class WorldScene extends Phaser.Scene {
     this.scale?.off("resize", this.onChatResize);
     this.chat?.destroy();
     this.chat = undefined;
+    this.social?.destroy();this.social=undefined;
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.adminPanel?.destroy();
     this.hud?.destroy();
@@ -377,5 +373,12 @@ export class WorldScene extends Phaser.Scene {
   private updateChatViewport(): void {
     const zoom = this.cameras.main.zoom || 1;
     this.chat?.updateViewport({width: (this.scale?.width ?? window.innerWidth) / zoom, height: (this.scale?.height ?? window.innerHeight) / zoom});
+  }
+  private updateKeyboardCapture():void {
+    this.pointerTarget=null;
+    const keyboard=this.input.keyboard;if(!keyboard)return;
+    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping);
+    keyboard.resetKeys?.();keyboard.enabled=!typing;
+    if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();
   }
 }

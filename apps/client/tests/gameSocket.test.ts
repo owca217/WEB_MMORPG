@@ -5,6 +5,7 @@ import { Server, type Socket } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GameSocket, type ConnectionState } from "../src/net/GameSocket";
 import { chatStateStore } from "../src/state/ChatStateStore";
+import { socialStateStore } from "../src/state/SocialStateStore";
 
 const authenticated: SocketAuthResult = {
   ok: true, characterId: "character-1", locationId: "forest-settlement-01"
@@ -46,6 +47,23 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("applies authenticated social acknowledgements and ignores stale or foreign state pushes",async()=>{
+    const initial={revision:2,selfId:"character-1",onlinePlayers:[],friends:[],incomingFriendRequests:[],outgoingFriendRequests:[],party:null,partyInvites:[],trade:null};
+    const game=await startServer((_token,ack,socket)=>{
+      socket.on("requestSocialState",reply=>reply({ok:true,social:initial}));
+      socket.on("socialAction",(payload,reply)=>{
+        expect(payload).toEqual({type:"requestFriend",nickname:"Alicja"});
+        reply({ok:true,social:{...initial,revision:3}});
+      });ack(authenticated);
+    });
+    await game.authenticate("social-token");await game.requestSocialState();
+    expect(socialStateStore.get()?.revision).toBe(2);
+    await game.socialAction({type:"requestFriend",nickname:"Alicja"});
+    server!.emit("socialState",{...initial,revision:1});server!.emit("socialState",{...initial,selfId:"another-account",revision:99});
+    await game.requestSocialState();
+    expect(socialStateStore.get()?.selfId).toBe("character-1");expect(socialStateStore.get()?.revision).toBe(3);
+    game.disconnect();expect(socialStateStore.get()).toBeNull();
+  });
   it("ignores queued chat pushes while switching authenticated accounts", async () => {
     const game=await startServer((token,ack,socket)=>{
       if(token==="replacement-chat-account") socket.emit("chatMessage",{id:"old-push",channel:"nearby",senderId:"old",senderName:"Old",text:"Old vicinity",sentAt:1});

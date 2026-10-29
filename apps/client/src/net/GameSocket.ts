@@ -5,6 +5,9 @@ import type {
   ChatSendResult,
   ChatHistoryResult,
   ChatViewport,
+  SocialAction,
+  SocialActionResult,
+  SocialSnapshot,
   BattleSnapshot,
   CharacterSnapshot,
   ClientToServerEvents,
@@ -20,6 +23,7 @@ import type {
 import { io, type Socket } from "socket.io-client";
 import { resolveGameServerUrl } from "../hosting";
 import { chatStateStore } from "../state/ChatStateStore";
+import { socialStateStore } from "../state/SocialStateStore";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -30,6 +34,7 @@ export interface BattleEndedPayload {
   character: CharacterSnapshot;
   experienceGained?: number;
   levelsGained?: number;
+  partyBonusExperience?: number;
 }
 
 export interface BattleResultSummary {
@@ -37,11 +42,13 @@ export interface BattleResultSummary {
   experienceGained: number;
   levelsGained: number;
   level: number;
+  partyBonusExperience?: number;
 }
 
 export class GameSocket {
   private socket: GameClientSocket | null = null;
   private sessionToken: string | null = null;
+  private socialCharacterId:string|null=null;
   private authenticationVersion = 0;
   private connectionVersion = 0;
   private authenticating = false;
@@ -61,6 +68,9 @@ export class GameSocket {
     socket.on("chatMessage", (message) => {
       if (this.socket === socket && !this.authenticating && this.sessionToken) chatStateStore.add(message);
     });
+    socket.on("socialState",snapshot=>{
+      if(this.socket===socket && !this.authenticating && this.sessionToken && snapshot.selfId===this.socialCharacterId) socialStateStore.set(snapshot);
+    });
 
     socket.on("connect", () => {
       if (this.socket !== socket) return;
@@ -75,6 +85,7 @@ export class GameSocket {
       this.connectionVersion += 1;
       this.authenticationVersion += 1;
       this.authenticating = false;
+      socialStateStore.reset();
       this.setConnectionState("disconnected");
     });
     socket.on("connect_error", () => {
@@ -93,6 +104,7 @@ export class GameSocket {
   async authenticate(sessionToken: string): Promise<SocketAuthResult> {
     const socket = this.connect();
     if (this.sessionToken !== sessionToken) chatStateStore.reset();
+    socialStateStore.reset();this.socialCharacterId=null;
     this.sessionToken = null;
     this.authenticating = true;
     const version = ++this.authenticationVersion;
@@ -104,7 +116,7 @@ export class GameSocket {
       return this.authenticationFailure();
     }
     this.authenticating = false;
-    if (result.ok) this.sessionToken = sessionToken;
+    if (result.ok) {this.sessionToken = sessionToken;this.socialCharacterId=result.characterId;}
     this.setConnectionState(result.ok ? "connected" : "disconnected");
     return result;
   }
@@ -117,11 +129,32 @@ export class GameSocket {
     this.authenticating = false;
     socket?.disconnect();
     chatStateStore.reset();
+    socialStateStore.reset();this.socialCharacterId=null;
     this.setConnectionState("disconnected");
   }
 
   sendMoveIntent(position: { x: number; y: number }): void {
     this.connect().emit("moveIntent", position);
+  }
+
+  async requestSocialState():Promise<SocialActionResult> {
+    return this.socialRequest("requestSocialState");
+  }
+  async socialAction(action:SocialAction):Promise<SocialActionResult> {
+    return this.socialRequest("socialAction",action);
+  }
+  private async socialRequest(event:"requestSocialState"|"socialAction", action?:SocialAction):Promise<SocialActionResult> {
+    const socket=this.connect(),version=this.authenticationVersion;
+    try {
+      const result=event==="socialAction"
+        ? await socket.timeout(15000).emitWithAck("socialAction",action!)
+        : await socket.timeout(10000).emitWithAck("requestSocialState");
+      if(this.socket!==socket || version!==this.authenticationVersion || (result.ok && result.social.selfId!==this.socialCharacterId)) {
+        return {ok:false,code:"SESSION_REPLACED",message:"Połączenie zmieniło się. Odśwież panel."};
+      }
+      if(result.ok)socialStateStore.set(result.social);
+      return result;
+    }catch{return {ok:false,code:"SOCIAL_REQUEST_FAILED",message:"Nie udało się połączyć z serwerem. Spróbuj ponownie."};}
   }
 
   async sendChatMessage(channel: ChatChannel, text: string): Promise<ChatSendResult> {
@@ -276,6 +309,7 @@ export class GameSocket {
     if (!this.isCurrentAuthentication(socket, version, connectionVersion)) return;
     this.authenticating = false;
     if (result.ok) {
+      this.socialCharacterId=result.characterId;
       this.setConnectionState("connected");
       socket.emit("requestWorldState");
       socket.emit("requestPlayerState");

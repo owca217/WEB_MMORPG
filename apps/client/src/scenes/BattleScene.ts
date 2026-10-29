@@ -17,6 +17,7 @@ import { playerStateStore } from "../state/PlayerStateStore";
 import { BattleHud } from "../ui/BattleHud";
 import { BattleAttackCard } from "../ui/BattleAttackCard";
 import { ChatController } from "../ui/ChatController";
+import { SocialController } from "../ui/SocialController";
 import { axialToPixel, battleHexBounds, battleHexPolygon, calculateBattleLayout, type SafeInsets } from "./battleLayout";
 
 export { axialToPixel } from "./battleLayout";
@@ -40,6 +41,7 @@ export class BattleScene extends Phaser.Scene {
   private pendingItem = false;
   private disposed = true;
   private chat: ChatController | null = null;
+  private social:SocialController|null=null;
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
   private unsubscribeState: (() => void) | undefined;
   private unsubscribeEnded: (() => void) | undefined;
@@ -70,12 +72,8 @@ export class BattleScene extends Phaser.Scene {
       onEndTurn: () => this.requestEndTurn()
     });
     this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
-    this.chat = new ChatController({nearbyAvailable:false,onTypingChange:(typing)=>{
-      const keyboard=this.input?.keyboard;
-      if(!keyboard) return;
-      keyboard.resetKeys?.(); keyboard.enabled=!typing;
-      if(typing) keyboard.disableGlobalCapture?.(); else keyboard.enableGlobalCapture?.();
-    }});
+    this.chat = new ChatController({nearbyAvailable:false,onTypingChange:()=>this.updateKeyboardCapture()});
+    this.social=new SocialController({inBattle:true,onTypingChange:()=>this.updateKeyboardCapture(),onInventoryChanged:inventory=>this.applyInventory(inventory)});
     this.scale.on("resize", this.onResize);
     const hudElement = document.querySelector<HTMLElement>(".battle-hud");
     if (hudElement && typeof ResizeObserver !== "undefined") {
@@ -95,7 +93,8 @@ export class BattleScene extends Phaser.Scene {
           outcome: payload.outcome,
           experienceGained: payload.experienceGained ?? 0,
           levelsGained: payload.levelsGained ?? 0,
-          level: payload.character.level
+          level: payload.character.level,
+          ...(payload.partyBonusExperience ? {partyBonusExperience:payload.partyBonusExperience} : {})
         }
       });
     });
@@ -129,6 +128,7 @@ export class BattleScene extends Phaser.Scene {
       this.attackCard = null;
       this.chat?.destroy();
       this.chat = null;
+      this.social?.destroy();this.social=null;
       this.layout = null;
       this.clearRenderObjects();
     });
@@ -310,6 +310,12 @@ export class BattleScene extends Phaser.Scene {
 
   private ownCombatant(): CombatantSnapshot | undefined {
     return this.snapshot?.combatants.find(unit => unit.ownerPlayerId === this.playerId);
+  }
+  private updateKeyboardCapture():void {
+    const keyboard=this.input?.keyboard;if(!keyboard)return;
+    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping);
+    keyboard.resetKeys?.();keyboard.enabled=!typing;
+    if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();
   }
 
   private enemyAt(cell: HexCoord): CombatantSnapshot | undefined {

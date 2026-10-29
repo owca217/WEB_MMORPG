@@ -67,22 +67,69 @@ it("releases captured movement keys while typing chat and restores them when the
   expect(document.querySelector("[data-social-widget]")).toBeNull();socialStateStore.reset();
 });
 
-it("opens the merchant from NPC interaction and applies a purchase to inventory and gold HUD",async()=>{
+it("opens the merchant only after choosing Sklep and applies a purchase to inventory and gold HUD",async()=>{
   const shop={npcId:"merchant-miro",npcName:"Miro",gold:100,offers:[{itemId:"rag-bag",name:"Szmaciany worek",description:"Osiem miejsc",categoryId:"container",unitPrice:30,maxQuantity:1,capacity:8}]};
   const inventory:InventorySnapshot={items:[{instanceId:"bag",itemId:"rag-bag",itemDefinitionId:"def",name:"Szmaciany worek",category:"container",quantity:1,description:"",rarity:"COMMON",upgradeLevel:0,containerCapacity:8}]};
-  vi.spyOn(gameSocket,"requestMerchantShop").mockResolvedValue({ok:true,shop});
+  const requestShop=vi.spyOn(gameSocket,"requestMerchantShop").mockResolvedValue({ok:true,shop});
+  const talk=vi.spyOn(gameSocket,"interactNpc");
   vi.spyOn(gameSocket,"purchaseMerchantItem").mockResolvedValue({ok:true,shop:{...shop,gold:70},inventory});
   const scene=new WorldScene(),events=new EventEmitter();
   Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
   transport.emit("playerState",{character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory:{items:[]},gold:100});
-  transport.emit("npcInteraction",{npcId:shop.npcId,npcName:"Miro",kind:"merchant",title:"Sklep",lines:[],canHeal:false});
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],encounters:[],npcs:[{id:shop.npcId,name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95}]});
+  const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void}}).entitiesRenderer;
+  renderer.onNpcSelected(shop.npcId);
+  expect(requestShop).not.toHaveBeenCalled();expect(talk).not.toHaveBeenCalled();
+  document.querySelector<HTMLButtonElement>('[data-npc-action="shop"]')!.click();
   await vi.waitFor(()=>expect(document.querySelector<HTMLElement>("[data-merchant-panel]")?.classList.contains("is-hidden")).toBe(false));
   document.querySelector<HTMLButtonElement>('[data-merchant-buy="rag-bag"]')!.click();
   await vi.waitFor(()=>expect(playerStateStore.get()?.gold).toBe(70));
   expect(playerStateStore.get()?.inventory.items[0]?.itemId).toBe("rag-bag");
   expect(document.querySelector("[data-gold]")?.textContent).toBe("70");
   events.emit("shutdown");expect(document.querySelector("[data-merchant-panel]")).toBeNull();
+});
+
+it("routes Rozmowa to dialogue for both merchant and healer, retaining the healer action",()=>{
+  const talk=vi.spyOn(gameSocket,"interactNpc"),shop=vi.spyOn(gameSocket,"requestMerchantShop"),heal=vi.spyOn(gameSocket,"healAtNpc");
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],encounters:[],npcs:[{id:"merchant-miro",name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95},{id:"healer-ada",name:"Ada",kind:"healer",x:720,y:535,interactionRadius:95}]});
+  const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void}}).entitiesRenderer;
+  renderer.onNpcSelected("merchant-miro");
+  document.querySelector<HTMLButtonElement>('[data-npc-action="talk"]')!.click();
+  expect(talk).toHaveBeenLastCalledWith("merchant-miro");
+  transport.emit("npcInteraction",{npcId:"merchant-miro",npcName:"Miro",kind:"merchant",title:"Zaopatrzenie",lines:["Towary na drogę."],canHeal:false});
+  expect(document.querySelector(".dialogue-panel")?.textContent).toContain("Towary na drogę.");
+  expect(document.querySelector(".dialogue-panel")?.classList.contains("is-hidden")).toBe(false);
+  expect(shop).not.toHaveBeenCalled();
+  renderer.onNpcSelected("healer-ada");
+  expect(document.querySelector<HTMLButtonElement>('[data-npc-action="shop"]')?.hidden).toBe(true);
+  document.querySelector<HTMLButtonElement>('[data-npc-action="talk"]')!.click();
+  transport.emit("npcInteraction",{npcId:"healer-ada",npcName:"Ada",kind:"healer",title:"Lecznica",lines:[],canHeal:true});
+  document.querySelector<HTMLButtonElement>("[data-heal]")!.click();expect(heal).toHaveBeenCalledWith("healer-ada");
+  events.emit("shutdown");expect(document.querySelector("[data-npc-menu]")).toBeNull();
+});
+
+it("ignores delayed shop and dialogue responses after selecting a different NPC",async()=>{
+  let finishShop!:(result:unknown)=>void;
+  vi.spyOn(gameSocket,"requestMerchantShop").mockImplementation(()=>new Promise(resolve=>{finishShop=resolve as typeof finishShop;}));
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],encounters:[],npcs:[{id:"merchant-miro",name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95},{id:"guide-boran",name:"Boran",kind:"guide",x:610,y:420,interactionRadius:95}]});
+  const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void}}).entitiesRenderer;
+  renderer.onNpcSelected("merchant-miro");document.querySelector<HTMLButtonElement>('[data-npc-action="shop"]')!.click();
+  renderer.onNpcSelected("guide-boran");document.querySelector<HTMLButtonElement>('[data-npc-action="talk"]')!.click();
+  transport.emit("npcInteraction",{npcId:"merchant-miro",npcName:"Miro",kind:"merchant",title:"Stare",lines:[],canHeal:false});
+  expect(document.querySelector(".dialogue-panel")?.classList.contains("is-hidden")).toBe(true);
+  transport.emit("npcInteraction",{npcId:"guide-boran",npcName:"Boran",kind:"guide",title:"Las",lines:["Aktualna rozmowa"],canHeal:false});
+  finishShop({ok:true,shop:{npcId:"merchant-miro",npcName:"Miro",gold:100,offers:[]}});
+  await Promise.resolve();await Promise.resolve();
+  expect(document.querySelector("[data-merchant-panel]")?.classList.contains("is-hidden")).toBe(true);
+  expect(document.querySelector(".dialogue-panel")?.textContent).toContain("Aktualna rozmowa");
+  events.emit("shutdown");
 });
 
 beforeEach(() => {

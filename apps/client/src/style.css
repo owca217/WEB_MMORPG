@@ -755,6 +755,35 @@ button {
   line-height: 1.45;
 }
 
+.weapon-proficiencies {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.weapon-proficiency__summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.weapon-proficiency__summary strong { flex: 1 1 120px; }
+.weapon-proficiency small { color: #cdbb95; font-size: 12px; }
+.weapon-proficiency__bar {
+  height: 5px;
+  overflow: hidden;
+  margin: 5px 0 2px;
+  border-radius: 4px;
+  background: #131b16;
+}
+.weapon-proficiency__bar span { display: block; height: 100%; background: #b2aa69; }
+.weapon-style { display: grid; gap: 10px; margin: 16px 0 0; padding: 12px; border: 1px solid #716449; border-radius: 8px; }
+.weapon-style label { display: grid; gap: 5px; }
+.weapon-style select { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; color: #f4ead8; background: #242b21; border: 1px solid #8d8059; border-radius: 7px; font: inherit; }
+.weapon-style button { width: 100%; }
+
 .dialogue-panel {
   position: fixed;
   z-index: 1050;

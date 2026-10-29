@@ -47,6 +47,23 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("sends weapon styles and rejects acknowledgements from a replaced or foreign character",async()=>{
+    const pending=deferred<(value:unknown)=>void>();
+    const game=await startServer((_token,ack,socket)=>{
+      socket.removeAllListeners("setWeaponLoadout");
+      socket.on("setWeaponLoadout",(payload,reply)=>{expect(payload).toEqual({melee:"axe",ranged:"crossbow"});pending.resolve(reply);});
+      ack(authenticated);
+    });
+    await game.authenticate("weapons");
+    const result=game.setWeaponLoadout({melee:"axe",ranged:"crossbow"}),reply=await pending.promise;
+    await game.authenticate("replacement");reply({ok:true,character:{playerId:"character-1"}});
+    expect(await result).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+    server!.sockets.sockets.forEach(socket=>{
+      socket.removeAllListeners("setWeaponLoadout");
+      socket.on("setWeaponLoadout",(_payload,ack)=>ack({ok:true,character:{playerId:"another-character"}}));
+    });
+    expect(await game.setWeaponLoadout({melee:"axe",ranged:"crossbow"})).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+  });
   it("sends the chosen encounter mode and guards auto-mode ACKs against session replacement",async()=>{
     const requested=deferred<unknown>(),pending=deferred<(value:unknown)=>void>();
     const game=await startServer((_token,ack,socket)=>{

@@ -44,13 +44,20 @@ describe("PlayerStateStore", () => {
 
   it("returns defensive copies so UI code cannot mutate shared state", () => {
     const store = new PlayerStateStore();
-    store.set(snapshot);
+    const state:PlayerStateSnapshot={...snapshot,character:{...snapshot.character,weaponTraining:{experience:{sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0},loadout:{melee:"sword",ranged:"bow"}}}};
+    store.subscribe(received=>{received.character.weaponTraining!.experience.axe=100;});
+    store.set(state);
+    state.character.weaponTraining!.experience.sword=0;
 
     const received = store.get();
     if (!received) throw new Error("Expected player state");
     received.character.hp = 1;
+    received.character.weaponTraining!.loadout.melee="axe";
 
     expect(store.get()?.character.hp).toBe(100);
+    expect(store.get()?.character.weaponTraining?.experience.sword).toBe(5);
+    expect(store.get()?.character.weaponTraining?.experience.axe).toBe(0);
+    expect(store.get()?.character.weaponTraining?.loadout.melee).toBe("sword");
   });
 
   it("retains four container assignments and isolates them from input, subscribers and readers", () => {

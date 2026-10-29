@@ -3,6 +3,13 @@ import {
   getLevelForExperience,
   getTotalExperienceForLevel,
   MAX_CHARACTER_LEVEL,
+  getWeaponCombatStatistics,
+  isWeaponLoadout,
+  normalizeWeaponTraining,
+  WEAPON_FAMILIES,
+  MAX_WEAPON_EXPERIENCE,
+  type WeaponFamily,
+  type WeaponLoadout,
   type CharacterSnapshot,
   type PlayerId
 } from "@web-mmorpg/shared";
@@ -21,6 +28,7 @@ export class CharacterService {
       level: 1,
       experience: 0,
       statistics,
+      weaponTraining:normalizeWeaponTraining(undefined),
       hp: statistics.maxHp,
       maxHp: statistics.maxHp,
       maxAp: statistics.maxAp,
@@ -41,7 +49,8 @@ export class CharacterService {
       Math.max(getTotalExperienceForLevel(snapshot.level), storedExperience)
     );
     hydrated.level = getLevelForExperience(hydrated.experience);
-    hydrated.statistics = getCharacterStatistics(hydrated.level);
+    hydrated.weaponTraining=normalizeWeaponTraining(snapshot.weaponTraining);
+    hydrated.statistics = getWeaponCombatStatistics(getCharacterStatistics(hydrated.level),hydrated.weaponTraining);
     hydrated.maxHp = hydrated.statistics.maxHp;
     hydrated.maxAp = hydrated.statistics.maxAp;
     hydrated.initiative = hydrated.statistics.initiative;
@@ -61,7 +70,7 @@ export class CharacterService {
       (character.experience ?? getTotalExperienceForLevel(character.level)) + amount
     );
     character.level = getLevelForExperience(character.experience);
-    character.statistics = getCharacterStatistics(character.level);
+    character.statistics = getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
     character.maxHp = character.statistics.maxHp;
     character.maxAp = character.statistics.maxAp;
     character.initiative = character.statistics.initiative;
@@ -72,6 +81,24 @@ export class CharacterService {
   getSnapshot(playerId: PlayerId): CharacterSnapshot | undefined {
     const character = this.characters.get(playerId);
     return character ? this.clone(character) : undefined;
+  }
+
+  setWeaponLoadout(playerId:PlayerId,loadout:WeaponLoadout):CharacterSnapshot {
+    if(!isWeaponLoadout(loadout))throw new Error("INVALID_WEAPON_LOADOUT");
+    const character=this.require(playerId);
+    character.weaponTraining={...normalizeWeaponTraining(character.weaponTraining),loadout:{...loadout}};
+    character.statistics=getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
+    return this.clone(character);
+  }
+
+  trainWeapon(playerId:PlayerId,family:WeaponFamily,amount=1):CharacterSnapshot {
+    if(!WEAPON_FAMILIES.some(item=>item.id===family))throw new Error("INVALID_WEAPON_FAMILY");
+    if(!Number.isSafeInteger(amount) || amount<0)throw new Error("INVALID_WEAPON_EXPERIENCE");
+    const character=this.require(playerId);
+    character.weaponTraining=normalizeWeaponTraining(character.weaponTraining);
+    character.weaponTraining.experience[family]=Math.min(MAX_WEAPON_EXPERIENCE,character.weaponTraining.experience[family]+amount);
+    character.statistics=getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
+    return this.clone(character);
   }
 
   applyBattleResult(
@@ -112,6 +139,7 @@ export class CharacterService {
       ...character,
       ...(character.appearance !== undefined ? { appearance: structuredClone(character.appearance) } : {}),
       ...(character.statistics !== undefined ? { statistics: { ...character.statistics } } : {}),
+      ...(character.weaponTraining !== undefined ? {weaponTraining:normalizeWeaponTraining(character.weaponTraining)} : {}),
       injuries: [...character.injuries]
     };
   }

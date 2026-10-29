@@ -1,0 +1,14 @@
+# Weapon proficiencies
+
+Goal: persistent, separate weapon proficiencies exposed in the character sheet and used by manual/automatic attacks.
+
+Architecture: seven existing family IDs sword/axe/hammer/dagger/spear/bow/crossbow, grouped into melee/ranged. This stage models selectable weapon styles, not inventory equipment. Default sword+bow. Each accepted damaging player attack trains its server-selected family by 1 XP; no training for rejected commands, movement, items or NPCs. Skill levels0–100 require cumulative5*level*(level+1)/2 XP, capped25250; bonus0.25% per skilllevel, up to25%. New bonus applies starting next encounter, so one battle's statistics remain stable. Existing baselevel statistics remain unchanged.
+
+Contracts: shared weapons.ts exports WeaponFamily, WeaponLoadout {melee,ranged}, WeaponTraining {experience:Record<WeaponFamily,number>,loadout}, WEAPON_FAMILIES{id,label,mode}, normalizeWeaponTraining(unknown), getWeaponProficiency(number), getWeaponCombatStatistics(base,training), isWeaponLoadout(unknown). CharacterSnapshot.weaponTraining optional. WeaponLoadoutResult={ok:true,character}|{ok:false,code,message}. SocketsetWeaponLoadout accepts WeaponLoadout. CharacterService.setWeaponLoadout(id,loadout),trainWeapon(id,family,amount=1). Character persistedweapon_training JSONB default{}. AppliedBattleCommand.weaponTraining?:{family,amount}; ActiveBattle captures loadout atstart.
+
+- Shared/core: meaningful regression tests before implementation; normalize/clamp stored state, deepclone, keep bonuses throughhydrate/levelups, additive009migration and optional savefield preserving legacycalls.
+- Client: sevenlevel/progress/bonus rows; explicit style selectors andsave, acknowledgedserverstate only, error/pending handling, close/lateACK/sessionguard. Keyboardfocus handling; responsive existingpanel styles.
+- Server: validate ownership/payload, disallowstylechange inbattle/busy; savebeforeACK; trainfromacceptedserverattacks inbothmodes, persist throughorderedqueue; no client suppliedXP. Freeze activebattle stats/families.
+- Verification: focusedshared/core/UI/battle/socket/persistence tests. DBtests onlydisposablelocalweb_mmorpg_test sequentially. Rootworktree isolates preexistinguncommittedenemywork. BrowserQA+signedAndroid+Renderdeploymentwhencheckscomplete.
+
+Verification: shared weapons8tests; character/core9tests; persistence migration1test; BattleService/Auto27tests; weapon socket6tests; existing socket/reconnect/migration17tests. ClientfocusedUI/transport/store/scene35tests plusrealmouse/touchpropagationregression passed. Shared/server/client builds passed (existingVitechunksizeadvisory). Desktopbrowser saves/restoresaxe+crossbowstyles; sevenrowsvisible; noNPCclickthroughaftercompatmouse/touchguard. 844x390 phoneview savesstyles successfully. Android0.1.11code12 signedwithpreviouscertificate; finalartifactSHAfaa7e56e0fc589031996e5e2ad1a7cff6cecd9951c1ba6ab03cd7d3872142633. PhysicalAndroiddevice notused.

@@ -1,4 +1,4 @@
-import type { InjuryKind } from "@web-mmorpg/shared";
+import { normalizeWeaponTraining, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 
 export interface PersistedCharacterRecord {
@@ -12,6 +12,7 @@ export interface PersistedCharacterRecord {
   y: number;
   level: number;
   experience: number;
+  weaponTraining?: WeaponTraining;
   hp: number;
   maxHp: number;
   maxAp: number;
@@ -33,6 +34,7 @@ interface CharacterRow {
   y: number | string;
   level: number;
   experience: number;
+  weapon_training: unknown;
   hp: number;
   max_hp: number;
   max_ap: number;
@@ -45,7 +47,7 @@ interface CharacterRow {
 
 const SELECT_COLUMNS = `
   id, account_id, nickname, nickname_normalized, appearance,
-  location_id, x, y, level, experience, hp, max_hp, max_ap, initiative,
+  location_id, x, y, level, experience, weapon_training, hp, max_hp, max_ap, initiative,
   severely_injured, injuries, deletion_requested_at, deletion_effective_at
 `;
 
@@ -61,6 +63,7 @@ function mapCharacter(row: CharacterRow): PersistedCharacterRecord {
     y: Number(row.y),
     level: row.level,
     experience: row.experience,
+    weaponTraining:normalizeWeaponTraining(row.weapon_training),
     hp: row.hp,
     maxHp: row.max_hp,
     maxAp: row.max_ap,
@@ -128,6 +131,7 @@ export class CharacterRepository {
       y: number;
       level: number;
       experience?: number;
+      weaponTraining?: WeaponTraining;
       hp: number;
       maxHp: number;
       maxAp: number;
@@ -149,6 +153,7 @@ export class CharacterRepository {
            severely_injured = $10,
            injuries = $11::jsonb,
            experience = COALESCE($12, experience),
+           weapon_training = COALESCE($13::jsonb, weapon_training),
            updated_at = NOW()
        WHERE id = $1`,
       [
@@ -163,7 +168,8 @@ export class CharacterRepository {
         state.initiative,
         state.severelyInjured,
         JSON.stringify(state.injuries),
-        state.experience ?? null
+        state.experience ?? null,
+        state.weaponTraining===undefined ? null : JSON.stringify(normalizeWeaponTraining(state.weaponTraining))
       ]
     );
   }

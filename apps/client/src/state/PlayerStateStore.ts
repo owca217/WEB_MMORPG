@@ -7,6 +7,10 @@ function cloneState(state: PlayerStateSnapshot): PlayerStateSnapshot {
     ...(state.gold !== undefined ? { gold: state.gold } : {}),
     character: {
       ...state.character,
+      ...(state.character.weaponTraining ? { weaponTraining: {
+        experience: { ...state.character.weaponTraining.experience },
+        loadout: { ...state.character.weaponTraining.loadout }
+      } } : {}),
       injuries: [...state.character.injuries]
     },
     inventory: {

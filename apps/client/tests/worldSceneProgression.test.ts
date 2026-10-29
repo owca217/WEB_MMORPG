@@ -22,6 +22,29 @@ import { socialStateStore } from "../src/state/SocialStateStore";
 
 let transport: EventEmitter;
 
+it("applies an acknowledged weapon style while retaining newer character state, inventory and gold",async()=>{
+  let finish!:(value:any)=>void;
+  vi.spyOn(gameSocket,"setWeaponLoadout").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const character={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+  transport.emit("playerState",{character,inventory:{items:[]},gold:100});
+  document.querySelector<HTMLButtonElement>("[data-character]")!.click();
+  const melee=document.querySelector<HTMLSelectElement>("[data-weapon-melee]")!;
+  melee.value="axe";melee.dispatchEvent(new Event("change",{bubbles:true}));
+  document.querySelector<HTMLButtonElement>("[data-save-weapon-style]")!.click();
+  const inventory:InventorySnapshot={items:[{instanceId:"new-bag",itemId:"rag-bag",itemDefinitionId:"rag",name:"Worek",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0}]};
+  transport.emit("playerState",{character:{...character,level:2,experience:150,hp:77,maxHp:130,severelyInjured:true,injuries:["bleeding"]},inventory,gold:70});
+  finish({ok:true,character:{...character,weaponTraining:{experience:{sword:0,axe:25250,hammer:0,dagger:0,spear:0,bow:0,crossbow:0},loadout:{melee:"axe",ranged:"bow"}}}});
+  await vi.waitFor(()=>expect(playerStateStore.get()?.character.weaponTraining?.loadout.melee).toBe("axe"));
+  expect(playerStateStore.get()?.inventory.items[0]?.instanceId).toBe("new-bag");
+  expect(playerStateStore.get()?.gold).toBe(70);
+  expect(playerStateStore.get()?.character).toMatchObject({level:2,experience:150,hp:77,maxHp:130,severelyInjured:true,injuries:["bleeding"],statistics:{meleeDamage:28,rangedDamage:16,strength:12}});
+  expect(document.querySelector('[data-stat="hp"]')?.textContent).toBe("77/130");
+  events.emit("shutdown");
+});
+
 it("opens the monster menu without starting combat and forwards the explicit mode choice",()=>{
   const start=vi.spyOn(gameSocket,"startEncounter");
   const scene=new WorldScene(),events=new EventEmitter();

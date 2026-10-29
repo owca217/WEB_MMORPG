@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getCharacterSkin, type CharacterLifecycleSummary, type InjuryKind } from "@web-mmorpg/shared";
+import { getCharacterSkin, type CharacterLifecycleSummary, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
 import {
   CharacterRepository,
@@ -137,6 +137,7 @@ export class CharacterLifecycleService {
       y: number;
       level: number;
       experience?: number;
+      weaponTraining?: WeaponTraining;
       hp: number;
       maxHp: number;
       maxAp: number;

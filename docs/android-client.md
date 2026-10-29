@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany `WEB-MMORPG-0.1.10.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany `WEB-MMORPG-0.1.11.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -27,6 +27,8 @@ Wersja 0.1.8 dodaje menu przy potworze z opcjami „Walcz” i „Auto”. Samo 
 Wersja 0.1.9 dodaje małe menu przy NPC. „Rozmowa” jest dostępna u każdej postaci niezależnej, a „Sklep” tylko u kupca. Kliknięcie Miro pozwala teraz osobno wybrać dialog lub ofertę handlową. Dialog Ady zachowuje leczenie. Menu podąża za postacią wraz z kamerą i mieści się na ekranie telefonu; można je zamknąć kliknięciem poza nim, Escape lub Wstecz. Nowy wybór zamyka poprzednie okna NPC, a opóźnione odpowiedzi nie otwierają nieaktualnego sklepu lub rozmowy.
 
 Wersja 0.1.10 dodaje automatyczne podejście do NPC po wybraniu „Rozmowa” lub „Sklep”, gdy postać jest poza zasięgiem. Wybrana interakcja otwiera się dopiero po potwierdzeniu przez serwer, że gracz dotarł wystarczająco blisko. Ręczny ruch, wybór innego celu lub utrata połączenia anulują podejście.
+
+Wersja 0.1.11 dodaje siedem biegłości broni w panelu postaci: miecze, topory, broń obuchowa, sztylety, broń drzewcowa, łuki i kusze. Każda rozwija się niezależnie od 0 do 100. Za każdy zaakceptowany przez serwer atak, również w trybie Auto, wybrana biegłość otrzymuje 1 punkt doświadczenia treningowego. Każdy poziom daje 0,25% premii do obrażeń odpowiedniego stylu, do 25%; wypracowana premia obowiązuje od kolejnej walki. Postęp zapisuje się przy postaci. Poza walką można wybrać jeden styl wręcz i jeden dystansowy. Ten wybór dotyczy stylów walki i nie wyposaża przedmiotu z ekwipunku.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

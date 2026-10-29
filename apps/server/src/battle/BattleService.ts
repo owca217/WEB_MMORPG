@@ -1,5 +1,7 @@
 import {
   getCharacterStatistics,
+  getWeaponCombatStatistics,
+  normalizeWeaponTraining,
   MAX_CHARACTER_LEVEL,
   BATTLE_ITEM_AP_COST,
   type ConsumableEffects,
@@ -9,7 +11,9 @@ import {
   type BattleSnapshot,
   type CharacterSnapshot,
   type InjuryKind,
-  type PlayerId
+  type PlayerId,
+  type WeaponFamily,
+  type WeaponLoadout
 } from "@web-mmorpg/shared";
 import { generateArena } from "./arenaGenerator";
 import {
@@ -23,6 +27,7 @@ import { chooseWolfCommand } from "./NpcBattleAi";
 import { chooseAutoBattleCommand } from "./AutoBattleAi";
 
 interface ActiveBattle {
+  weaponLoadout:WeaponLoadout;
   encounterId: string;
   seed: number;
   state: BattleState;
@@ -38,6 +43,7 @@ export interface PlayerBattleOutcome {
 }
 
 export interface AppliedBattleCommand {
+  weaponTraining?:{family:WeaponFamily;amount:number};
   result: BattleResult;
   snapshot?: BattleSnapshot;
   finished: boolean;
@@ -59,7 +65,7 @@ export class BattleService {
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
     const playerStart = arena.playerStartCells[0];
     const level = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
-    const statistics = character.statistics ?? getCharacterStatistics(level);
+    const statistics = character.statistics ?? getWeaponCombatStatistics(getCharacterStatistics(level),character.weaponTraining);
     const combatStats: CombatStatistics = {
       meleeDamage: statistics.meleeDamage,
       rangedDamage: statistics.rangedDamage,
@@ -121,6 +127,7 @@ export class BattleService {
     });
 
     this.battlesByPlayer.set(character.playerId, {
+      weaponLoadout:{...normalizeWeaponTraining(character.weaponTraining).loadout},
       encounterId, seed, state, experienceReward: wolfCount * (25 + 15 * level)
     });
     return this.toSnapshot(state);
@@ -208,6 +215,7 @@ export class BattleService {
     return {
       result,
       snapshot,
+      ...((command.type==="meleeAttack" || command.type==="rangedAttack") ? {weaponTraining:{family:command.type==="meleeAttack" ? active.weaponLoadout.melee : active.weaponLoadout.ranged,amount:1}} : {}),
       finished: active.state.finished,
       victory,
       encounterId: active.encounterId,

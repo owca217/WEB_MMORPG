@@ -6,12 +6,14 @@ import type { ChatChannel, ChatHistoryResult, ChatMessage, ChatSendResult, ChatV
 import type { InventorySnapshot, InventoryUpdateResult, SetContainerSlotResult } from "./inventory";
 import type { LocationId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
+import type { WeaponLoadout, WeaponLoadoutResult } from "./weapons";
 
 export type SocketAuthResult =
   | { ok: true; characterId: string; locationId: LocationId }
   | { ok: false; code: string; message: string };
 
 export interface ClientToServerEvents {
+  setWeaponLoadout: (payload:WeaponLoadout,ack:(result:WeaponLoadoutResult)=>void)=>void;
   requestMerchantShop: (payload: { npcId: string }, ack: (result: MerchantResult) => void) => void;
   purchaseMerchantItem: (payload: MerchantPurchase, ack: (result: MerchantResult) => void) => void;
   socialAction: (payload: SocialAction, ack: (result: SocialActionResult) => void) => void;

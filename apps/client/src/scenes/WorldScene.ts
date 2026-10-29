@@ -1,4 +1,5 @@
 import type { ContainerSlotIndex, EncounterSnapshot, InventorySnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import { getCharacterStatistics, getWeaponCombatStatistics, normalizeWeaponTraining } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
@@ -176,7 +177,24 @@ export class WorldScene extends Phaser.Scene {
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
       onChangeContainer: (slotIndex) => this.containerPicker?.show(slotIndex)
     });
-    this.characterPanel = new CharacterPanel();
+    const characterPanel = new CharacterPanel({
+      onSetWeaponLoadout: loadout => gameSocket.setWeaponLoadout(loadout),
+      onChanged: character => {
+        const state = playerStateStore.get();
+        if (this.characterPanel !== characterPanel || character.playerId !== this.playerId || state?.character.playerId !== this.playerId) return;
+        const weaponTraining = normalizeWeaponTraining(character.weaponTraining);
+        const updated = { ...state, character: {
+          ...state.character,
+          weaponTraining,
+          statistics: getWeaponCombatStatistics(getCharacterStatistics(state.character.level), weaponTraining)
+        } };
+        playerStateStore.set(updated);
+        this.hud?.update(updated);
+        this.characterPanel.update(updated.character);
+      },
+      onTypingChange: () => this.updateKeyboardCapture()
+    });
+    this.characterPanel = characterPanel;
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
@@ -274,7 +292,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping);
+    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping);
     if (typing) {this.pointerTarget=null;this.pendingNpcAction=null;}
     const keyboardIntent = resolveKeyboardIntent({
       left: !typing && Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
@@ -523,7 +541,7 @@ export class WorldScene extends Phaser.Scene {
   private updateKeyboardCapture():void {
     this.pointerTarget=null;
     const keyboard=this.input.keyboard;if(!keyboard)return;
-    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping);
+    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping);
     if(typing)this.pendingNpcAction=null;
     keyboard.resetKeys?.();keyboard.enabled=!typing;
     if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();

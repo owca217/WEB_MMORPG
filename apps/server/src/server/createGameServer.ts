@@ -1,5 +1,6 @@
 import type { Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { isWeaponLoadout } from "@web-mmorpg/shared";
 import type {
   ClientToServerEvents,
   LocationId,
@@ -107,6 +108,7 @@ export function createGameServer(
   const pendingBattleItemUses = new Map<PlayerId, Promise<void>>();
   const pendingMerchantOperations = new Map<PlayerId, Promise<void>>();
   const pendingBattleRewards = new Map<PlayerId, Promise<void>>();
+  const pendingWeaponSelections = new Map<PlayerId,Promise<void>>();
   const battleRewardTokens = new Map<PlayerId,string>();
   const autoStepMs=Number.isFinite(options.autoBattleStepMs) ? Math.max(10,Math.min(2000,options.autoBattleStepMs!)) : 300;
   const autoStops=new Set<()=>void>();
@@ -181,11 +183,11 @@ export function createGameServer(
       characterOwners.get(target) === socket.id;
 
     const emitPlayerState = async (targetCharacterId: PlayerId): Promise<void> => {
-      const character = characters.getSnapshot(targetCharacterId);
-      if (!character) return;
       const version=characterVersion;
       const [items,gold]=await Promise.all([inventory.getSnapshot(targetCharacterId),merchant.getGold(targetCharacterId)]);
       if(!ownsCharacter(targetCharacterId,version))return;
+      const character = characters.getSnapshot(targetCharacterId);
+      if (!character) return;
       socket.emit("playerState", {
         character,
         inventory: items,
@@ -213,6 +215,7 @@ export function createGameServer(
         y: player.y,
         level: character.level,
         ...(character.experience !== undefined ? { experience: character.experience } : {}),
+        ...(character.weaponTraining ? {weaponTraining:character.weaponTraining} : {}),
         hp: character.hp,
         maxHp: character.maxHp,
         maxAp: character.maxAp,
@@ -243,10 +246,11 @@ export function createGameServer(
       const pendingItemUse = releasedCharacterId ? pendingBattleItemUses.get(releasedCharacterId) : undefined;
       const pendingPurchase = releasedCharacterId ? pendingMerchantOperations.get(releasedCharacterId) : undefined;
       const pendingReward = releasedCharacterId ? pendingBattleRewards.get(releasedCharacterId) : undefined;
+      const pendingWeapon = releasedCharacterId ? pendingWeaponSelections.get(releasedCharacterId) : undefined;
       const socialCleanup = releasedCharacterId && characterOwners.get(releasedCharacterId)===socket.id
         ? social.removeDisconnected(releasedCharacterId) : Promise.resolve();
       const save = releasedCharacterId
-        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,socialCleanup]).then(()=>persistGameplayState(releasedCharacterId))
+        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,pendingWeapon,socialCleanup]).then(()=>persistGameplayState(releasedCharacterId))
         : Promise.resolve();
       unregisterConnection?.();
       unregisterConnection = null;
@@ -370,6 +374,7 @@ export function createGameServer(
             appearance: persisted.appearance,
             level: persisted.level,
             experience: persisted.experience,
+            ...(persisted.weaponTraining ? {weaponTraining:persisted.weaponTraining} : {}),
             hp: persisted.hp,
             maxHp: persisted.maxHp,
             maxAp: persisted.maxAp,
@@ -417,6 +422,41 @@ export function createGameServer(
       void emitPlayerState(characterId).catch((error) =>
         reject(error, "PLAYER_STATE_FAILED", "Player state could not be loaded.")
       );
+    });
+
+    socket.on("setWeaponLoadout",async(payload,ack)=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      const failure=(code:string,message:string)=>ack({ok:false,code,message});
+      if(!id || !ownsCharacter(id,version)){failure("AUTHENTICATION_REQUIRED","Zaloguj się, aby wybrać styl broni.");return;}
+      if(!isWeaponLoadout(payload)){failure("INVALID_WEAPON_LOADOUT","Wybierz poprawny styl wręcz i dystansowy.");return;}
+      if(battles.hasBattle(id)){failure("BATTLE_IN_PROGRESS","Styl broni można zmienić poza walką.");return;}
+      if(pendingWeaponSelections.has(id) || pendingBattleRewards.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id)) {
+        failure("WEAPON_ACTION_PENDING","Poczekaj na zakończenie poprzedniej czynności.");return;
+      }
+      const previous=characters.getSnapshot(id)?.weaponTraining?.loadout;
+      let finish!:()=>void;
+      const pending=new Promise<void>(resolve=>{finish=resolve;});
+      pendingWeaponSelections.set(id,pending);
+      try {
+        characters.setWeaponLoadout(id,payload);
+        await persistGameplayState(id);
+        if(!ownsCharacter(id,version)){failure("SESSION_REPLACED","Połączenie zmieniło się. Otwórz panel ponownie.");return;}
+        finish();
+        if(pendingWeaponSelections.get(id)===pending)pendingWeaponSelections.delete(id);
+        ack({ok:true,character:characters.getSnapshot(id)!});
+        void emitPlayerState(id).catch(error=>reject(error,"PLAYER_STATE_FAILED","Nie udało się odświeżyć panelu postaci."));
+      }catch(error) {
+        if(previous && ownsCharacter(id,version)) {
+          characters.setWeaponLoadout(id,previous);
+          // A movement snapshot may already be queued with the unconfirmed selection.
+          await persistGameplayState(id).catch(()=>undefined);
+        }
+        failure("WEAPON_SAVE_FAILED","Nie udało się zapisać stylu broni. Spróbuj ponownie.");
+      }finally {
+        finish();
+        if(pendingWeaponSelections.get(id)===pending)pendingWeaponSelections.delete(id);
+      }
     });
 
     socket.on("requestWorldState", () => {
@@ -737,13 +777,15 @@ export function createGameServer(
         const mode=payload?.mode===undefined ? "manual" : payload.mode;
         if(mode!=="manual" && mode!=="auto")throw new Error("INVALID_BATTLE_MODE");
         if(typeof encounterId!=="string")throw new Error("ENCOUNTER_NOT_FOUND");
+        if(pendingWeaponSelections.has(currentCharacterId))throw new Error("WEAPON_ACTION_PENDING");
         if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
         await social.cancelForBattle(currentCharacterId);
         if(!ownsCharacter(currentCharacterId,currentCharacterVersion))return;
+        if(pendingWeaponSelections.has(currentCharacterId))throw new Error("WEAPON_ACTION_PENDING");
         if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
         if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_ALREADY_STARTED");
         world.startEncounter(currentCharacterId, encounterId);
-        let snapshot = battles.startBattle(character, encounterId);
+        let snapshot = battles.startBattle(characters.getSnapshot(currentCharacterId)!, encounterId);
         stopAuto();autoStalls=0;
         if(mode==="auto")snapshot=battles.setAuto(currentCharacterId,true);
         battleRewardTokens.set(currentCharacterId,randomUUID());
@@ -767,9 +809,18 @@ export function createGameServer(
       }
 
       if (!applied.snapshot) return;
+      if(applied.weaponTraining)characters.trainWeapon(currentCharacterId,applied.weaponTraining.family,applied.weaponTraining.amount);
       socket.emit("battleState", applied.snapshot);
 
-      if (!applied.finished) return;
+      if (!applied.finished) {
+        if(applied.weaponTraining) {
+          try {
+            await persistGameplayState(currentCharacterId);
+            if(ownsCharacter(currentCharacterId,currentCharacterVersion))await emitPlayerState(currentCharacterId);
+          }catch{socket.emit("commandRejected",{code:"WEAPON_SAVE_FAILED",message:"Nie udało się zapisać treningu broni. Postęp pozostaje w bieżącej sesji."});}
+        }
+        return;
+      }
       stopAuto();
 
       let finishMutations!:()=>void;

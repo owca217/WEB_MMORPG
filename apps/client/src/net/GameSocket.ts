@@ -14,6 +14,8 @@ import type {
   MerchantResult,
   BattleSnapshot,
   CharacterSnapshot,
+  WeaponLoadout,
+  WeaponLoadoutResult,
   ClientToServerEvents,
   InventorySnapshot,
   InventoryUpdateResult,
@@ -214,6 +216,23 @@ export class GameSocket {
 
   requestMerchantShop(npcId: string): Promise<MerchantResult> {
     return this.merchantRequest({ npcId });
+  }
+
+  async setWeaponLoadout(loadout: WeaponLoadout): Promise<WeaponLoadoutResult> {
+    const socket = this.connect(), version = this.authenticationVersion, playerId = this.socialCharacterId;
+    if (!this.sessionToken || this.authenticating || !socket.connected || !playerId) {
+      return { ok: false, code: "AUTHENTICATION_REQUIRED", message: "Połącz się z grą, aby zmienić styl broni." };
+    }
+    try {
+      const result = await socket.timeout(10_000).emitWithAck("setWeaponLoadout", loadout);
+      if (this.socket !== socket || version !== this.authenticationVersion ||
+        (result.ok && result.character.playerId !== playerId)) {
+        return { ok: false, code: "SESSION_REPLACED", message: "Połączenie postaci zmieniło się. Otwórz panel ponownie." };
+      }
+      return result;
+    } catch {
+      return { ok: false, code: "WEAPON_STYLE_UPDATE_FAILED", message: "Nie otrzymano potwierdzenia zapisu. Otwórz panel ponownie i sprawdź style broni." };
+    }
   }
 
   purchaseMerchantItem(payload: MerchantPurchase): Promise<MerchantResult> {

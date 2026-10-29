@@ -34,6 +34,10 @@ const MIGRATIONS = [
   {
     name: "008_merchant",
     url: new URL("./migrations/008_merchant.sql", import.meta.url)
+  },
+  {
+    name: "009_weapon_proficiencies",
+    url: new URL("./migrations/009_weapon_proficiencies.sql", import.meta.url)
   }
 ] as const;
 

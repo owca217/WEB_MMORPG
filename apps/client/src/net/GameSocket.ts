@@ -1,5 +1,10 @@
 import type {
   BattleCommand,
+  ChatChannel,
+  ChatMessage,
+  ChatSendResult,
+  ChatHistoryResult,
+  ChatViewport,
   BattleSnapshot,
   CharacterSnapshot,
   ClientToServerEvents,
@@ -14,6 +19,7 @@ import type {
 } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
 import { resolveGameServerUrl } from "../hosting";
+import { chatStateStore } from "../state/ChatStateStore";
 
 type GameClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -52,6 +58,9 @@ export class GameSocket {
     );
     const socket = io(serverUrl, { transports: ["websocket"] });
     this.socket = socket;
+    socket.on("chatMessage", (message) => {
+      if (this.socket === socket && !this.authenticating && this.sessionToken) chatStateStore.add(message);
+    });
 
     socket.on("connect", () => {
       if (this.socket !== socket) return;
@@ -83,6 +92,7 @@ export class GameSocket {
 
   async authenticate(sessionToken: string): Promise<SocketAuthResult> {
     const socket = this.connect();
+    if (this.sessionToken !== sessionToken) chatStateStore.reset();
     this.sessionToken = null;
     this.authenticating = true;
     const version = ++this.authenticationVersion;
@@ -106,11 +116,45 @@ export class GameSocket {
     this.authenticationVersion += 1;
     this.authenticating = false;
     socket?.disconnect();
+    chatStateStore.reset();
     this.setConnectionState("disconnected");
   }
 
   sendMoveIntent(position: { x: number; y: number }): void {
     this.connect().emit("moveIntent", position);
+  }
+
+  async sendChatMessage(channel: ChatChannel, text: string): Promise<ChatSendResult> {
+    const socket=this.connect();
+    const version=this.authenticationVersion;
+    try {
+      const result=await socket.timeout(10_000).emitWithAck("sendChatMessage", {channel,text});
+      if(this.socket!==socket || version!==this.authenticationVersion) return {ok:false,code:"SESSION_REPLACED",message:"Połączenie zmieniło się. Spróbuj ponownie."};
+      if(result.ok) chatStateStore.add(result.message);
+      return result;
+    } catch { return {ok:false,code:"CHAT_SEND_FAILED",message:"Nie udało się wysłać wiadomości. Sprawdź połączenie."}; }
+  }
+
+  async requestChatHistory(): Promise<ChatHistoryResult> {
+    const socket=this.connect();
+    const version=this.authenticationVersion;
+    try {
+      const result=await socket.timeout(10_000).emitWithAck("requestChatHistory");
+      if(this.socket!==socket || version!==this.authenticationVersion) return {ok:false,code:"SESSION_REPLACED",message:"Połączenie zmieniło się."};
+      if(result.ok) chatStateStore.merge(result.messages);
+      return result;
+    } catch { return {ok:false,code:"CHAT_HISTORY_FAILED",message:"Nie udało się pobrać historii czatu."}; }
+  }
+
+  updateChatViewport(viewport: ChatViewport): void { this.connect().emit("updateChatViewport",viewport); }
+
+  onChatMessage(handler:(message:ChatMessage)=>void):()=>void {
+    const socket=this.connect();
+    const guarded=(message:ChatMessage):void=>{
+      if(this.socket===socket && !this.authenticating && this.sessionToken) handler(message);
+    };
+    socket.on("chatMessage",guarded);
+    return ()=>socket.off("chatMessage",guarded);
   }
 
   requestPlayerState(): void {

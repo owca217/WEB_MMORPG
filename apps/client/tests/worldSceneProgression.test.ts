@@ -21,6 +21,25 @@ import { playerStateStore } from "../src/state/PlayerStateStore";
 
 let transport: EventEmitter;
 
+it("releases captured movement keys while typing chat and restores them when the window closes", async () => {
+  vi.spyOn(gameSocket,"onConnectionState").mockImplementation(handler=>{handler("connected");return ()=>{};});
+  const keyboard={enabled:true,resetKeys:vi.fn(),disableGlobalCapture:vi.fn(),enableGlobalCapture:vi.fn(),createCursorKeys:()=>({}),addKeys:()=>({})};
+  const scene=new WorldScene(); const events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){},keyboard}});
+  scene.init({playerId:"hero"});scene.create();
+  document.querySelector<HTMLButtonElement>("[data-chat-toggle]")!.click();
+  await Promise.resolve();
+  expect(keyboard.enabled).toBe(false);expect(keyboard.disableGlobalCapture).toHaveBeenCalled();
+  document.querySelector<HTMLTextAreaElement>("[data-chat-input]")!.value="wasd";
+  document.querySelector<HTMLButtonElement>("[data-chat-panel] [data-close]")!.click();
+  await Promise.resolve();
+  expect(keyboard.enabled).toBe(true);expect(keyboard.enableGlobalCapture).toHaveBeenCalled();
+  expect(transport.listenerCount("chatMessage")).toBe(1);
+  events.emit("shutdown");
+  expect(transport.listenerCount("chatMessage")).toBe(0);
+  expect(document.querySelector("[data-chat-widget]")).toBeNull();
+});
+
 beforeEach(() => {
   document.body.replaceChildren();
   transport = new EventEmitter();

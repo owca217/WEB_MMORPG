@@ -19,6 +19,7 @@ import { getCharacterWalkAnimationKey } from "../characters/characterSkinSprites
 interface PlayerView {
   container: Phaser.GameObjects.Container;
   label: Phaser.GameObjects.Text;
+  speechBubble: SpeechBubbleView | undefined;
   sprite: Phaser.GameObjects.Sprite | undefined;
   fallback: Phaser.GameObjects.Container | undefined;
   skinId: CharacterSkinId | undefined;
@@ -27,11 +28,26 @@ interface PlayerView {
   targetY: number;
 }
 
+interface SpeechBubbleView {
+  container: Phaser.GameObjects.Container;
+  timer: Phaser.Time.TimerEvent;
+}
+
+interface PendingSpeechBubble {
+  text: string;
+  expiresAt: number;
+}
+
+const SPEECH_BUBBLE_DURATION_MS = 6000;
+const SPEECH_BUBBLE_OFFSET_Y = -64;
+const MAX_PENDING_SPEECH_BUBBLES = 50;
+
 export class WorldEntitiesRenderer {
   onNpcSelected?: (npcId: string) => void;
   onEncounterSelected?: (encounterId: string) => void;
 
   private readonly playerViews = new Map<PlayerId, PlayerView>();
+  private readonly pendingSpeechBubbles = new Map<PlayerId, PendingSpeechBubble>();
   private readonly npcViews = new Map<string, Phaser.GameObjects.Container>();
   private readonly encounterViews = new Map<string, Phaser.GameObjects.Container>();
 
@@ -68,19 +84,46 @@ export class WorldEntitiesRenderer {
     return this.playerViews.get(this.localPlayerId)?.container;
   }
 
+  showSpeechBubble(playerId: PlayerId, text: string): void {
+    if (!text.trim()) return;
+    this.prunePendingSpeechBubbles();
+    const view = this.playerViews.get(playerId);
+    if (view) {
+      this.createSpeechBubble(view, text, SPEECH_BUBBLE_DURATION_MS);
+      return;
+    }
+
+    // Chat may arrive before the first world snapshot. Never invent a player view.
+    this.pendingSpeechBubbles.delete(playerId);
+    if (this.pendingSpeechBubbles.size >= MAX_PENDING_SPEECH_BUBBLES) {
+      const oldestPlayerId = this.pendingSpeechBubbles.keys().next().value;
+      if (oldestPlayerId !== undefined) this.pendingSpeechBubbles.delete(oldestPlayerId);
+    }
+    this.pendingSpeechBubbles.set(playerId, {
+      text,
+      expiresAt: this.scene.time.now + SPEECH_BUBBLE_DURATION_MS
+    });
+  }
+
   destroy(): void {
-    for (const view of this.playerViews.values()) view.container.destroy(true);
+    for (const view of this.playerViews.values()) {
+      this.clearSpeechBubble(view);
+      view.container.destroy(true);
+    }
     for (const view of this.npcViews.values()) view.destroy(true);
     for (const view of this.encounterViews.values()) view.destroy(true);
     this.playerViews.clear();
+    this.pendingSpeechBubbles.clear();
     this.npcViews.clear();
     this.encounterViews.clear();
   }
 
   private renderPlayers(players: WorldPlayerSnapshot[]): void {
+    this.prunePendingSpeechBubbles();
     const present = new Set(players.map((player) => player.id));
     for (const [id, view] of this.playerViews) {
       if (present.has(id)) continue;
+      this.clearSpeechBubble(view);
       view.container.destroy(true);
       this.playerViews.delete(id);
     }
@@ -90,6 +133,11 @@ export class WorldEntitiesRenderer {
       if (!view) {
         view = this.createPlayer(player);
         this.playerViews.set(player.id, view);
+        const pending = this.pendingSpeechBubbles.get(player.id);
+        if (pending) {
+          this.pendingSpeechBubbles.delete(player.id);
+          this.createSpeechBubble(view, pending.text, pending.expiresAt - this.scene.time.now);
+        }
       }
       view.targetX = player.x;
       view.targetY = player.y;
@@ -97,7 +145,7 @@ export class WorldEntitiesRenderer {
       this.setPlayerSkin(view, resolveCharacterSkin(player.appearance).id, player.id === this.localPlayerId);
       if (player.id !== this.localPlayerId) continue;
       if (view.container.x === 0 && view.container.y === 0) {
-        view.container.setPosition(player.x, player.y);
+        this.updatePlayerPosition(view, player.x, player.y);
       }
     }
   }
@@ -118,6 +166,7 @@ export class WorldEntitiesRenderer {
     const view: PlayerView = {
       container,
       label,
+      speechBubble: undefined,
       sprite: undefined,
       fallback: undefined,
       skinId: undefined,
@@ -127,6 +176,47 @@ export class WorldEntitiesRenderer {
     };
     this.setPlayerSkin(view, resolveCharacterSkin(player.appearance).id, local);
     return view;
+  }
+
+  private createSpeechBubble(view: PlayerView, text: string, durationMs: number): void {
+    this.clearSpeechBubble(view);
+    // A separate world-space container keeps bubbles above every unit and label.
+    const container = this.scene.add.container(view.container.x, view.container.y + SPEECH_BUBBLE_OFFSET_Y)
+      .setDepth(30);
+    const message = this.scene.add.text(0, -8, text, {
+      fontFamily: "sans-serif",
+      fontSize: "14px",
+      color: "#30271d",
+      align: "center",
+      padding: { x: 10, y: 7 },
+      wordWrap: { width: 200, useAdvancedWrap: true }
+    }).setOrigin(0.5, 1);
+    const width = message.width;
+    const height = message.height;
+    const background = this.scene.add.graphics();
+    background.fillStyle(0xf5ebca, 0.98);
+    background.fillRoundedRect(-width / 2, -height - 8, width, height, 8);
+    background.lineStyle(1, 0x665942, 1);
+    background.strokeRoundedRect(-width / 2, -height - 8, width, height, 8);
+    background.fillTriangle(-6, -9, 6, -9, 0, 0);
+    container.add([background, message]);
+    const timer = this.scene.time.delayedCall(durationMs, () => {
+      if (view.speechBubble?.container === container) this.clearSpeechBubble(view);
+    });
+    view.speechBubble = { container, timer };
+  }
+
+  private clearSpeechBubble(view: PlayerView): void {
+    if (!view.speechBubble) return;
+    view.speechBubble.timer.remove(false);
+    view.speechBubble.container.destroy(true);
+    view.speechBubble = undefined;
+  }
+
+  private prunePendingSpeechBubbles(): void {
+    for (const [playerId, pending] of this.pendingSpeechBubbles) {
+      if (pending.expiresAt <= this.scene.time.now) this.pendingSpeechBubbles.delete(playerId);
+    }
   }
 
   private setPlayerSkin(view: PlayerView, skinId: CharacterSkinId, local: boolean): void {
@@ -159,6 +249,7 @@ export class WorldEntitiesRenderer {
     const motion = resolveCharacterMotion(x - view.container.x, y - view.container.y, view.direction);
     view.direction = motion.direction;
     view.container.setPosition(x, y);
+    view.speechBubble?.container.setPosition(x, y + SPEECH_BUBBLE_OFFSET_Y);
     if (!view.sprite || !view.skinId) return;
 
     if (motion.moving) {

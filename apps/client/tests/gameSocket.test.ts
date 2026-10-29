@@ -4,6 +4,7 @@ import type { SocketAuthResult } from "@web-mmorpg/shared";
 import { Server, type Socket } from "socket.io";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GameSocket, type ConnectionState } from "../src/net/GameSocket";
+import { chatStateStore } from "../src/state/ChatStateStore";
 
 const authenticated: SocketAuthResult = {
   ok: true, characterId: "character-1", locationId: "forest-settlement-01"
@@ -45,6 +46,51 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("ignores queued chat pushes while switching authenticated accounts", async () => {
+    const game=await startServer((token,ack,socket)=>{
+      if(token==="replacement-chat-account") socket.emit("chatMessage",{id:"old-push",channel:"nearby",senderId:"old",senderName:"Old",text:"Old vicinity",sentAt:1});
+      ack(authenticated);
+    });
+    await game.authenticate("original-chat-account");
+    const onMessage=vi.fn(); const stop=game.onChatMessage(onMessage);
+    await game.authenticate("replacement-chat-account");
+    expect(chatStateStore.get()).toEqual([]);
+    expect(onMessage).not.toHaveBeenCalled(); stop();
+  });
+  it("merges global history, live chat and send acknowledgements once and clears transcript on logout", async () => {
+    const oldMessage={id:"history",channel:"global",senderId:"other",senderName:"Other",text:"Witaj",sentAt:1};
+    const sentMessage={...oldMessage,id:"live",senderId:"character-1",text:"Test",sentAt:2};
+    const game=await startServer((_token,ack,socket)=>{
+      socket.on("requestChatHistory",reply=>reply({ok:true,messages:[oldMessage]}));
+      socket.on("sendChatMessage",(payload,reply)=>{
+        expect(payload).toEqual({channel:"global",text:"Test"});
+        socket.emit("chatMessage",sentMessage); reply({ok:true,message:sentMessage});
+      });
+      ack(authenticated);
+    });
+    await game.authenticate("chat-token");
+    await game.requestChatHistory();
+    const onMessage=vi.fn(); const stop=game.onChatMessage(onMessage);
+    expect(await game.sendChatMessage("global","Test")).toMatchObject({ok:true});
+    expect(chatStateStore.get().map(message=>message.id)).toEqual(["history","live"]);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    stop(); game.disconnect(); expect(chatStateStore.get()).toEqual([]);
+  });
+
+  it("discards history acknowledgements from a replaced authentication", async () => {
+    const reply=deferred<(value:unknown)=>void>();
+    const game=await startServer((_token,ack,socket)=>{
+      socket.removeAllListeners("requestChatHistory");
+      socket.on("requestChatHistory",ackHistory=>reply.resolve(ackHistory));
+      ack(authenticated);
+    });
+    await game.authenticate("old-chat-account");
+    const history=game.requestChatHistory(); const finish=await reply.promise;
+    await game.authenticate("new-chat-account");
+    finish({ok:true,messages:[{id:"private-old",channel:"global",senderId:"old",senderName:"Old",text:"Old",sentAt:1}]});
+    expect(await history).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+    expect(chatStateStore.get()).toEqual([]);
+  });
   it("sends only a container slot and instance ID and returns the server's assignment or rejection", async () => {
     const payloads: unknown[] = [];
     const game = await startServer((_token, ack, socket) => {

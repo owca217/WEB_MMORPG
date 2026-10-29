@@ -1,5 +1,6 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
+import type { ChatChannel, ChatHistoryResult, ChatMessage, ChatSendResult, ChatViewport } from "./chat";
 import type { InventorySnapshot, InventoryUpdateResult, SetContainerSlotResult } from "./inventory";
 import type { LocationId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
@@ -14,6 +15,12 @@ export interface ClientToServerEvents {
     ack: (result: SocketAuthResult) => void
   ) => void;
   moveIntent: (payload: { x: number; y: number }) => void;
+  sendChatMessage: (
+    payload: { channel: ChatChannel; text: string },
+    ack: (result: ChatSendResult) => void
+  ) => void;
+  updateChatViewport: (payload: ChatViewport) => void;
+  requestChatHistory: (ack: (result: ChatHistoryResult) => void) => void;
   startEncounter: (payload: { encounterId: string }) => void;
   battleCommand: (payload: BattleCommand) => void;
   useBattleItem: (
@@ -35,6 +42,7 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  chatMessage: (message: ChatMessage) => void;
   worldState: (snapshot: WorldStateSnapshot) => void;
   playerState: (snapshot: PlayerStateSnapshot) => void;
   npcInteraction: (payload: NpcInteractionPayload) => void;

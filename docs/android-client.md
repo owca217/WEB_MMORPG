@@ -6,13 +6,15 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany `WEB-MMORPG-0.1.3.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany `WEB-MMORPG-0.1.4.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
 Wersja 0.1.2 dodaje do katalogu pojemnik „Szmaciany worek” z 8 miejscami. Kliknięcie wyposażonego worka otwiera jego zawartość; cały stos zajmuje jedno miejsce. Puste sloty panelu mają czarne tło i wyblakłą ikonę plecaka. Na telefonie przycisk w nagłówku zwija panel gry do jednej ikony; ponowne dotknięcie go rozwija.
 
 Wersja 0.1.3 dodaje izometryczną planszę walki po prawej i szczegóły własnej postaci po lewej. Dotknięcie przeciwnika wybiera cel i pokazuje dopasowany atak, szansę trafienia i obrażenia po pancerzu; przycisk podglądu potwierdza atak. Zielone pola pokazują aktualny zasięg ruchu z uwzględnieniem AP, przeszkód i urazów. W panelu można użyć przedmiotów użytkowych z ekwipunku, także z pojemników, za 2 AP. Podstawowy bandaż leczy 30 HP. Obecne poprawne ataki zawsze trafiają, dlatego podgląd pokazuje 100%; cel poza zasięgiem lub za przeszkodą jest niedostępny.
+
+Wersja 0.1.4 dodaje ikonę czatu w prawym dolnym rogu świata i walki. Zakładka „W pobliżu” obejmuje postacie w widocznym obszarze kamery i pokazuje sześciusekundowe dymki nad nadawcą; podczas walki korzystaj z zakładki „Ogólny”. Czat ogólny łączy wszystkich graczy online niezależnie od miejsca. Serwer przechowuje ostatnie 50 wiadomości ogólnych do restartu, a klient do 100 wiadomości na kanał w bieżącej sesji. Wiadomość ma limit 300 znaków. Pisanie zatrzymuje sterowanie postacią; Enter wysyła, Escape lub Wstecz zamyka okno. Widok dopasowuje się do rozmiaru ekranu i klawiatury.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

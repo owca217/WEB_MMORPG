@@ -16,6 +16,7 @@ import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { BattleHud } from "../ui/BattleHud";
 import { BattleAttackCard } from "../ui/BattleAttackCard";
+import { ChatController } from "../ui/ChatController";
 import { axialToPixel, battleHexBounds, battleHexPolygon, calculateBattleLayout, type SafeInsets } from "./battleLayout";
 
 export { axialToPixel } from "./battleLayout";
@@ -38,6 +39,7 @@ export class BattleScene extends Phaser.Scene {
   private pendingCommand = false;
   private pendingItem = false;
   private disposed = true;
+  private chat: ChatController | null = null;
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
   private unsubscribeState: (() => void) | undefined;
   private unsubscribeEnded: (() => void) | undefined;
@@ -68,6 +70,12 @@ export class BattleScene extends Phaser.Scene {
       onEndTurn: () => this.requestEndTurn()
     });
     this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
+    this.chat = new ChatController({nearbyAvailable:false,onTypingChange:(typing)=>{
+      const keyboard=this.input?.keyboard;
+      if(!keyboard) return;
+      keyboard.resetKeys?.(); keyboard.enabled=!typing;
+      if(typing) keyboard.disableGlobalCapture?.(); else keyboard.enableGlobalCapture?.();
+    }});
     this.scale.on("resize", this.onResize);
     const hudElement = document.querySelector<HTMLElement>(".battle-hud");
     if (hudElement && typeof ResizeObserver !== "undefined") {
@@ -119,6 +127,8 @@ export class BattleScene extends Phaser.Scene {
       this.hud = null;
       this.attackCard?.destroy();
       this.attackCard = null;
+      this.chat?.destroy();
+      this.chat = null;
       this.layout = null;
       this.clearRenderObjects();
     });

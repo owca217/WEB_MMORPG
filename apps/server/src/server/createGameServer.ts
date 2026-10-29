@@ -10,6 +10,7 @@ import type { Pool } from "pg";
 import { Server } from "socket.io";
 import type { AuthService } from "../auth/AuthService";
 import { BattleService } from "../battle/BattleService";
+import { ChatService } from "../chat/ChatService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
 import { InventoryService } from "../inventory/InventoryService";
@@ -56,6 +57,8 @@ const BATTLE_ITEM_ERRORS: Readonly<Record<string, string>> = {
   SESSION_REPLACED: "Połączenie zostało zastąpione. Połącz się ponownie."
 };
 
+const AUTHENTICATED_CHAT_ROOM = "chat:authenticated";
+
 export function createGameServer(
   httpServer: HttpServer,
   options: GameServerOptions
@@ -64,6 +67,7 @@ export function createGameServer(
   const inventory = new InventoryService(options.pool);
   const loot = new LootService();
   const battles = new BattleService();
+  const chat = new ChatService(world, (playerId) => battles.hasBattle(playerId));
   const characters = new CharacterService();
   const connections = options.connections ?? new ActiveConnectionRegistry();
   const characterOwners = new Map<PlayerId, string>();
@@ -167,6 +171,10 @@ export function createGameServer(
       accountId = null;
       characterId = null;
       locationId = null;
+      socket.leave(AUTHENTICATED_CHAT_ROOM);
+      if (releasedCharacterId && characterOwners.get(releasedCharacterId) === socket.id) {
+        chat.removePlayer(releasedCharacterId);
+      }
       if (releasedLocationId) socket.leave(`location:${releasedLocationId}`);
       if (!releasedCharacterId || !releasedAccountId) return save;
 
@@ -293,6 +301,7 @@ export function createGameServer(
           });
 
           socket.join(`location:${persisted.locationId}`);
+          socket.join(AUTHENTICATED_CHAT_ROOM);
           ack({
             ok: true,
             characterId: persisted.id,
@@ -325,6 +334,42 @@ export function createGameServer(
     socket.on("requestWorldState", () => {
       if (!characterId || !locationId) return;
       socket.emit("worldState", world.snapshot(locationId));
+    });
+
+    socket.on("updateChatViewport", (viewport) => {
+      if (!characterId || !ownsCharacter(characterId, characterVersion)) return;
+      chat.setViewport(characterId, viewport);
+    });
+
+    socket.on("requestChatHistory", (ack) => {
+      if (typeof ack !== "function") return;
+      if (!characterId || !ownsCharacter(characterId, characterVersion)) {
+        ack({ ok: false, code: "AUTHENTICATION_REQUIRED", message: "Zaloguj się, aby korzystać z czatu." });
+        return;
+      }
+      ack({ ok: true, messages: chat.getHistory() });
+    });
+
+    socket.on("sendChatMessage", (payload, ack) => {
+      if (typeof ack !== "function") return;
+      if (!characterId || !ownsCharacter(characterId, characterVersion)) {
+        ack({ ok: false, code: "AUTHENTICATION_REQUIRED", message: "Zaloguj się, aby korzystać z czatu." });
+        return;
+      }
+      const result = chat.sendMessage(characterId, payload);
+      if (result.ok) {
+        if (result.message.channel === "global") {
+          io.to(AUTHENTICATED_CHAT_ROOM).emit("chatMessage", result.message);
+        } else {
+          for (const recipientId of chat.nearbyRecipients(result.message)) {
+            const recipientSocketId = characterOwners.get(recipientId);
+            if (recipientSocketId && io.sockets.sockets.get(recipientSocketId)?.rooms.has(AUTHENTICATED_CHAT_ROOM)) {
+              io.to(recipientSocketId).emit("chatMessage", result.message);
+            }
+          }
+        }
+      }
+      ack(result);
     });
 
     socket.on("moveIntent", (intent) => {
@@ -591,6 +636,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, loot, battles, characters, connections }
+    services: { world, inventory, loot, battles, characters, connections, chat }
   };
 }

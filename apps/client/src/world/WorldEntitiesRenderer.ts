@@ -15,6 +15,7 @@ import {
 } from "../characters/characterSkinAnimation";
 import { getCharacterSkinTextureKey } from "../characters/characterSkinAssets";
 import { getCharacterWalkAnimationKey } from "../characters/characterSkinSprites";
+import { getNpcSkinAsset, getNpcSkinTextureKey } from "../characters/npcSkinAssets";
 
 interface PlayerView {
   container: Phaser.GameObjects.Container;
@@ -277,23 +278,35 @@ export class WorldEntitiesRenderer {
   private createNpc(npc: NpcSnapshot): Phaser.GameObjects.Container {
     const container = this.scene.add.container(npc.x, npc.y).setDepth(18);
     const shadow = this.scene.add.ellipse(0, 18, 34, 12, 0x101713, 0.34);
-    const accent = npc.kind === "healer" ? 0x9b594e : 0x6f7f9e;
-    const body = this.scene.add.rectangle(0, 2, 22, 30, accent).setStrokeStyle(2, 0x302b26);
-    const head = this.scene.add.circle(0, -18, 9, 0xcfa06d).setStrokeStyle(2, 0x3f3328);
-    const symbol = this.scene.add.text(0, 4, npc.kind === "healer" ? "+" : "!", {
+    container.add(shadow);
+    const skin = getNpcSkinAsset(npc.id);
+    const textureKey = getNpcSkinTextureKey(npc.id);
+    if (skin && this.scene.textures.exists(textureKey) && this.scene.textures.get(textureKey).has("idle")) {
+      this.scene.textures.get(textureKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      const sprite = this.scene.add.sprite(0, 20, textureKey, "idle")
+        .setOrigin(0.5, 1)
+        .setDisplaySize(56 * skin.frame.width / skin.frame.height, 56);
+      container.add(sprite);
+    } else {
+      // NPCs remain visible and interactive when an image could not be loaded.
+      const accent = npc.kind === "healer" ? 0x9b594e : npc.kind === "merchant" ? 0x9d833d : 0x6f7f9e;
+      const body = this.scene.add.rectangle(0, 2, 22, 30, accent).setStrokeStyle(2, 0x302b26);
+      const head = this.scene.add.circle(0, -18, 9, 0xcfa06d).setStrokeStyle(2, 0x3f3328);
+      const symbol = this.scene.add.text(0, 4, npc.kind === "healer" ? "+" : npc.kind === "merchant" ? "$" : "!", {
+        fontFamily: "sans-serif", fontSize: "15px", color: "#fff5cf", fontStyle: "bold"
+      }).setOrigin(0.5);
+      container.add([body, head, symbol]);
+    }
+    const role = npc.kind === "healer" ? "Uzdrowicielka" : npc.kind === "merchant" ? "Kupiec" : "Przewodnik";
+    const label = this.scene.add.text(0, -55, `${npc.name}\n${role}`, {
       fontFamily: "sans-serif",
-      fontSize: "15px",
-      color: "#fff5cf",
-      fontStyle: "bold"
-    }).setOrigin(0.5);
-    const label = this.scene.add.text(0, -42, npc.name, {
-      fontFamily: "sans-serif",
-      fontSize: "13px",
+      fontSize: "12px",
+      align: "center",
       color: "#fff1c9",
       backgroundColor: "#1d1b15c9",
       padding: { x: 5, y: 2 }
     }).setOrigin(0.5);
-    container.add([shadow, body, head, symbol, label]);
+    container.add(label);
     container.setSize(54, 68).setInteractive({ useHandCursor: true });
     container.on("pointerup", () => this.onNpcSelected?.(npc.id));
     return container;

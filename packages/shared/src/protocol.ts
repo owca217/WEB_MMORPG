@@ -1,5 +1,6 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { SocialAction, SocialActionResult, SocialSnapshot } from "./social";
+import type { MerchantPurchase, MerchantResult } from "./merchant";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
 import type { ChatChannel, ChatHistoryResult, ChatMessage, ChatSendResult, ChatViewport } from "./chat";
 import type { InventorySnapshot, InventoryUpdateResult, SetContainerSlotResult } from "./inventory";
@@ -11,6 +12,8 @@ export type SocketAuthResult =
   | { ok: false; code: string; message: string };
 
 export interface ClientToServerEvents {
+  requestMerchantShop: (payload: { npcId: string }, ack: (result: MerchantResult) => void) => void;
+  purchaseMerchantItem: (payload: MerchantPurchase, ack: (result: MerchantResult) => void) => void;
   socialAction: (payload: SocialAction, ack: (result: SocialActionResult) => void) => void;
   requestSocialState: (ack: (result: SocialActionResult) => void) => void;
   authenticate: (
@@ -59,6 +62,7 @@ export interface ServerToClientEvents {
     experienceGained?: number;
     levelsGained?: number;
     partyBonusExperience?: number;
+    goldGained?: number;
   }) => void;
   commandRejected: (payload: { code: string; message: string }) => void;
 }

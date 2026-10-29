@@ -4,6 +4,7 @@ export type PlayerStateHandler = (state: PlayerStateSnapshot) => void;
 
 function cloneState(state: PlayerStateSnapshot): PlayerStateSnapshot {
   return {
+    ...(state.gold !== undefined ? { gold: state.gold } : {}),
     character: {
       ...state.character,
       injuries: [...state.character.injuries]

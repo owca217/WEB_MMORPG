@@ -1,0 +1,29 @@
+{
+  "tool": "built-in image_gen",
+  "useCase": "stylized-concept",
+  "references": [
+    "apps/client/public/assets/characters/skins/male-traveler.png",
+    "apps/client/public/assets/characters/skins/female-traveler.png"
+  ],
+  "purpose": "Stationary NPC skins for Boran, Ada and merchant Miro",
+  "format": {
+    "width": 1024,
+    "height": 1536,
+    "alpha": true,
+    "poses": "one south-facing idle pose per image"
+  },
+  "prompts": [
+    {
+      "id": "guide-boran",
+      "prompt": "Use case: stylized-concept. Asset type: one production stationary NPC sprite for a browser pixel-art MMORPG, shown in-game at roughly40x60 pixels. Input image is STYLE REFERENCE ONLY: match the provided character sheet's compact chibi proportions, elevated three-quarter RPG viewpoint, chunky sharp pixel clusters, strong dark outlines, clustered highlights and limited warm medieval fantasy palette. Generate ONE original NPC named Boran: an elderly male village guide, short gray hair, full trimmed gray beard, forest-brown traveling cloak over olive tunic, belt, dark trousers and leather boots. A small rolled map tucked in belt communicates his role. Warm approachable face. Fully clothed. Pose facing SOUTH/front toward the viewer, full body, arms relaxed, feet planted in neutral idle stance. ONE complete character ONLY, centered in a portrait canvas1024x1536 with generous clear transparent padding; feet around90% canvas height, head around10%. Actual ALPHA TRANSPARENCY everywhere outside the character. No scenery, backdrop, floor, shadow, checkerboard, text, letters, labels, frames, border, grid, extra poses or sprite sheet. Pixel art sprite, hard square pixel edges, no blur, no painterly brushwork, no photorealism. Keep limbs and facial details readable at tiny game scale. Match reference costume rendering and body/head proportions but distinct adult elder identity. Do not reproduce the reference blue traveler."
+    },
+    {
+      "id": "healer-ada",
+      "prompt": "Use case: stylized-concept. Asset type: one production stationary NPC sprite for a browser pixel-art MMORPG, shown in-game at roughly40x60 pixels. Input image is STYLE REFERENCE ONLY: match the provided character sheet's compact chibi proportions, elevated three-quarter RPG viewpoint, chunky sharp pixel clusters, strong dark outlines, clustered highlights and limited warm medieval fantasy palette. Generate ONE original NPC named Ada: an adult female village healer, warm calm face, auburn hair tied in a bun, practical cream robe with burgundy outer vest and hem, brown belt, sturdy boots and a small medicinal leather satchel at her hip. A small herb sprig at her belt communicates healing. Fully clothed, no weapon. Pose facing SOUTH/front toward the viewer, full body, arms relaxed, feet planted in neutral idle stance. ONE complete character ONLY, centered in a portrait canvas1024x1536 with generous clear transparent padding; feet around90% canvas height, head around10%. Actual ALPHA TRANSPARENCY everywhere outside the character. No scenery, backdrop, floor, shadow, aura, checkerboard, text, letters, labels, frames, border, grid, extra poses or sprite sheet. Pixel art sprite, hard square pixel edges, no blur, no painterly brushwork, no photorealism. Keep limbs and facial details readable at tiny game scale. Match reference costume rendering and body/head proportions but distinct adult healer identity. Do not reproduce the reference blue traveler."
+    },
+    {
+      "id": "merchant-miro",
+      "prompt": "Use case: stylized-concept. Asset type: one production stationary NPC sprite for a browser pixel-art MMORPG, shown in-game at roughly40x60 pixels. Input image is STYLE REFERENCE ONLY: match the provided character sheet's compact chibi proportions, elevated three-quarter RPG viewpoint, chunky sharp pixel clusters, strong dark outlines, clustered highlights and limited warm medieval fantasy palette. Generate ONE original NPC named Miro: a middle-aged male village merchant, short dark hair with receding temples, neat mustache, cheerful approachable face. Practical teal tunic with ochre yellow sleeves, brown leather shop apron and belt, dark trousers, leather boots, a small clearly visible closed coin purse and compact goods pouch at his belt. No weapon. Fully clothed. Pose facing SOUTH/front toward the viewer, full body, arms relaxed, feet planted in neutral idle stance. ONE complete character ONLY, centered in a portrait canvas1024x1536 with generous clear transparent padding; feet around90% canvas height, head around10%. Actual ALPHA TRANSPARENCY everywhere outside the character. No scenery, backdrop, floor, shadow, aura, checkerboard, text, letters, labels, frames, border, grid, extra poses or sprite sheet. Pixel art sprite, hard square pixel edges, no blur, no painterly brushwork, no photorealism. Keep limbs and facial details readable at tiny game scale. Match reference costume rendering and body/head proportions but distinct adult merchant identity. Do not reproduce the reference blue traveler."
+    }
+  ]
+}

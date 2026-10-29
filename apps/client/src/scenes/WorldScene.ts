@@ -1,6 +1,7 @@
-import type { ContainerSlotIndex, InventorySnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, InventorySnapshot, NpcInteractionPayload, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
+import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
 import { resolveGameServerUrl } from "../hosting";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
@@ -12,6 +13,7 @@ import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
+import { MerchantPanel } from "../ui/ShopPanel";
 import { ContainerPicker } from "../ui/ContainerPicker";
 import { ContainerContentsPanel } from "../ui/ContainerContentsPanel";
 import { WorldHud } from "../ui/WorldHud";
@@ -50,6 +52,8 @@ export class WorldScene extends Phaser.Scene {
   private containerContents: ContainerContentsPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
+  private merchantPanel: MerchantPanel | undefined;
+  private merchantRequestVersion = 0;
   private adminPanel: AdminPanel | undefined;
   private chat: ChatController | undefined;
   private social:SocialController|undefined;
@@ -70,7 +74,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   preload(): void {
-    if (preloadCharacterSkins(this) === 0) return;
+    const pendingAssets=preloadCharacterSkins(this)+preloadNpcSkins(this);
+    if(pendingAssets===0)return;
 
     this.cameras.main.setBackgroundColor(0x101b15);
     const loadingLabel = this.add.text(this.scale.width / 2, this.scale.height / 2, "Wczytywanie postaci… 0%", {
@@ -96,6 +101,7 @@ export class WorldScene extends Phaser.Scene {
 
   create(): void {
     registerCharacterSkinAnimations(this);
+    registerNpcSkinFrames(this);
     this.cameras.main.setBackgroundColor(0x29452d);
     this.cameras.main.setBounds(
       0,
@@ -135,6 +141,18 @@ export class WorldScene extends Phaser.Scene {
     this.characterPanel = new CharacterPanel();
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
+    });
+    this.merchantPanel = new MerchantPanel({
+      onPurchase: payload => gameSocket.purchaseMerchantItem(payload),
+      onPurchased: result => {
+        const state=playerStateStore.get();
+        if(state?.character.playerId!==this.playerId)return;
+        const updated={...state,gold:result.shop.gold,inventory:result.inventory??state.inventory};
+        playerStateStore.set(updated);
+        this.hud?.update(updated);
+        this.applyInventoryUpdate(updated.inventory);
+      },
+      onTypingChange:()=>this.updateKeyboardCapture()
     });
 
     const session = sessionStateStore.getSession();
@@ -188,14 +206,19 @@ export class WorldScene extends Phaser.Scene {
     this.cleanups.push(
       gameSocket.onWorldState((snapshot) => this.renderWorld(snapshot)),
       gameSocket.onPlayerState((state) => {
+        if(state.character.playerId!==this.playerId)return;
         playerStateStore.set(state);
         this.hud?.update(state);
         this.containerPicker?.update(state.inventory);
         this.containerContents?.update(state.inventory);
         this.characterPanel?.update(state.character);
+        if(state.gold!==undefined)this.merchantPanel?.updateGold(state.gold);
       }),
-      gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
-      gameSocket.onConnectionState((state) => this.hud?.setConnectionState(state)),
+      gameSocket.onNpcInteraction((payload) => {void this.openNpc(payload);}),
+      gameSocket.onConnectionState((state) => {
+        this.hud?.setConnectionState(state);
+        if(state!=="connected"){this.merchantRequestVersion+=1;this.merchantPanel?.hide();}
+      }),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.showToast(WORLD_ERROR_LABELS[code] ?? message);
       }),
@@ -211,7 +234,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping);
+    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping);
     if (typing) this.pointerTarget = null;
     const keyboardIntent = resolveKeyboardIntent({
       left: !typing && Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
@@ -295,6 +318,20 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private async openNpc(payload: NpcInteractionPayload):Promise<void> {
+    const version=++this.merchantRequestVersion;
+    if(payload.kind!=="merchant") {
+      this.merchantPanel?.hide();
+      this.dialoguePanel?.show(payload);
+      return;
+    }
+    this.dialoguePanel?.hide();
+    const result=await gameSocket.requestMerchantShop(payload.npcId);
+    if(version!==this.merchantRequestVersion || !this.merchantPanel)return;
+    if(result.ok)this.merchantPanel.show(result.shop);
+    else this.showToast(result.message);
+  }
+
   private applyInventoryUpdate(inventory: InventorySnapshot): void {
     const state = playerStateStore.get();
     if (state?.character.playerId === this.playerId) playerStateStore.set({ ...state, inventory });
@@ -347,6 +384,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.merchantRequestVersion+=1;
+    this.merchantPanel?.destroy();this.merchantPanel=undefined;
     this.scale?.off("resize", this.onChatResize);
     this.chat?.destroy();
     this.chat = undefined;
@@ -377,7 +416,7 @@ export class WorldScene extends Phaser.Scene {
   private updateKeyboardCapture():void {
     this.pointerTarget=null;
     const keyboard=this.input.keyboard;if(!keyboard)return;
-    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping);
+    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping);
     keyboard.resetKeys?.();keyboard.enabled=!typing;
     if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();
   }

@@ -16,6 +16,14 @@ export const FOREST_SETTLEMENT_01: WorldFixture = {
   spawn: { x: 360, y: 470 },
   npcs: [
     {
+      id: "merchant-miro",
+      kind: "merchant",
+      name: "Miro",
+      x: 480,
+      y: 420,
+      interactionRadius: 95
+    },
+    {
       id: "guide-boran",
       kind: "guide",
       name: "Boran",

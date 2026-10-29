@@ -49,6 +49,24 @@ it("releases captured movement keys while typing chat and restores them when the
   expect(document.querySelector("[data-social-widget]")).toBeNull();socialStateStore.reset();
 });
 
+it("opens the merchant from NPC interaction and applies a purchase to inventory and gold HUD",async()=>{
+  const shop={npcId:"merchant-miro",npcName:"Miro",gold:100,offers:[{itemId:"rag-bag",name:"Szmaciany worek",description:"Osiem miejsc",categoryId:"container",unitPrice:30,maxQuantity:1,capacity:8}]};
+  const inventory:InventorySnapshot={items:[{instanceId:"bag",itemId:"rag-bag",itemDefinitionId:"def",name:"Szmaciany worek",category:"container",quantity:1,description:"",rarity:"COMMON",upgradeLevel:0,containerCapacity:8}]};
+  vi.spyOn(gameSocket,"requestMerchantShop").mockResolvedValue({ok:true,shop});
+  vi.spyOn(gameSocket,"purchaseMerchantItem").mockResolvedValue({ok:true,shop:{...shop,gold:70},inventory});
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  transport.emit("playerState",{character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory:{items:[]},gold:100});
+  transport.emit("npcInteraction",{npcId:shop.npcId,npcName:"Miro",kind:"merchant",title:"Sklep",lines:[],canHeal:false});
+  await vi.waitFor(()=>expect(document.querySelector<HTMLElement>("[data-merchant-panel]")?.classList.contains("is-hidden")).toBe(false));
+  document.querySelector<HTMLButtonElement>('[data-merchant-buy="rag-bag"]')!.click();
+  await vi.waitFor(()=>expect(playerStateStore.get()?.gold).toBe(70));
+  expect(playerStateStore.get()?.inventory.items[0]?.itemId).toBe("rag-bag");
+  expect(document.querySelector("[data-gold]")?.textContent).toBe("70");
+  events.emit("shutdown");expect(document.querySelector("[data-merchant-panel]")).toBeNull();
+});
+
 beforeEach(() => {
   document.body.replaceChildren();
   transport = new EventEmitter();

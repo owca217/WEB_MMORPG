@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany `WEB-MMORPG-0.1.5.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany `WEB-MMORPG-0.1.6.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -17,6 +17,8 @@ Wersja 0.1.3 dodaje izometryczną planszę walki po prawej i szczegóły własne
 Wersja 0.1.4 dodaje ikonę czatu w prawym dolnym rogu świata i walki. Zakładka „W pobliżu” obejmuje postacie w widocznym obszarze kamery i pokazuje sześciusekundowe dymki nad nadawcą; podczas walki korzystaj z zakładki „Ogólny”. Czat ogólny łączy wszystkich graczy online niezależnie od miejsca. Serwer przechowuje ostatnie 50 wiadomości ogólnych do restartu, a klient do 100 wiadomości na kanał w bieżącej sesji. Wiadomość ma limit 300 znaków. Pisanie zatrzymuje sterowanie postacią; Enter wysyła, Escape lub Wstecz zamyka okno. Widok dopasowuje się do rozmiaru ekranu i klawiatury.
 
 Wersja 0.1.5 dodaje panel „Społeczność” obok ikony czatu. Drużyna mieści do 5 osób; zwycięzca walki otrzymuje +10% XP za każdego dodatkowego członka online w tej samej lokacji i zasięgu 800, maksymalnie +40%. Członek musi należeć do drużyny na początku i końcu walki. Spotkania nadal rozgrywa się indywidualnie. Lista znajomych i zaproszenia są zapisywane w bazie, wraz z możliwością akceptacji, odrzucenia, anulowania i usunięcia znajomości. Handel przedmiotami wymaga bliskości (160), braku walki i potwierdzenia tej samej oferty przez obie strony. Zmiana oferty zeruje potwierdzenia. Całe przedmioty i części stosów są przekazywane w jednej transakcji; pojemniki muszą być puste i zdjęte ze slotu. Rozłączenie, walka, odległość lub upływ czasu anulują trwające zaproszenie/wymianę. Drużyny i otwarte wymiany są sesjami na żywo.
+
+Wersja 0.1.6 dodaje osobne skórki pixel art dla Borana, Ady i kupca Miro. Miro stoi przy placu osady, blisko miejsca startu. Podejdź i dotknij go, aby otworzyć sklep: bandaż (5 złota, 30 HP), Szmaciany worek (30 złota, 8 miejsc), mała mikstura leczenia (10 złota, 50 HP) i Tonik wigoru (12 złota, 3 PA). Przedmioty użytkowe działają w walce według obecnych zasad. Każda postać otrzymuje jednorazowo 100 złota, również postacie utworzone przed aktualizacją; zwycięstwo nad wilkami daje 15 złota. Stan portfela zapisuje się oddzielnie od pozycji i statystyk. Zakup wymaga obecności przy kupcu poza walką; złoto i przedmioty zapisują się w jednej transakcji. Ponowienie niepotwierdzonego zakupu używa tego samego identyfikatora i nie pobiera opłaty ponownie. Złoto jest widoczne w panelu gry i sklepie.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

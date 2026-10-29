@@ -8,6 +8,8 @@ import type {
   SocialAction,
   SocialActionResult,
   SocialSnapshot,
+  MerchantPurchase,
+  MerchantResult,
   BattleSnapshot,
   CharacterSnapshot,
   ClientToServerEvents,
@@ -35,6 +37,7 @@ export interface BattleEndedPayload {
   experienceGained?: number;
   levelsGained?: number;
   partyBonusExperience?: number;
+  goldGained?: number;
 }
 
 export interface BattleResultSummary {
@@ -43,6 +46,7 @@ export interface BattleResultSummary {
   levelsGained: number;
   level: number;
   partyBonusExperience?: number;
+  goldGained?: number;
 }
 
 export class GameSocket {
@@ -204,6 +208,33 @@ export class GameSocket {
 
   healAtNpc(npcId: string): void {
     this.connect().emit("healAtNpc", { npcId });
+  }
+
+  requestMerchantShop(npcId: string): Promise<MerchantResult> {
+    return this.merchantRequest({ npcId });
+  }
+
+  purchaseMerchantItem(payload: MerchantPurchase): Promise<MerchantResult> {
+    return this.merchantRequest(payload);
+  }
+
+  private async merchantRequest(payload: { npcId: string } | MerchantPurchase): Promise<MerchantResult> {
+    const socket = this.connect();
+    const version = this.authenticationVersion;
+    if (!this.sessionToken || this.authenticating || !socket.connected) {
+      return { ok: false, code: "AUTHENTICATION_REQUIRED", message: "Połącz się z grą, aby otworzyć sklep." };
+    }
+    try {
+      const result = "requestId" in payload
+        ? await socket.timeout(15_000).emitWithAck("purchaseMerchantItem", payload)
+        : await socket.timeout(10_000).emitWithAck("requestMerchantShop", payload);
+      if (this.socket !== socket || version !== this.authenticationVersion) {
+        return { ok: false, code: "SESSION_REPLACED", message: "Połączenie zmieniło się. Otwórz sklep ponownie." };
+      }
+      return result;
+    } catch {
+      return { ok: false, code: "MERCHANT_REQUEST_UNCERTAIN", message: "Brak potwierdzenia z serwera. Ponów ten zakup, aby sprawdzić jego wynik bez ponownej opłaty." };
+    }
   }
 
   async setContainerSlot(slotIndex: number, itemInstanceId: string | null): Promise<SetContainerSlotResult> {

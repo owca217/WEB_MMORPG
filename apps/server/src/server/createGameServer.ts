@@ -1,4 +1,5 @@
 import type { Server as HttpServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import type {
   ClientToServerEvents,
   LocationId,
@@ -20,6 +21,7 @@ import { ActiveConnectionRegistry } from "./ActiveConnectionRegistry";
 import { SocialService } from "../social/SocialService";
 import type { PartyExperienceContext } from "../social/PartyService";
 import { socialFailure } from "../social/socialErrors";
+import { MerchantService } from "../merchant/MerchantService";
 
 export interface GameServerOptions {
   pool: Pool;
@@ -61,6 +63,30 @@ const BATTLE_ITEM_ERRORS: Readonly<Record<string, string>> = {
 };
 
 const AUTHENTICATED_CHAT_ROOM = "chat:authenticated";
+const MERCHANT_ERRORS: Readonly<Record<string,string>> = {
+  AUTHENTICATION_REQUIRED: "Zaloguj się, aby korzystać ze sklepu.",
+  SESSION_REPLACED: "Połączenie zmieniło się. Otwórz sklep ponownie.",
+  NPC_NOT_FOUND: "Nie znaleziono tego kupca w tej lokacji.",
+  NPC_NOT_MERCHANT: "Ta postać nie prowadzi sklepu.",
+  NPC_OUT_OF_RANGE: "Podejdź bliżej do kupca.",
+  BATTLE_IN_PROGRESS: "Sklep jest niedostępny podczas walki.",
+  MERCHANT_ACTION_PENDING: "Poczekaj na zakończenie zakupu.",
+  MERCHANT_REQUEST_UNCERTAIN: "Zakup mógł zostać zapisany. Ponów sprawdzenie tego samego zakupu bez dodatkowej opłaty.",
+  SOCIAL_ACTION_PENDING: "Poczekaj na zakończenie wymiany.",
+  MERCHANT_RATE_LIMITED: "Zbyt wiele żądań sklepu. Poczekaj chwilę.",
+  MERCHANT_INVALID_PURCHASE: "Nieprawidłowy zakup.",
+  MERCHANT_INVALID_QUANTITY: "Wybierz dozwoloną liczbę sztuk.",
+  MERCHANT_REQUEST_CONFLICT: "Ten identyfikator zakupu dotyczy innej oferty.",
+  MERCHANT_ITEM_UNAVAILABLE: "Ten towar jest już niedostępny.",
+  MERCHANT_LEVEL_REQUIRED: "Masz za niski poziom na ten przedmiot.",
+  MERCHANT_INSUFFICIENT_GOLD: "Masz za mało złota.",
+  MERCHANT_UNIQUE_ITEM_EXISTS: "Posiadasz już ten unikatowy przedmiot.",
+  CHARACTER_NOT_FOUND: "Postać jest niedostępna."
+};
+function merchantFailure(error: unknown): {ok:false;code:string;message:string} {
+  const code=error instanceof Error && MERCHANT_ERRORS[error.message] ? error.message : "MERCHANT_FAILED";
+  return {ok:false,code,message:MERCHANT_ERRORS[code]??"Nie udało się wykonać zakupu. Spróbuj ponownie."};
+}
 
 export function createGameServer(
   httpServer: HttpServer,
@@ -68,6 +94,7 @@ export function createGameServer(
 ) {
   const world = new WorldService();
   const inventory = new InventoryService(options.pool);
+  const merchant = new MerchantService(options.pool);
   const loot = new LootService();
   const battles = new BattleService();
   const chat = new ChatService(world, (playerId) => battles.hasBattle(playerId));
@@ -76,6 +103,9 @@ export function createGameServer(
   const characterOwners = new Map<PlayerId, string>();
   const pendingCharacterSaves = new Map<PlayerId, Promise<void>>();
   const pendingBattleItemUses = new Map<PlayerId, Promise<void>>();
+  const pendingMerchantOperations = new Map<PlayerId, Promise<void>>();
+  const pendingBattleRewards = new Map<PlayerId, Promise<void>>();
+  const battleRewardTokens = new Map<PlayerId,string>();
   const pendingAccountCleanup = new Map<string, Promise<void>>();
   const pendingAccountAuthentication = new Map<string, Promise<void>>();
   const partyExperienceContexts = new Map<PlayerId,PartyExperienceContext|null>();
@@ -139,9 +169,13 @@ export function createGameServer(
     const emitPlayerState = async (targetCharacterId: PlayerId): Promise<void> => {
       const character = characters.getSnapshot(targetCharacterId);
       if (!character) return;
+      const version=characterVersion;
+      const [items,gold]=await Promise.all([inventory.getSnapshot(targetCharacterId),merchant.getGold(targetCharacterId)]);
+      if(!ownsCharacter(targetCharacterId,version))return;
       socket.emit("playerState", {
         character,
-        inventory: await inventory.getSnapshot(targetCharacterId)
+        inventory: items,
+        gold
       });
     };
 
@@ -192,10 +226,12 @@ export function createGameServer(
       const releasedAccountId = accountId;
       const releasedLocationId = locationId;
       const pendingItemUse = releasedCharacterId ? pendingBattleItemUses.get(releasedCharacterId) : undefined;
+      const pendingPurchase = releasedCharacterId ? pendingMerchantOperations.get(releasedCharacterId) : undefined;
+      const pendingReward = releasedCharacterId ? pendingBattleRewards.get(releasedCharacterId) : undefined;
       const socialCleanup = releasedCharacterId && characterOwners.get(releasedCharacterId)===socket.id
         ? social.removeDisconnected(releasedCharacterId) : Promise.resolve();
       const save = releasedCharacterId
-        ? Promise.allSettled([pendingItemUse,socialCleanup]).then(()=>persistGameplayState(releasedCharacterId))
+        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,socialCleanup]).then(()=>persistGameplayState(releasedCharacterId))
         : Promise.resolve();
       unregisterConnection?.();
       unregisterConnection = null;
@@ -214,6 +250,7 @@ export function createGameServer(
         if (characterOwners.get(releasedCharacterId) !== socket.id) return;
         characterOwners.delete(releasedCharacterId);
         partyExperienceContexts.delete(releasedCharacterId);
+        battleRewardTokens.delete(releasedCharacterId);
         battles.removeBattleForPlayer(releasedCharacterId);
         world.removePlayer(releasedCharacterId);
         characters.removePlayer(releasedCharacterId);
@@ -233,6 +270,7 @@ export function createGameServer(
     };
 
     const npcPayload = (npcId: string): NpcInteractionPayload => {
+      if(npcId==="merchant-miro")return {npcId,npcName:"Miro",kind:"merchant",title:"Zaopatrzenie podróżnika",lines:["Bandaże, mikstury i worki na drogę."],canHeal:false};
       if (npcId === "guide-boran") {
         return {
           npcId: "guide-boran",
@@ -394,6 +432,7 @@ export function createGameServer(
       const id=characterId,version=characterVersion;
       if(!id || !ownsCharacter(id,version)){ack(socialFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
       const now=Date.now();while(socialActionTimes[0]!==undefined && now-socialActionTimes[0]>=10000)socialActionTimes.shift();
+      if(pendingMerchantOperations.has(id)){ack({ok:false,code:"MERCHANT_ACTION_PENDING",message:MERCHANT_ERRORS.MERCHANT_ACTION_PENDING!});return;}
       if(socialActionTimes.length>=20){ack(socialFailure(new Error("SOCIAL_RATE_LIMITED")));return;}
       socialActionTimes.push(now);
       try {
@@ -408,7 +447,8 @@ export function createGameServer(
             if(!target?.connected || !character)continue;
             const items=await inventory.getSnapshot(participant.player.id);
             if(participant.player.id===id)updatedInventory=items;
-            if(characterOwners.get(participant.player.id)===owner)target.emit("playerState",{character,inventory:items});
+            const gold=await merchant.getGold(participant.player.id);
+            if(characterOwners.get(participant.player.id)===owner)target.emit("playerState",{character,inventory:items,gold});
           }
         }
         const snapshot=await social.getSnapshot(id);
@@ -455,7 +495,7 @@ export function createGameServer(
     });
 
     socket.on("moveIntent", (intent) => {
-      if (!characterId || battles.hasBattle(characterId) || social.isBusy(characterId)) return;
+      if (!characterId || battles.hasBattle(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
       if (!currentLocationId) return;
@@ -475,10 +515,60 @@ export function createGameServer(
       }
     });
 
+    const merchantRequestTimes:number[]=[];
+    const assertMerchant = (id:PlayerId,version:number,npcId:unknown):void => {
+      if(!ownsCharacter(id,version))throw new Error("SESSION_REPLACED");
+      if(battles.hasBattle(id))throw new Error("BATTLE_IN_PROGRESS");
+      if(social.isBusy(id))throw new Error("SOCIAL_ACTION_PENDING");
+      if(typeof npcId!=="string")throw new Error("NPC_NOT_FOUND");
+      const npc=world.interactNpc(id,npcId);
+      if(npc.kind!=="merchant")throw new Error("NPC_NOT_MERCHANT");
+    };
+    const checkMerchantRate = ():void => {
+      const now=Date.now();
+      while(merchantRequestTimes[0]!==undefined && now-merchantRequestTimes[0]>=10000)merchantRequestTimes.shift();
+      if(merchantRequestTimes.length>=30)throw new Error("MERCHANT_RATE_LIMITED");
+      merchantRequestTimes.push(now);
+    };
+    socket.on("requestMerchantShop",async(payload,ack)=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      if(!id || !ownsCharacter(id,version)){ack(merchantFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
+      try {
+        checkMerchantRate();assertMerchant(id,version,payload?.npcId);
+        if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
+        const shop=await merchant.getShop(id);
+        assertMerchant(id,version,payload.npcId);
+        ack({ok:true,shop});
+      }catch(error){ack(merchantFailure(error));}
+    });
+    socket.on("purchaseMerchantItem",(payload,ack)=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      if(!id || !ownsCharacter(id,version)){ack(merchantFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
+      try {
+        checkMerchantRate();assertMerchant(id,version,payload?.npcId);
+        if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
+      }catch(error){ack(merchantFailure(error));return;}
+      const operation=(async()=>{
+        try {
+          const result=await merchant.purchase(id,payload,()=>assertMerchant(id,version,payload.npcId));
+          if(!ownsCharacter(id,version))throw new Error("SESSION_REPLACED");
+          const character=characters.getSnapshot(id);
+          if(!character)throw new Error("CHARACTER_NOT_FOUND");
+          socket.emit("playerState",{character,inventory:result.inventory,gold:result.shop.gold});
+          ack({ok:true,...result});
+        }catch(error){ack(merchantFailure(error));}
+      })();
+      pendingMerchantOperations.set(id,operation);
+      void operation.finally(()=>{if(pendingMerchantOperations.get(id)===operation)pendingMerchantOperations.delete(id);});
+    });
+
     socket.on("interactNpc", ({ npcId }) => {
       if (!characterId) return;
 
       try {
+        if(battles.hasBattle(characterId))throw new Error("BATTLE_IN_PROGRESS");
         const npc = world.interactNpc(characterId, npcId);
         socket.emit("npcInteraction", npcPayload(npc.id));
       } catch (error) {
@@ -529,7 +619,7 @@ export function createGameServer(
           ack({ ok: false, code: "SESSION_REPLACED", message: "Połączenie zostało zastąpione. Połącz się ponownie." });
           return;
         }
-        socket.emit("playerState", { character, inventory: updatedInventory });
+        await emitPlayerState(currentCharacterId);
         ack({ ok: true, inventory: updatedInventory });
       } catch (error) {
         const code = error instanceof Error && CONTAINER_SLOT_ERRORS[error.message]
@@ -561,7 +651,7 @@ export function createGameServer(
           ack({ ok: false, code: "SESSION_REPLACED", message: "Połączenie zostało zastąpione. Połącz się ponownie." });
           return;
         }
-        socket.emit("playerState", { character, inventory: updatedInventory });
+        await emitPlayerState(currentCharacterId);
         ack({ ok: true, inventory: updatedInventory });
       } catch (error) {
         const code = error instanceof Error && CONTAINER_SLOT_ERRORS[error.message]
@@ -606,7 +696,7 @@ export function createGameServer(
         }
         const character = characters.getSnapshot(currentCharacterId)!;
         socket.emit("battleState", applied.snapshot);
-        socket.emit("playerState", { character, inventory: applied.inventory });
+        await emitPlayerState(currentCharacterId);
         ack({ ok: true, inventory: applied.inventory });
       })().catch((error: unknown) => {
         const code = error instanceof Error && BATTLE_ITEM_ERRORS[error.message]
@@ -628,11 +718,14 @@ export function createGameServer(
       if (!currentLocationId || !character) return;
 
       try {
+        if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
         await social.cancelForBattle(currentCharacterId);
         if(!ownsCharacter(currentCharacterId,currentCharacterVersion))return;
+        if(pendingMerchantOperations.has(currentCharacterId))throw new Error("MERCHANT_ACTION_PENDING");
         if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_ALREADY_STARTED");
         world.startEncounter(currentCharacterId, encounterId);
         const snapshot = battles.startBattle(character, encounterId);
+        battleRewardTokens.set(currentCharacterId,randomUUID());
         partyExperienceContexts.set(currentCharacterId,social.parties.captureExperienceContext(currentCharacterId));
         social.markChanged();void broadcastSocial();
         socket.leave(`location:${currentLocationId}`);
@@ -647,7 +740,7 @@ export function createGameServer(
 
       const currentCharacterId = characterId;
       const currentCharacterVersion = characterVersion;
-      if (pendingBattleItemUses.has(currentCharacterId)) {
+      if (pendingBattleItemUses.has(currentCharacterId) || pendingBattleRewards.has(currentCharacterId)) {
         socket.emit("commandRejected", { code: "BATTLE_ACTION_PENDING", message: BATTLE_ITEM_ERRORS.BATTLE_ACTION_PENDING! });
         return;
       }
@@ -665,11 +758,20 @@ export function createGameServer(
 
       if (!applied.finished) return;
 
+      let finishMutations!:()=>void;
+      const mutationsDone=new Promise<void>(resolve=>{finishMutations=resolve;});
+      pendingBattleRewards.set(currentCharacterId,mutationsDone);
+      const releaseMutations=():void=>{
+        finishMutations();
+        if(pendingBattleRewards.get(currentCharacterId)===mutationsDone)pendingBattleRewards.delete(currentCharacterId);
+      };
+      const settlement=(async()=>{
       try {
         const beforeReward = characters.getSnapshot(currentCharacterId);
         let experienceGained = 0;
         let levelsGained = 0;
         let partyBonusExperience = 0;
+        let goldGained = 0;
         if (applied.playerOutcome) {
           characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
         }
@@ -684,6 +786,11 @@ export function createGameServer(
           levelsGained = progressed.level - (beforeReward?.level ?? progressed.level);
           const reward = loot.rollEncounterLoot(applied.encounterId, applied.seed);
           await inventory.addItems(currentCharacterId, reward);
+          const rewardToken=battleRewardTokens.get(currentCharacterId);
+          if(applied.encounterId==="wolf-pack-01" && rewardToken) {
+            await merchant.rewardVictory(currentCharacterId,rewardToken,15);
+            goldGained=15;
+          }
         } else {
           characters.recoverAfterDefeat(currentCharacterId);
           world.resetPlayerToSpawn(currentCharacterId);
@@ -691,6 +798,8 @@ export function createGameServer(
         }
 
         await persistGameplayState(currentCharacterId);
+        // Re-authentication waits for durable mutations, never for old presentation reads.
+        releaseMutations();
         if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) return;
         const character = characters.getSnapshot(currentCharacterId);
         const currentLocationId = locationId;
@@ -706,11 +815,13 @@ export function createGameServer(
           character,
           experienceGained,
           levelsGained,
+          goldGained,
           ...(partyBonusExperience ? {partyBonusExperience} : {})
         });
 
         battles.removeBattleForPlayer(currentCharacterId);
         partyExperienceContexts.delete(currentCharacterId);
+        battleRewardTokens.delete(currentCharacterId);
         social.markChanged();void broadcastSocial();
         socket.join(`location:${currentLocationId}`);
         io.to(`location:${currentLocationId}`).emit(
@@ -719,7 +830,9 @@ export function createGameServer(
         );
       } catch (error) {
         reject(error, "BATTLE_REWARD_FAILED", "Battle rewards could not be persisted.");
-      }
+      } finally {releaseMutations();}
+      })();
+      await settlement;
     });
 
     socket.on("disconnect", () => {
@@ -731,6 +844,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, loot, battles, characters, connections, chat, social }
+    services: { world, inventory, loot, battles, characters, connections, chat, social, merchant }
   };
 }

@@ -47,6 +47,20 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("requests a merchant shop, forwards receipt IDs and rejects purchase ACKs from a replaced session",async()=>{
+    const shop={npcId:"merchant-miro",npcName:"Miro",gold:100,offers:[]};
+    const pending=deferred<(result:unknown)=>void>();
+    const game=await startServer((_token,ack,socket)=>{
+      socket.on("requestMerchantShop",(payload,reply)=>{expect(payload).toEqual({npcId:shop.npcId});reply({ok:true,shop});});
+      socket.on("purchaseMerchantItem",(payload,reply)=>{expect(payload.requestId).toBe("purchase-1");pending.resolve(reply);});
+      ack(authenticated);
+    });
+    await game.authenticate("merchant-token");
+    expect(await game.requestMerchantShop(shop.npcId)).toEqual({ok:true,shop});
+    const purchase=game.purchaseMerchantItem({npcId:shop.npcId,requestId:"purchase-1",itemId:"rag-bag",quantity:1});
+    const reply=await pending.promise;await game.authenticate("replacement-token");reply({ok:true,shop});
+    expect(await purchase).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+  });
   it("applies authenticated social acknowledgements and ignores stale or foreign state pushes",async()=>{
     const initial={revision:2,selfId:"character-1",onlinePlayers:[],friends:[],incomingFriendRequests:[],outgoingFriendRequests:[],party:null,partyInvites:[],trade:null};
     const game=await startServer((_token,ack,socket)=>{

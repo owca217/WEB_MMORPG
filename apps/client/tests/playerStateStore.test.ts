@@ -18,6 +18,12 @@ const snapshot: PlayerStateSnapshot = {
 };
 
 describe("PlayerStateStore", () => {
+  it("retains the server gold balance alongside inventory updates",()=>{
+    const store=new PlayerStateStore();store.set({...snapshot,gold:75});
+    expect(store.get()?.gold).toBe(75);
+    store.set({...store.get()!,inventory:{items:[]}});
+    expect(store.get()?.gold).toBe(75);
+  });
   it("publishes and retains the latest player state", () => {
     const store = new PlayerStateStore();
     const seen: string[] = [];

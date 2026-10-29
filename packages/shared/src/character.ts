@@ -21,4 +21,5 @@ export interface CharacterSnapshot {
 export interface PlayerStateSnapshot {
   character: CharacterSnapshot;
   inventory: InventorySnapshot;
+  gold?: number;
 }

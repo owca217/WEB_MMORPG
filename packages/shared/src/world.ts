@@ -15,7 +15,7 @@ export interface EncounterSnapshot {
   label: string;
 }
 
-export type NpcKind = "guide" | "healer";
+export type NpcKind = "guide" | "healer" | "merchant";
 
 export interface NpcSnapshot {
   id: string;

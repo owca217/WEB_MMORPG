@@ -19,6 +19,7 @@ export class WorldHud {
   private readonly experience: HTMLElement;
   private readonly battleResult: HTMLElement;
   private readonly ap: HTMLElement;
+  private readonly gold: HTMLElement;
   private readonly connection: HTMLElement;
   private readonly adminButton: HTMLButtonElement;
   private readonly containerSlots: HTMLButtonElement[] = [];
@@ -48,6 +49,7 @@ export class WorldHud {
         <span>Poziom <b data-level>—</b></span>
         <span>HP <b data-hp>—</b></span>
         <span>AP <b data-ap>—</b></span>
+        <span>Złoto <b data-gold>—</b></span>
       </div>
       <div data-experience-container></div>
       <p class="world-hud__battle-result" data-battle-result role="status" hidden></p>
@@ -82,6 +84,7 @@ export class WorldHud {
     this.experience = this.require("[data-experience-container]");
     this.battleResult = this.require("[data-battle-result]");
     this.ap = this.require("[data-ap]");
+    this.gold = this.require("[data-gold]");
     this.connection = this.require("[data-connection]");
     this.adminButton = this.require<HTMLButtonElement>("[data-admin]");
     const slots = this.require("[data-container-slots]");
@@ -115,6 +118,7 @@ export class WorldHud {
     this.level.textContent = `${character.level}`;
     this.experience.innerHTML = experienceProgressMarkup(character);
     this.ap.textContent = `${character.maxAp}`;
+    this.gold.textContent = state.gold === undefined ? "—" : `${state.gold}`;
     this.updateInventory(state.inventory);
   }
 
@@ -142,7 +146,8 @@ export class WorldHud {
     const outcome = result.outcome === "victory" ? "Zwycięstwo!" : "Porażka.";
     const growth = result.levelsGained > 0 ? ` Awans na poziom ${result.level}!` : "";
     const party = result.partyBonusExperience ? ` (w tym premia drużyny: +${result.partyBonusExperience} XP)` : "";
-    this.battleResult.textContent = `${outcome} +${result.experienceGained} XP${party}.${growth}`;
+    const gold = result.goldGained ? ` +${result.goldGained} złota.` : "";
+    this.battleResult.textContent = `${outcome} +${result.experienceGained} XP${party}.${gold}${growth}`;
     this.battleResult.hidden = false;
   }
 

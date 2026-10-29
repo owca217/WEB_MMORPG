@@ -94,7 +94,8 @@ export class BattleScene extends Phaser.Scene {
           experienceGained: payload.experienceGained ?? 0,
           levelsGained: payload.levelsGained ?? 0,
           level: payload.character.level,
-          ...(payload.partyBonusExperience ? {partyBonusExperience:payload.partyBonusExperience} : {})
+          ...(payload.partyBonusExperience ? {partyBonusExperience:payload.partyBonusExperience} : {}),
+          ...(payload.goldGained ? {goldGained:payload.goldGained} : {})
         }
       });
     });

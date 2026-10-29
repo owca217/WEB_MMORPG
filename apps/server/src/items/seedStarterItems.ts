@@ -105,6 +105,32 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
     maxStack: 1,
     weight: 0,
     specialData: { capacity: 8 }
+  },
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000006",
+    versionUuid: "10000000-0000-4000-8000-000000000016",
+    itemId: "minor-healing-potion",
+    name: "Mała mikstura leczenia",
+    categoryId: "consumable",
+    subcategoryId: "health-potion",
+    description: "Podstawowa mikstura przywracająca 50 punktów zdrowia.",
+    stackable: true,
+    maxStack: 20,
+    weight: 0.2,
+    stats: [{ id: "10000000-0000-4000-8000-000000000106", statCode: "HEAL_AMOUNT", modifierType: "flat", value: 50 }]
+  },
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000007",
+    versionUuid: "10000000-0000-4000-8000-000000000017",
+    itemId: "invigorating-tonic",
+    name: "Tonik wigoru",
+    categoryId: "consumable",
+    subcategoryId: "drink",
+    description: "Prosty tonik przywracający 3 punkty akcji podczas walki.",
+    stackable: true,
+    maxStack: 20,
+    weight: 0.2,
+    stats: [{ id: "10000000-0000-4000-8000-000000000107", statCode: "AP_RESTORE", modifierType: "flat", value: 3 }]
   }
 ];
 

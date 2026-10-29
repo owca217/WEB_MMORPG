@@ -76,7 +76,8 @@ describeDatabase("additive account auth migration", () => {
       { migration_name: "004_item_special_fields" },
       { migration_name: "005_character_progression" },
       { migration_name: "006_container_slots" },
-      { migration_name: "007_social" }
+      { migration_name: "007_social" },
+      { migration_name: "008_merchant" }
     ]);
   });
 

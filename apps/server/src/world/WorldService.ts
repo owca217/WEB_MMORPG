@@ -90,6 +90,7 @@ export class WorldService {
 
   interactNpc(playerId: PlayerId, npcId: string): NpcSnapshot {
     const player = this.requirePlayer(playerId);
+    if (player.locationId !== FOREST_SETTLEMENT_01.id) throw new Error("NPC_NOT_FOUND");
     const npc = FOREST_SETTLEMENT_01.npcs.find((item) => item.id === npcId);
     if (!npc) throw new Error("NPC_NOT_FOUND");
 

@@ -1,0 +1,75 @@
+.merchant-widget {
+  position: fixed;
+  z-index: 1125;
+  top: var(--merchant-viewport-top, 0px);
+  left: 0;
+  width: 100%;
+  height: var(--merchant-viewport-height, 100dvh);
+  pointer-events: none;
+  color: #f4ead8;
+  font: 14px/1.4 "Trebuchet MS", sans-serif;
+}
+.merchant-widget, .merchant-widget * { box-sizing: border-box; }
+.merchant-widget [hidden], .merchant-widget .is-hidden { display: none !important; }
+.merchant-widget .merchant-panel {
+  position: absolute;
+  top: 50%;
+  left: auto;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: auto;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  width: min(540px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: calc(var(--merchant-viewport-height, 100dvh) - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  min-height: 0;
+  padding: 14px;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid #ac945f;
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgb(42 46 34 / 99%), rgb(19 26 24 / 99%));
+  box-shadow: 0 12px 40px rgb(0 0 0 / 60%);
+  pointer-events: auto;
+  touch-action: auto;
+}
+.merchant-panel button { min-height: 44px; padding: 8px 12px; border: 1px solid #9e8958; border-radius: 8px; background: #424d34; color: #fff0c8; font: 700 14px/1.3 "Trebuchet MS", sans-serif; cursor: pointer; touch-action: manipulation; }
+.merchant-panel button:hover:enabled { background: #536240; border-color: #d4ba78; }
+.merchant-panel button:disabled { color: #989d90; background: #2a3027; border-color: #4e5747; cursor: default; }
+.merchant-panel button:focus-visible, .merchant-panel input:focus-visible { outline: 2px solid #e6cb87; outline-offset: 2px; }
+.merchant-panel__header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; }
+.merchant-panel__eyebrow { color: #b9c1a8; font-size: 11px; }
+.merchant-panel h2 { margin: 2px 0 0; color: #f6e5b6; font: 700 22px/1.2 Georgia, serif; overflow-wrap: anywhere; }
+.merchant-panel__header [data-close] { flex: 0 0 44px; width: 44px; padding: 0; border-color: transparent; background: transparent; font-size: 27px; }
+.merchant-panel p { margin: 0; }
+.merchant-panel__wallet { flex: 0 0 auto; color: #ddc280; }
+.merchant-panel__wallet strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.merchant-panel__hint { flex: 0 0 auto; color: #bdc6b0; font-size: 12px; }
+.merchant-panel__offers { display: grid; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 1px 4px 1px 1px; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: thin; scrollbar-color: #78805c #151e1b; -webkit-overflow-scrolling: touch; }
+.merchant-panel__offer { display: grid; gap: 5px; min-width: 0; padding: 11px; border: 1px solid #566346; border-radius: 8px; background: rgb(5 13 12 / 28%); }
+.merchant-panel h3 { margin: 0; color: #f1e2ba; font-size: 15px; overflow-wrap: anywhere; }
+.merchant-panel__description { color: #c4cbb9; font-size: 12px; overflow-wrap: anywhere; }
+.merchant-panel__effect { color: #b9d4a6; font-size: 12px; }
+.merchant-panel__price { color: #e6cc8c; font-size: 13px; }
+.merchant-panel__actions { display: grid; grid-template-columns: 75px minmax(0, 1fr) auto; align-items: end; gap: 9px; margin-top: 3px; }
+.merchant-panel label { display: flex; flex-direction: column; gap: 3px; font-size: 0; color: #c2ccb5; }
+.merchant-panel label::before { content: "Ilość"; font-size: 12px; }
+.merchant-panel input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #7c8867; border-radius: 7px; background: #141e1c; color: #faf3df; font: 16px/22px "Trebuchet MS", sans-serif; touch-action: auto; }
+.merchant-panel input:disabled { opacity: .6; }
+.merchant-panel__total { align-self: center; padding-top: 15px; font-size: 12px; color: #d8d7c1; overflow-wrap: anywhere; }
+.merchant-panel__total[data-affordable="false"] { color: #efbb9c; }
+.merchant-panel__actions button { min-width: 66px; }
+.merchant-panel__footer { flex: 0 0 auto; display: grid; gap: 6px; }
+.merchant-panel__feedback { min-height: 17px; font-size: 12px; color: #c1d0b4; overflow-wrap: anywhere; }
+.merchant-panel__feedback[data-state="error"] { color: #ffbca3; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .merchant-widget .merchant-panel { width: min(510px, 61vw); max-height: calc(var(--merchant-viewport-height, 100dvh) - 12px); padding: 8px; gap: 5px; }
+  .merchant-panel__eyebrow { display: none; }
+  .merchant-panel h2 { font-size: 18px; }
+  .merchant-panel__offer { padding: 8px; gap: 3px; }
+  .merchant-panel__hint { font-size: 11px; }
+}
+@media (max-width: 400px) {
+  .merchant-panel__actions { grid-template-columns: 68px minmax(0, 1fr); }
+  .merchant-panel__actions button { grid-column: 1 / -1; }
+}

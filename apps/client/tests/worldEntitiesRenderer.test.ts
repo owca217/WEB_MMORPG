@@ -3,7 +3,8 @@ import type Phaser from "phaser";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({ default: {
-  Math: { Linear: (start: number, end: number, amount: number) => start + (end - start) * amount }
+  Math: { Linear: (start: number, end: number, amount: number) => start + (end - start) * amount },
+  Textures: { FilterMode: { NEAREST: 0 } }
 } }));
 
 import { WorldEntitiesRenderer } from "../src/world/WorldEntitiesRenderer";
@@ -15,12 +16,22 @@ class DisplayObject {
   children: DisplayObject[] = [];
   originX = 0;
   originY = 0;
+  displayWidth = 0;
+  displayHeight = 0;
+  width = 0;
+  height = 0;
+  interactive = false;
+  handlers = new Map<string, () => void>();
 
   constructor(public kind: string, public x = 0, public y = 0) {}
   setDepth(depth: number) { this.depth = depth; return this; }
   setPosition(x: number, y: number) { this.x = x; this.y = y; return this; }
   setOrigin(x: number, y = x) { this.originX = x; this.originY = y; return this; }
   setStrokeStyle() { return this; }
+  setDisplaySize(width: number, height: number) { this.displayWidth = width; this.displayHeight = height; return this; }
+  setSize(width: number, height: number) { this.width = width; this.height = height; return this; }
+  setInteractive() { this.interactive = true; return this; }
+  on(event: string, callback: () => void) { this.handlers.set(event, callback); return this; }
   add(objects: DisplayObject | DisplayObject[]) {
     for (const object of Array.isArray(objects) ? objects : [objects]) {
       object.parent = this;
@@ -60,7 +71,7 @@ class GraphicsObject extends DisplayObject {
   fillTriangle() { return this; }
 }
 
-function createScene() {
+function createScene(loadedNpcIds: string[] = []) {
   const objects: DisplayObject[] = [];
   const timers: { dueAt: number; removed: boolean; callback: () => void; remove: () => void }[] = [];
   const register = <T extends DisplayObject>(object: T): T => { objects.push(object); return object; };
@@ -75,13 +86,17 @@ function createScene() {
   };
   const scene = {
     time: clock,
-    textures: { exists: () => false },
+    textures: {
+      exists: (key: string) => loadedNpcIds.some((id) => key === `npc-skin:${id}`),
+      get: () => ({ has: (frame: string) => frame === "idle", setFilter: vi.fn() })
+    },
     add: {
       container: (x = 0, y = 0) => register(new DisplayObject("container", x, y)),
       ellipse: (x: number, y: number) => register(new DisplayObject("ellipse", x, y)),
       triangle: (x: number, y: number) => register(new DisplayObject("triangle", x, y)),
       rectangle: (x: number, y: number) => register(new DisplayObject("rectangle", x, y)),
       circle: (x: number, y: number) => register(new DisplayObject("circle", x, y)),
+      sprite: (x: number, y: number, key: string) => register(new DisplayObject(key, x, y)),
       text: (x: number, y: number, text: string, style: Phaser.Types.GameObjects.Text.TextStyle) =>
         register(new TextObject(x, y, text, style)),
       graphics: () => register(new GraphicsObject("graphics"))
@@ -213,5 +228,48 @@ describe("world chat speech bubbles", () => {
     expect(fake.objects.every((object) => object.destroyed)).toBe(true);
     renderer.render(snapshot([{ ...friend, id: "pending" }]));
     expect(fake.text("Oczekująca")).toBeUndefined();
+  });
+});
+
+describe("NPC character skins", () => {
+  const npcs: WorldStateSnapshot["npcs"] = [
+    { id: "guide-boran", kind: "guide", name: "Boran", x: 610, y: 420, interactionRadius: 95 },
+    { id: "healer-ada", kind: "healer", name: "Ada", x: 720, y: 535, interactionRadius: 95 },
+    { id: "merchant-miro", kind: "merchant", name: "Miro", x: 850, y: 450, interactionRadius: 95 }
+  ];
+
+  it("shows each distinct skin at player scale and retains role labels and click interaction", () => {
+    const fake = createScene(npcs.map((npc) => npc.id));
+    const renderer = new WorldEntitiesRenderer(fake.scene, hero.id);
+    const selected = vi.fn();
+    renderer.onNpcSelected = selected;
+    renderer.render({ ...snapshot([]), npcs });
+    for (const npc of npcs) {
+      const sprite = fake.objects.find((object) => object.kind === `npc-skin:${npc.id}`)!;
+      expect(sprite.displayHeight).toBe(56);
+      expect(sprite.displayWidth).toBeGreaterThan(20);
+      expect(sprite.displayWidth).toBeLessThan(40);
+      expect(sprite.originY).toBe(1);
+      expect(sprite.parent?.interactive).toBe(true);
+      sprite.parent?.handlers.get("pointerup")?.();
+      expect(selected).toHaveBeenLastCalledWith(npc.id);
+    }
+    expect(fake.text("Miro\nKupiec")).toBeDefined();
+    expect(fake.text("Ada\nUzdrowicielka")).toBeDefined();
+    renderer.destroy();
+    expect(fake.objects.every((object) => object.destroyed)).toBe(true);
+  });
+
+  it("keeps a missing merchant image visible and clickable through the fallback", () => {
+    const fake = createScene();
+    const renderer = new WorldEntitiesRenderer(fake.scene, hero.id);
+    const selected = vi.fn();
+    renderer.onNpcSelected = selected;
+    renderer.render({ ...snapshot([]), npcs: [npcs[2]!] });
+    const label = fake.text("Miro\nKupiec")!;
+    expect(fake.objects.some((object) => object.kind === "rectangle")).toBe(true);
+    expect(label.parent?.interactive).toBe(true);
+    label.parent?.handlers.get("pointerup")?.();
+    expect(selected).toHaveBeenCalledWith("merchant-miro");
   });
 });

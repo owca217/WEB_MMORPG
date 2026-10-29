@@ -45,7 +45,13 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
     description: "A simple bandage for field treatment.",
     stackable: true,
     maxStack: 20,
-    weight: 0.1
+    weight: 0.1,
+    stats: [{
+      id: "10000000-0000-4000-8000-000000000102",
+      statCode: "HEAL_AMOUNT",
+      modifierType: "flat",
+      value: 30
+    }]
   },
   {
     itemUuid: "10000000-0000-4000-8000-000000000003",
@@ -112,7 +118,23 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
       [seed.itemUuid, seed.itemId]
     );
 
-    if (inserted.rowCount === 0) continue;
+    if (inserted.rowCount === 0) {
+      if (seed.itemId === "field-bandage") {
+        // Upgrade only the untouched original seed, preserving authored versions and values.
+        await client.query(
+          `INSERT INTO item_stat_modifiers (id, version_id, stat_code, modifier_type, value)
+           SELECT $1, version.id, 'HEAL_AMOUNT', 'flat', 30
+           FROM items item JOIN item_versions version ON version.item_id = item.id
+           WHERE item.id = $2 AND item.active_version_no = 1 AND item.status = 'PUBLISHED'
+             AND version.id = $3 AND version.state = 'PUBLISHED' AND version.revision = 1
+             AND version.created_by = $4 AND version.name = $5 AND version.description = $6
+             AND NOT EXISTS (SELECT 1 FROM item_stat_modifiers stat WHERE stat.version_id = version.id)
+           ON CONFLICT DO NOTHING`,
+          [seed.stats![0]!.id, seed.itemUuid, seed.versionUuid, seedActor, seed.name, seed.description]
+        );
+      }
+      continue;
+    }
 
     await client.query(
       `INSERT INTO item_versions (

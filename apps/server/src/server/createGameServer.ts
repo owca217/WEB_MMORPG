@@ -40,6 +40,22 @@ const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
   CHARACTER_NOT_FOUND: "Nie znaleziono postaci."
 };
 
+const BATTLE_ITEM_ERRORS: Readonly<Record<string, string>> = {
+  BATTLE_NOT_FOUND: "Nie trwa teraz żadna walka.",
+  BATTLE_FINISHED: "Walka już się zakończyła.",
+  BATTLE_ACTION_PENDING: "Poczekaj na zakończenie używania przedmiotu.",
+  COMBATANT_NOT_FOUND: "Nie znaleziono postaci w walce.",
+  NOT_OWNER: "Możesz używać przedmiotów wyłącznie na swojej postaci.",
+  NOT_ACTIVE_TURN: "Poczekaj na swoją turę.",
+  COMBATANT_DOWN: "Postać jest nieprzytomna.",
+  INSUFFICIENT_AP: "Użycie przedmiotu wymaga 2 PA.",
+  INVALID_ITEM_INSTANCE_ID: "Nieprawidłowy przedmiot.",
+  INVENTORY_ITEM_NOT_OWNED: "Nie posiadasz tego przedmiotu.",
+  ITEM_NOT_CONSUMABLE: "Tego przedmiotu nie można użyć w walce.",
+  ITEM_NO_EFFECT: "Ten przedmiot nie poprawi teraz stanu postaci.",
+  SESSION_REPLACED: "Połączenie zostało zastąpione. Połącz się ponownie."
+};
+
 export function createGameServer(
   httpServer: HttpServer,
   options: GameServerOptions
@@ -52,6 +68,7 @@ export function createGameServer(
   const connections = options.connections ?? new ActiveConnectionRegistry();
   const characterOwners = new Map<PlayerId, string>();
   const pendingCharacterSaves = new Map<PlayerId, Promise<void>>();
+  const pendingBattleItemUses = new Map<PlayerId, Promise<void>>();
   const pendingAccountCleanup = new Map<string, Promise<void>>();
   const pendingAccountAuthentication = new Map<string, Promise<void>>();
 
@@ -139,7 +156,12 @@ export function createGameServer(
       const releasedCharacterId = characterId;
       const releasedAccountId = accountId;
       const releasedLocationId = locationId;
-      const save = releasedCharacterId ? persistGameplayState(releasedCharacterId) : Promise.resolve();
+      const pendingItemUse = releasedCharacterId ? pendingBattleItemUses.get(releasedCharacterId) : undefined;
+      const save = releasedCharacterId
+        ? pendingItemUse
+          ? pendingItemUse.catch(() => undefined).then(() => persistGameplayState(releasedCharacterId))
+          : persistGameplayState(releasedCharacterId)
+        : Promise.resolve();
       unregisterConnection?.();
       unregisterConnection = null;
       accountId = null;
@@ -341,6 +363,7 @@ export function createGameServer(
       const currentCharacterId = characterId;
 
       try {
+        if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_IN_PROGRESS");
         const npc = world.interactNpc(currentCharacterId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
         characters.healHp(currentCharacterId);
@@ -419,6 +442,55 @@ export function createGameServer(
       }
     });
 
+    socket.on("useBattleItem", (payload, ack) => {
+      if (typeof ack !== "function") return;
+      const currentCharacterId = characterId;
+      const currentCharacterVersion = characterVersion;
+      if (!currentCharacterId || !ownsCharacter(currentCharacterId, currentCharacterVersion)) {
+        ack({ ok: false, code: "AUTHENTICATION_REQUIRED", message: "Zaloguj się, aby używać przedmiotów." });
+        return;
+      }
+      if (!payload || typeof payload.combatantId !== "string" || typeof payload.itemInstanceId !== "string") {
+        ack({ ok: false, code: "INVALID_ITEM_INSTANCE_ID", message: BATTLE_ITEM_ERRORS.INVALID_ITEM_INSTANCE_ID! });
+        return;
+      }
+      if (pendingBattleItemUses.has(currentCharacterId)) {
+        ack({ ok: false, code: "BATTLE_ACTION_PENDING", message: BATTLE_ITEM_ERRORS.BATTLE_ACTION_PENDING! });
+        return;
+      }
+      const assertCurrent = (): void => {
+        if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) throw new Error("SESSION_REPLACED");
+      };
+      const operation = (async () => {
+        // Earlier position snapshots must finish before the item transaction saves battle HP.
+        await pendingCharacterSaves.get(currentCharacterId);
+        assertCurrent();
+        const applied = await battles.useConsumable(currentCharacterId, payload.combatantId, (prepare) =>
+          inventory.consumeBattleItem(currentCharacterId, payload.itemInstanceId, prepare, assertCurrent)
+        );
+        // A disconnect during COMMIT still needs the new HP before its final save.
+        if (characterOwners.get(currentCharacterId) === socket.id) {
+          characters.applyBattleResult(currentCharacterId, applied.playerOutcome);
+        }
+        if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) {
+          ack({ ok: false, code: "SESSION_REPLACED", message: BATTLE_ITEM_ERRORS.SESSION_REPLACED! });
+          return;
+        }
+        const character = characters.getSnapshot(currentCharacterId)!;
+        socket.emit("battleState", applied.snapshot);
+        socket.emit("playerState", { character, inventory: applied.inventory });
+        ack({ ok: true, inventory: applied.inventory });
+      })().catch((error: unknown) => {
+        const code = error instanceof Error && BATTLE_ITEM_ERRORS[error.message]
+          ? error.message : "BATTLE_ITEM_USE_FAILED";
+        ack({ ok: false, code, message: BATTLE_ITEM_ERRORS[code] ?? "Nie udało się użyć przedmiotu. Spróbuj ponownie." });
+      });
+      pendingBattleItemUses.set(currentCharacterId, operation);
+      void operation.then(() => {
+        if (pendingBattleItemUses.get(currentCharacterId) === operation) pendingBattleItemUses.delete(currentCharacterId);
+      });
+    });
+
     socket.on("startEncounter", ({ encounterId }) => {
       if (!characterId) return;
       const currentCharacterId = characterId;
@@ -427,6 +499,7 @@ export function createGameServer(
       if (!currentLocationId || !character) return;
 
       try {
+        if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_ALREADY_STARTED");
         world.startEncounter(currentCharacterId, encounterId);
         const snapshot = battles.startBattle(character, encounterId);
         socket.leave(`location:${currentLocationId}`);
@@ -441,6 +514,10 @@ export function createGameServer(
 
       const currentCharacterId = characterId;
       const currentCharacterVersion = characterVersion;
+      if (pendingBattleItemUses.has(currentCharacterId)) {
+        socket.emit("commandRejected", { code: "BATTLE_ACTION_PENDING", message: BATTLE_ITEM_ERRORS.BATTLE_ACTION_PENDING! });
+        return;
+      }
       const applied = battles.applyCommand(currentCharacterId, command);
       if (!applied.result.ok) {
         socket.emit("commandRejected", {

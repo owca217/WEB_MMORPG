@@ -112,6 +112,7 @@ export const ENGINE_STATS: Readonly<Record<string, EngineStatDefinition>> = {
   GOLD_BONUS: percentStat("GOLD_BONUS", "Bonus do złota"),
 
   HEAL_AMOUNT: numericStat("HEAL_AMOUNT", "Wartość leczenia"),
+  AP_RESTORE: numericStat("AP_RESTORE", "Przywracane punkty akcji"),
   MANA_RESTORE: numericStat("MANA_RESTORE", "Przywracana mana"),
   EFFECT_DURATION: numericStat("EFFECT_DURATION", "Czas działania", {
     formattingKind: "seconds"
@@ -407,6 +408,7 @@ const JEWELRY_STATS = [
 
 const CONSUMABLE_STATS = [
   "HEAL_AMOUNT",
+  "AP_RESTORE",
   "MANA_RESTORE",
   "EFFECT_DURATION",
   "USE_COOLDOWN",

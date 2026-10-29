@@ -22,6 +22,7 @@ vi.mock("phaser", () => ({
 
 import { gameSocket, type BattleEndedPayload } from "../src/net/GameSocket";
 import { BattleScene } from "../src/scenes/BattleScene";
+import { playerStateStore } from "../src/state/PlayerStateStore";
 
 const initialBattle: BattleSnapshot = {
   id: "battle:hero:wolf-pack-01",
@@ -53,7 +54,7 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
   const start = vi.fn(() => events.emit("shutdown"));
   const scaleEvents = new EventEmitter();
   const polygons: Array<Array<{ x: number; y: number }>> = [];
-  const zones: Array<{ x: number; y: number; width: number; height: number; handlers: Map<string, () => void> }> = [];
+  const zones: Array<{ x: number; y: number; width: number; height: number; handlers: Map<string, (pointer?: {wasTouch:boolean}) => void> }> = [];
   const bodies: Array<{ x: number; y: number; radius: number }> = [];
   const drawable = () => ({
     width: 80,
@@ -67,6 +68,7 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
     on() { return this; },
     lineStyle() {},
     fillStyle() {},
+    fillPoints() {},
     fillCircle() {},
     fillRoundedRect() {},
     strokePoints(points: Array<{ x: number; y: number }>) { polygons.push(points); }
@@ -81,7 +83,7 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
       circle: (x: number, y: number, radius: number) => { bodies.push({ x, y, radius }); return drawable(); },
       text: drawable,
       zone: (x: number, y: number, zoneWidth: number, zoneHeight: number) => {
-        const zone = { x, y, width: zoneWidth, height: zoneHeight, handlers: new Map<string, () => void>() };
+        const zone = { x, y, width: zoneWidth, height: zoneHeight, handlers: new Map<string, (pointer?: {wasTouch:boolean}) => void>() };
         zones.push(zone);
         return { ...drawable(), on(event: string, handler: () => void) { zone.handlers.set(event, handler); return this; } };
       }
@@ -181,7 +183,7 @@ describe("BattleScene completion", () => {
     }
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return DOMRect.fromRect(this.classList.contains("battle-hud")
-        ? { x: 598, y: 12, width: 230, height: 356 }
+        ? { x: 12, y: 12, width: 220, height: 356 }
         : {});
     });
     const battle = { ...initialBattle, cells };
@@ -190,8 +192,8 @@ describe("BattleScene completion", () => {
       const points = polygons.slice(-61).flat();
       expect(points).toHaveLength(366);
       for (const point of points) {
-        expect(point.x).toBeGreaterThanOrEqual(12);
-        expect(point.x).toBeLessThanOrEqual(586);
+        expect(point.x).toBeGreaterThanOrEqual(244);
+        expect(point.x).toBeLessThanOrEqual(828);
         expect(point.y).toBeGreaterThanOrEqual(12);
         expect(point.y).toBeLessThanOrEqual(368);
       }
@@ -210,14 +212,68 @@ describe("BattleScene completion", () => {
     expect(scale.listenerCount("resize")).toBe(0);
   });
 
-  it("attacks a combatant through its whole hex touch target", () => {
+  it("previews an automatic melee attack on hover and attacks through its whole projected hex", () => {
     const enemy = { ...initialBattle.combatants[0]!, id: "wolf", ownerPlayerId: "wolf", name: "Wilk", position: { q: 1, r: 0 } };
     const { events, zones } = createScene({ ...initialBattle, cells: [{ q: 1, r: 0 }], combatants: [...initialBattle.combatants, enemy] });
     const commands: unknown[] = [];
     transport.on("battleCommand", (command) => commands.push(command));
-    document.querySelector<HTMLButtonElement>("[data-action='melee']")!.click();
+    expect(document.querySelector("[data-action='melee']")).toBeNull();
+    zones[0]!.handlers.get("pointerover")!();
+    expect(document.querySelector("[data-attack-preview]")?.textContent).toContain("100%");
+    expect(document.querySelector("[data-attack-preview]")?.textContent).toContain("20");
     zones[0]!.handlers.get("pointerup")!();
     expect(commands).toEqual([{ type: "meleeAttack", combatantId: "hero:character-1", targetId: "wolf" }]);
     events.emit("shutdown");
+    expect(document.querySelector("[data-attack-preview]")).toBeNull();
+  });
+
+  it("requires confirmation after touch selection and refreshes a distant attack when AP changes", () => {
+    const enemy = { ...initialBattle.combatants[0]!, id:"wolf", ownerPlayerId:"enemy", name:"Wilk", position:{q:3,r:0} };
+    const snapshot={...initialBattle,cells:[{q:0,r:0},{q:3,r:0}],combatants:[...initialBattle.combatants,enemy]};
+    const {events,zones}=createScene(snapshot);
+    const commands: unknown[]=[];
+    transport.on("battleCommand",command=>commands.push(command));
+    zones[1]!.handlers.get("pointerup")!({wasTouch:true});
+    expect(commands).toEqual([]);
+    expect(document.querySelector("[data-attack-preview]")?.textContent).toContain("Atak dystansowy");
+    document.querySelector<HTMLButtonElement>("[data-confirm-attack]")!.click();
+    expect(commands).toEqual([{type:"rangedAttack",combatantId:"hero:character-1",targetId:"wolf"}]);
+    transport.emit("battleState",{...snapshot,combatants:[{...initialBattle.combatants[0]!,ap:0},enemy]});
+    const button=document.querySelector<HTMLButtonElement>("[data-confirm-attack]");
+    expect(button?.disabled).toBe(true);
+    button?.click();
+    expect(commands).toHaveLength(1);
+    events.emit("shutdown");
+  });
+
+  it("does not send movement for occupied, blocked or unreachable tiles", () => {
+    const {events,zones}=createScene({...initialBattle,cells:[{q:0,r:0},{q:1,r:0},{q:2,r:0}],
+      blockedCells:[{q:1,r:0}],combatants:[{...initialBattle.combatants[0]!,ap:1}]});
+    const commands: unknown[]=[]; transport.on("battleCommand",command=>commands.push(command));
+    for(const zone of zones) zone.handlers.get("pointerup")!();
+    expect(commands).toEqual([]);
+    events.emit("shutdown");
+  });
+
+  it("uses the selected own item through the socket and keeps the stored inventory authoritative", async () => {
+    const battle = {...initialBattle,combatants:[{...initialBattle.combatants[0]!,hp:61}]};
+    const {events}=createScene(battle);
+    const bandage={instanceId:"bandage",itemId:"field-bandage",itemDefinitionId:"def",name:"Bandaż",category:"consumable",
+      description:"",rarity:"COMMON" as const,quantity:3,upgradeLevel:0,consumableEffects:{healHp:30}};
+    const character={playerId:"character-1",nickname:"Hero",level:1,hp:61,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+    transport.emit("playerState",{character,inventory:{items:[bandage]}});
+    let acknowledge!: (value:unknown)=>void;
+    const emitWithAck=vi.fn(()=>new Promise(resolve=>{acknowledge=resolve;}));
+    Object.assign(transport,{timeout:()=>({emitWithAck})});
+    document.querySelector<HTMLButtonElement>('[data-use-item="bandage"]')!.click();
+    expect(emitWithAck).toHaveBeenCalledWith("useBattleItem",{combatantId:"hero:character-1",itemInstanceId:"bandage"});
+    expect(document.querySelector('[data-item-instance-id="bandage"]')?.textContent).toContain("×3");
+    transport.emit("battleState",{...battle,combatants:[{...battle.combatants[0]!,hp:91,ap:3}]});
+    acknowledge({ok:true,inventory:{items:[{...bandage,quantity:2}]}});
+    await vi.waitFor(()=>expect(document.querySelector('[data-item-instance-id="bandage"]')?.textContent).toContain("×2"));
+    expect(playerStateStore.get()?.inventory.items[0]?.quantity).toBe(2);
+    expect(document.querySelector("[data-hp]")?.textContent).toBe("91/100");
+    events.emit("shutdown");
+    expect(transport.listenerCount("playerState")).toBe(0);
   });
 });

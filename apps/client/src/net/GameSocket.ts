@@ -156,6 +156,14 @@ export class GameSocket {
     this.connect().emit("startEncounter", { encounterId });
   }
 
+  async useBattleItem(combatantId: string, itemInstanceId: string): Promise<InventoryUpdateResult> {
+    try {
+      return await this.connect().timeout(10_000).emitWithAck("useBattleItem", { combatantId, itemInstanceId });
+    } catch {
+      return { ok: false, code: "BATTLE_ITEM_FAILED", message: "Nie udało się użyć przedmiotu. Sprawdź połączenie." };
+    }
+  }
+
   sendBattleCommand(command: BattleCommand): void {
     this.connect().emit("battleCommand", command);
   }

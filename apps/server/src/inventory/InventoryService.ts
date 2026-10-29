@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   CONTAINER_ITEM_CATEGORY,
   CONTAINER_SLOT_COUNT,
+  type CharacterSnapshot,
+  type ConsumableEffects,
   type ContainerSlots,
   type InventoryItem,
   type InventorySnapshot,
@@ -43,7 +45,17 @@ interface InventoryRow {
   container_instance_id: string | null;
   container_capacity: number | null;
   special_data: Record<string, unknown> | null;
+  heal_hp: string | number | null;
+  restore_ap: string | number | null;
 }
+
+const CONSUMABLE_EFFECT_COLUMNS = `
+  (SELECT SUM(stat.value) FROM item_stat_modifiers stat
+   WHERE stat.version_id = version.id AND stat.stat_code = 'HEAL_AMOUNT'
+     AND stat.modifier_type = 'flat') AS heal_hp,
+  (SELECT SUM(stat.value) FROM item_stat_modifiers stat
+   WHERE stat.version_id = version.id AND stat.stat_code = 'AP_RESTORE'
+     AND stat.modifier_type = 'flat') AS restore_ap`;
 
 interface ContainerAssignmentRow {
   category_id: string;
@@ -71,6 +83,60 @@ export class InventoryService {
 
   async getSnapshot(characterId: string): Promise<InventorySnapshot> {
     return this.getSnapshotForOwner("character", characterId);
+  }
+
+  async consumeBattleItem(
+    characterId: string,
+    itemInstanceId: string,
+    prepare: (effects: ConsumableEffects) => Pick<CharacterSnapshot, "hp" | "severelyInjured" | "injuries">,
+    assertCurrent: () => void = () => undefined
+  ): Promise<InventorySnapshot> {
+    if (!this.isInstanceId(itemInstanceId)) throw new Error("INVALID_ITEM_INSTANCE_ID");
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const character = await client.query("SELECT id FROM characters WHERE id = $1 FOR UPDATE", [characterId]);
+      if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
+      const found = await client.query<Pick<InventoryRow, "quantity" | "category_id" | "heal_hp" | "restore_ap" | "container_instance_id">>(
+        `SELECT instance.quantity, instance.container_instance_id, version.category_id, ${CONSUMABLE_EFFECT_COLUMNS}
+         FROM item_instances instance
+         JOIN items item ON item.id = instance.item_id
+         JOIN item_versions version ON version.item_id = item.id
+           AND version.version_no = item.active_version_no AND version.state = 'PUBLISHED'
+         WHERE instance.id = $1 AND instance.character_id = $2
+         FOR UPDATE OF instance FOR SHARE OF item, version`,
+        [itemInstanceId, characterId]
+      );
+      const item = found.rows[0];
+      if (!item || item.quantity < 1) throw new Error("INVENTORY_ITEM_NOT_OWNED");
+      if (item.category_id !== "consumable") throw new Error("ITEM_NOT_CONSUMABLE");
+      if (item.container_instance_id) {
+        const container = await client.query("SELECT id FROM item_instances WHERE id = $1 AND character_id = $2 FOR SHARE", [item.container_instance_id, characterId]);
+        if (!container.rowCount) throw new Error("INVENTORY_ITEM_NOT_OWNED");
+      }
+      const effects = this.getConsumableEffects(item);
+      if (!effects) throw new Error("ITEM_NO_EFFECT");
+      assertCurrent();
+      const outcome = prepare(effects);
+      if (item.quantity === 1) {
+        await client.query("DELETE FROM item_instances WHERE id = $1 AND character_id = $2", [itemInstanceId, characterId]);
+      } else {
+        await client.query("UPDATE item_instances SET quantity = quantity - 1, updated_at = NOW() WHERE id = $1 AND character_id = $2", [itemInstanceId, characterId]);
+      }
+      await client.query(
+        "UPDATE characters SET hp = $2, severely_injured = $3, injuries = $4::jsonb, updated_at = NOW() WHERE id = $1",
+        [characterId, outcome.hp, outcome.severelyInjured, JSON.stringify(outcome.injuries)]
+      );
+      const snapshot = await this.getSnapshotForOwner("character", characterId, client);
+      assertCurrent();
+      await client.query("COMMIT");
+      return snapshot;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async setContainerSlot(
@@ -298,7 +364,8 @@ export class InventoryService {
         instance.container_slot,
         instance.container_instance_id,
         instance.container_capacity,
-        version.special_data
+        version.special_data,
+        ${CONSUMABLE_EFFECT_COLUMNS}
        FROM item_instances instance
        JOIN items item ON item.id = instance.item_id
        JOIN item_versions version
@@ -451,6 +518,7 @@ export class InventoryService {
 
   private mapInventoryRow(row: InventoryRow): InventoryItem {
     const containerCapacity = this.getContainerCapacity(row);
+    const consumableEffects = this.getConsumableEffects(row);
     return {
       instanceId: row.instance_id,
       itemId: row.item_id,
@@ -466,6 +534,7 @@ export class InventoryService {
         ? {}
         : { maxDurability: Number(row.max_durability) }),
       upgradeLevel: row.upgrade_level,
+      ...(consumableEffects ? { consumableEffects } : {}),
       ...(containerCapacity === undefined ? {} : { containerCapacity }),
       ...(row.container_instance_id
         ? { containerInstanceId: row.container_instance_id }
@@ -474,5 +543,16 @@ export class InventoryService {
         ? { boundToPlayerId: row.bound_to_player_id }
         : {})
     };
+  }
+
+  private getConsumableEffects(row: Pick<InventoryRow, "category_id" | "heal_hp" | "restore_ap">): ConsumableEffects | undefined {
+    if (row.category_id !== "consumable") return undefined;
+    const positiveAmount = (value: string | number | null): number => {
+      const amount = Math.floor(Number(value));
+      return Number.isSafeInteger(amount) && amount > 0 ? amount : 0;
+    };
+    const healHp = positiveAmount(row.heal_hp);
+    const restoreAp = positiveAmount(row.restore_ap);
+    return healHp || restoreAp ? { ...(healHp ? { healHp } : {}), ...(restoreAp ? { restoreAp } : {}) } : undefined;
   }
 }

@@ -17,6 +17,7 @@ export type InjuryKind =
 
 export interface CombatantSnapshot {
   id: EntityId;
+  side?: "player" | "enemy";
   ownerPlayerId?: PlayerId;
   name: string;
   level?: number;

@@ -1,4 +1,5 @@
 import type { CombatStatistics, HexCoord, InjuryKind, PlayerId } from "@web-mmorpg/shared";
+export { movementApCost, rangedAttackApCost } from "@web-mmorpg/shared";
 
 export interface CombatantState {
   id: string;
@@ -43,15 +44,6 @@ export function applyDamageWithInjuries(
     severelyInjured: true,
     injuries
   };
-}
-
-export function movementApCost(combatant: CombatantState, steps: number): number {
-  const perHex = combatant.injuries.includes("legTrauma") ? 2 : 1;
-  return steps * perHex;
-}
-
-export function rangedAttackApCost(combatant: CombatantState): number {
-  return combatant.injuries.includes("brokenArm") ? 4 : 3;
 }
 
 export function effectiveInitiative(combatant: CombatantState): number {

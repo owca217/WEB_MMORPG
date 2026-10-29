@@ -16,6 +16,10 @@ export interface ClientToServerEvents {
   moveIntent: (payload: { x: number; y: number }) => void;
   startEncounter: (payload: { encounterId: string }) => void;
   battleCommand: (payload: BattleCommand) => void;
+  useBattleItem: (
+    payload: { combatantId: string; itemInstanceId: string },
+    ack: (result: InventoryUpdateResult) => void
+  ) => void;
   requestPlayerState: () => void;
   requestWorldState: () => void;
   interactNpc: (payload: { npcId: string }) => void;

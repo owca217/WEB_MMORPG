@@ -1,0 +1,34 @@
+.battle-attack-card {
+  position: fixed;
+  z-index: 1010;
+  display: grid;
+  gap: 6px;
+  width: 216px;
+  box-sizing: border-box;
+  padding: 11px;
+  border: 1px solid #c4aa70;
+  border-radius: 10px;
+  background: #171b19f5;
+  color: #f1e8d1;
+  font: 13px/1.35 system-ui, sans-serif;
+  box-shadow: 0 7px 24px #0009;
+  pointer-events: auto;
+}
+.battle-attack-card[hidden] { display: none; }
+.battle-attack-card strong { color: #ead19b; overflow-wrap: anywhere; }
+.battle-attack-card button {
+  min-height: 44px;
+  padding: 5px 8px;
+  border: 1px solid #ad8f57;
+  border-radius: 7px;
+  color: #fff4d5;
+  background: #65502c;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.battle-attack-card button:disabled { opacity: .5; cursor: default; }
+.battle-attack-card button:focus-visible { outline: 2px solid #ffdf8d; outline-offset: 2px; }
+.battle-attack-card small { color: #e7aa94; }
+.battle-attack-card small:empty { display: none; }
+@media (max-height: 500px) { .battle-attack-card { gap: 4px; padding: 9px; font-size: 12px; } }

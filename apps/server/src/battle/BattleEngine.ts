@@ -5,6 +5,7 @@ import type {
   HexCoord,
   PlayerId
 } from "@web-mmorpg/shared";
+import { mitigatedBattleDamage } from "@web-mmorpg/shared";
 import { findPath, hexDistance, hexKey } from "./hex";
 import { hasLineOfSight } from "./lineOfSight";
 import {
@@ -194,7 +195,7 @@ function applyAttack(
   const next = cloneState(state);
   const attacker = next.combatants[attackerId]!;
   const target = next.combatants[targetId]!;
-  const mitigatedDamage = Math.max(1, Math.round(damage * 100 / (100 + Math.max(0, target.combatStats?.armor ?? 0))));
+  const mitigatedDamage = mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0);
   attacker.ap -= apCost;
   next.combatants[targetId] = applyDamageWithInjuries(target, mitigatedDamage, next.seed + next.round);
   next.finished = battleFinished(next.combatants);

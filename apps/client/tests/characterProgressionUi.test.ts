@@ -75,14 +75,14 @@ describe("character progression presentation", () => {
   });
 
   it("shows the active combatant's scaled resources and authoritative combat statistics", () => {
-    const hud = new BattleHud({ onAttackMode: vi.fn(), onEndTurn: vi.fn() });
+    const hud = new BattleHud({ onUseItem: vi.fn(), onInventoryChanged: vi.fn(), onEndTurn: vi.fn() });
     const combatant: CombatantSnapshot = {
       id: "hero", ownerPlayerId: "hero", name: "Owczy", level: 11,
       hp: 288, maxHp: 400, ap: 4, maxAp: 6, initiative: 15,
       combatStats: { meleeDamage: 40, rangedDamage: 25, armor: 20 },
       position: { q: 0, r: 0 }, injuries: [], severelyInjured: false
     };
-    hud.update(combatant, true, null);
+    hud.update(combatant, true, { items: [] }, character);
 
     expect(document.querySelector("[data-level]")?.textContent).toBe("11");
     expect(document.querySelector("[data-hp]")?.textContent).toBe("288/400");
@@ -91,9 +91,10 @@ describe("character progression presentation", () => {
     expect(document.querySelector("[data-ranged-damage]")?.textContent).toBe("25");
     expect(document.querySelector("[data-armor]")?.textContent).toBe("20");
 
-    hud.update(undefined, false, null);
+    hud.update(undefined, false, { items: [] });
     expect(document.querySelector("[data-melee-damage]")?.textContent).toBe("—");
-    expect(document.querySelector<HTMLButtonElement>("[data-action='melee']")?.disabled).toBe(true);
+    expect(document.querySelector("[data-action='melee']")).toBeNull();
+    expect(document.querySelector<HTMLButtonElement>("[data-action='end']")?.disabled).toBe(true);
     hud.destroy();
   });
 

@@ -1,6 +1,9 @@
 import {
   getCharacterStatistics,
   MAX_CHARACTER_LEVEL,
+  BATTLE_ITEM_AP_COST,
+  type ConsumableEffects,
+  type InventorySnapshot,
   type CombatStatistics,
   type BattleCommand,
   type BattleSnapshot,
@@ -23,6 +26,7 @@ interface ActiveBattle {
   seed: number;
   state: BattleState;
   experienceReward: number;
+  itemUsePending?: boolean;
 }
 
 export interface PlayerBattleOutcome {
@@ -46,6 +50,9 @@ export class BattleService {
   private readonly battlesByPlayer = new Map<PlayerId, ActiveBattle>();
 
   startBattle(character: CharacterSnapshot, encounterId: string): BattleSnapshot {
+    if (this.battlesByPlayer.get(character.playerId)?.itemUsePending) {
+      throw new Error("BATTLE_ACTION_PENDING");
+    }
     const seed = 12345;
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
     const playerStart = arena.playerStartCells[0];
@@ -128,6 +135,13 @@ export class BattleService {
 
   applyCommand(playerId: PlayerId, command: BattleCommand): AppliedBattleCommand {
     const active = this.battlesByPlayer.get(playerId);
+    if (active?.itemUsePending) {
+      return {
+        result: { ok: false, code: "BATTLE_ACTION_PENDING", message: "An item is being used." },
+        finished: false,
+        victory: false
+      };
+    }
     if (!active) {
       return {
         result: { ok: false, code: "BATTLE_NOT_FOUND", message: "No active battle." },
@@ -168,6 +182,47 @@ export class BattleService {
     };
   }
 
+  async useConsumable(
+    playerId: PlayerId,
+    combatantId: string,
+    consume: (prepare: (effects: ConsumableEffects) => PlayerBattleOutcome) => Promise<InventorySnapshot>
+  ): Promise<{ snapshot: BattleSnapshot; inventory: InventorySnapshot; playerOutcome: PlayerBattleOutcome }> {
+    const active = this.battlesByPlayer.get(playerId);
+    if (!active) throw new Error("BATTLE_NOT_FOUND");
+    if (active.itemUsePending) throw new Error("BATTLE_ACTION_PENDING");
+    if (active.state.finished) throw new Error("BATTLE_FINISHED");
+    const actor = active.state.combatants[combatantId];
+    if (!actor) throw new Error("COMBATANT_NOT_FOUND");
+    if (actor.ownerPlayerId !== playerId) throw new Error("NOT_OWNER");
+    if (active.state.activeCombatantId !== combatantId) throw new Error("NOT_ACTIVE_TURN");
+    if (actor.hp <= 0) throw new Error("COMBATANT_DOWN");
+    if (actor.ap < BATTLE_ITEM_AP_COST) throw new Error("INSUFFICIENT_AP");
+
+    active.itemUsePending = true;
+    let staged: BattleState | undefined;
+    let outcome: PlayerBattleOutcome | undefined;
+    try {
+      const inventory = await consume((effects) => {
+        if (staged) throw new Error("ITEM_ALREADY_PREPARED");
+        const hp = Math.min(actor.maxHp, actor.hp + Math.max(0, Math.floor(effects.healHp ?? 0)));
+        const ap = Math.min(actor.maxAp, actor.ap - BATTLE_ITEM_AP_COST + Math.max(0, Math.floor(effects.restoreAp ?? 0)));
+        if (!Number.isFinite(hp) || !Number.isFinite(ap) || (hp <= actor.hp && ap <= actor.ap)) {
+          throw new Error("ITEM_NO_EFFECT");
+        }
+        staged = structuredClone(active.state);
+        staged.combatants[combatantId]!.hp = hp;
+        staged.combatants[combatantId]!.ap = ap;
+        outcome = { hp, severelyInjured: actor.severelyInjured, injuries: [...actor.injuries] };
+        return outcome;
+      });
+      if (!staged || !outcome) throw new Error("ITEM_EFFECT_MISSING");
+      active.state = staged;
+      return { snapshot: this.toSnapshot(staged), inventory, playerOutcome: outcome };
+    } finally {
+      active.itemUsePending = false;
+    }
+  }
+
   removeBattleForPlayer(playerId: PlayerId): void {
     this.battlesByPlayer.delete(playerId);
   }
@@ -204,6 +259,7 @@ export class BattleService {
       coverCells: state.arena.coverCells.map((cell) => ({ ...cell })),
       combatants: Object.values(state.combatants).map((combatant) => ({
         id: combatant.id,
+        side: combatant.side,
         ...(combatant.ownerPlayerId !== undefined
           ? { ownerPlayerId: combatant.ownerPlayerId }
           : {}),

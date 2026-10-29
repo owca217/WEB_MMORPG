@@ -1,43 +1,48 @@
-import type {
-  BattleSnapshot,
-  CombatantSnapshot,
-  EntityId,
-  HexCoord,
-  PlayerId
+import {
+  areBattleEnemies,
+  getBattleAttackPreview,
+  getReachableBattleCells,
+  hexKey,
+  type InventorySnapshot,
+  type InventoryUpdateResult,
+  type BattleSnapshot,
+  type CombatantSnapshot,
+  type EntityId,
+  type HexCoord,
+  type PlayerId
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { gameSocket } from "../net/GameSocket";
-import { BattleHud, type AttackMode } from "../ui/BattleHud";
-import { axialToPixel, calculateBattleLayout, type SafeInsets } from "./battleLayout";
+import { playerStateStore } from "../state/PlayerStateStore";
+import { BattleHud } from "../ui/BattleHud";
+import { BattleAttackCard } from "../ui/BattleAttackCard";
+import { axialToPixel, battleHexBounds, battleHexPolygon, calculateBattleLayout, type SafeInsets } from "./battleLayout";
 
 export { axialToPixel } from "./battleLayout";
+
+const hexPolygon = (x: number, y: number, size: number): Phaser.Math.Vector2[] =>
+  battleHexPolygon(x, y, size).map(point => new Phaser.Math.Vector2(point.x, point.y));
 
 interface BattleSceneData {
   playerId: PlayerId;
   snapshot: BattleSnapshot;
 }
 
-function hexPolygon(x: number, y: number, size: number): Phaser.Math.Vector2[] {
-  const points: Phaser.Math.Vector2[] = [];
-  for (let index = 0; index < 6; index += 1) {
-    const angle = Phaser.Math.DegToRad(60 * index - 30);
-    points.push(new Phaser.Math.Vector2(
-      x + size * Math.cos(angle),
-      y + size * Math.sin(angle)
-    ));
-  }
-  return points;
-}
-
 export class BattleScene extends Phaser.Scene {
   private playerId: PlayerId = "";
   private snapshot: BattleSnapshot | null = null;
   private hud: BattleHud | null = null;
-  private attackMode: AttackMode = null;
+  private attackCard: BattleAttackCard | null = null;
+  private selectedTargetId: string | null = null;
+  private layout: ReturnType<typeof calculateBattleLayout> | null = null;
+  private pendingCommand = false;
+  private pendingItem = false;
+  private disposed = true;
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
   private unsubscribeState: (() => void) | undefined;
   private unsubscribeEnded: (() => void) | undefined;
   private unsubscribeRejected: (() => void) | undefined;
+  private unsubscribePlayer: (() => void) | undefined;
   private hudObserver: ResizeObserver | undefined;
   private readonly onResize = () => this.renderSnapshot();
 
@@ -48,18 +53,21 @@ export class BattleScene extends Phaser.Scene {
   init(data: BattleSceneData): void {
     this.playerId = data.playerId;
     this.snapshot = data.snapshot;
+    this.selectedTargetId = null;
+    this.pendingCommand = false;
+    this.pendingItem = false;
   }
 
   create(): void {
+    this.disposed = false;
     this.cameras.main.setBackgroundColor(0x17191e);
 
     this.hud = new BattleHud({
-      onAttackMode: (mode) => {
-        this.attackMode = mode;
-        this.refreshHud();
-      },
+      onUseItem: (instanceId) => this.useItem(instanceId),
+      onInventoryChanged: (inventory) => this.applyInventory(inventory),
       onEndTurn: () => this.requestEndTurn()
     });
+    this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
     this.scale.on("resize", this.onResize);
     const hudElement = document.querySelector<HTMLElement>(".battle-hud");
     if (hudElement && typeof ResizeObserver !== "undefined") {
@@ -69,7 +77,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.unsubscribeState = gameSocket.onBattleState((snapshot) => {
       this.snapshot = snapshot;
-      this.attackMode = null;
+      this.pendingCommand = false;
       this.renderSnapshot();
     });
     this.unsubscribeEnded = gameSocket.onBattleEnded((payload) => {
@@ -84,20 +92,34 @@ export class BattleScene extends Phaser.Scene {
       });
     });
     this.unsubscribeRejected = gameSocket.onCommandRejected(({ message }) => {
+      this.pendingCommand = false;
+      this.refreshHud();
+      this.refreshAttackCard();
       this.hud?.setStatus(message);
+    });
+    this.unsubscribePlayer = gameSocket.onPlayerState((state) => {
+      if (state.character.playerId !== this.playerId) return;
+      playerStateStore.set(state);
+      this.refreshHud();
     });
 
     this.renderSnapshot();
+    gameSocket.requestPlayerState();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.disposed = true;
       this.unsubscribeState?.();
       this.unsubscribeEnded?.();
       this.unsubscribeRejected?.();
+      this.unsubscribePlayer?.();
       this.scale.off("resize", this.onResize);
       this.hudObserver?.disconnect();
       this.hudObserver = undefined;
       this.hud?.destroy();
       this.hud = null;
+      this.attackCard?.destroy();
+      this.attackCard = null;
+      this.layout = null;
       this.clearRenderObjects();
     });
   }
@@ -119,6 +141,7 @@ export class BattleScene extends Phaser.Scene {
       this.scale.width, this.scale.height, snapshot.cells,
       hud?.width ? hud : undefined, insets
     );
+    this.layout = layout;
     const { centerX, centerY, hexSize } = layout;
 
     const graphics = this.add.graphics();
@@ -126,6 +149,8 @@ export class BattleScene extends Phaser.Scene {
 
     const blockedKeys = new Set(snapshot.blockedCells.map((cell) => `${cell.q},${cell.r}`));
     const coverKeys = new Set(snapshot.coverCells.map((cell) => `${cell.q},${cell.r}`));
+    const actor = this.ownCombatant();
+    const reachable = new Set(actor ? getReachableBattleCells(snapshot, actor.id).map(hexKey) : []);
 
     for (const cell of snapshot.cells) {
       const local = axialToPixel(cell, hexSize);
@@ -133,7 +158,13 @@ export class BattleScene extends Phaser.Scene {
       const y = centerY + local.y;
       const key = `${cell.q},${cell.r}`;
 
-      graphics.lineStyle(1, 0x5c6470, 0.9);
+      // Raised edges make the projected ground plane readable without changing hex topology.
+      graphics.fillStyle(0x20291f, 1);
+      graphics.fillPoints(hexPolygon(x, y + Math.max(2, hexSize * 0.14), hexSize - 1), true);
+      const fill = blockedKeys.has(key) ? 0x454b44 : reachable.has(key) ? 0x48774d : (cell.q + cell.r) % 2 ? 0x343e32 : 0x3b4538;
+      graphics.fillStyle(fill, 1);
+      graphics.fillPoints(hexPolygon(x, y, hexSize - 1), true);
+      graphics.lineStyle(reachable.has(key) ? 2 : 1, reachable.has(key) ? 0x98c87f : 0x75806b, 0.9);
       graphics.strokePoints(hexPolygon(x, y, hexSize - 1), true);
 
       if (blockedKeys.has(key)) {
@@ -151,18 +182,13 @@ export class BattleScene extends Phaser.Scene {
       }
 
       if (!blockedKeys.has(key)) {
-        const width = hexSize * Math.sqrt(3);
-        const zone = this.add.zone(x, y, width, hexSize * 2).setInteractive(
-          new Phaser.Geom.Polygon(hexPolygon(width / 2, hexSize, hexSize)),
+        const { width, height } = battleHexBounds(hexSize);
+        const zone = this.add.zone(x, y, width, height).setInteractive(
+          new Phaser.Geom.Polygon(battleHexPolygon(width / 2, height / 2, hexSize)),
           Phaser.Geom.Polygon.Contains
         );
-        zone.on("pointerup", () => {
-          const target = this.snapshot?.combatants.find((combatant) =>
-            combatant.position.q === cell.q && combatant.position.r === cell.r && combatant.hp > 0
-          );
-          if (this.attackMode && target) this.requestAttack(target.id);
-          else this.requestMove(cell);
-        });
+        zone.on("pointerover", () => this.previewCell(cell));
+        zone.on("pointerup", (pointer: Phaser.Input.Pointer) => this.selectCell(cell, pointer?.wasTouch ?? false));
         this.renderObjects.push(zone);
       }
     }
@@ -170,6 +196,7 @@ export class BattleScene extends Phaser.Scene {
     for (const combatant of snapshot.combatants) {
       this.renderCombatant(combatant, layout);
     }
+    this.refreshAttackCard();
   }
 
   private renderCombatant(
@@ -183,10 +210,13 @@ export class BattleScene extends Phaser.Scene {
     const active = combatant.id === this.snapshot?.activeCombatantId;
     const fill = combatant.hp <= 0 ? 0x555555 : owned ? 0x5fa6e8 : 0xcf6a61;
 
-    const body = this.add.circle(x, y, hexSize * 0.38, fill, 1);
+    const body = this.add.circle(x, y - hexSize * 0.16, Math.max(4, hexSize * 0.38), fill, 1);
     body.setStrokeStyle(active ? 4 : 2, active ? 0xffdf77 : 0x17191e);
     // Labels may share space at phone sizes; every unit remains visible above them.
     body.setDepth(2);
+    body.setInteractive();
+    body.on("pointerover", () => this.previewCell(combatant.position));
+    body.on("pointerup", (pointer: Phaser.Input.Pointer) => this.selectCell(combatant.position, pointer?.wasTouch ?? false));
 
     const compact = hexSize < 30;
     const name = compact && combatant.name.length > 12 ? `${combatant.name.slice(0, 11)}…` : combatant.name;
@@ -208,17 +238,21 @@ export class BattleScene extends Phaser.Scene {
 
   private activeOwnedCombatant(): CombatantSnapshot | undefined {
     const snapshot = this.snapshot;
-    if (!snapshot) return undefined;
+    if (!snapshot || snapshot.finished || this.pendingCommand || this.pendingItem) return undefined;
     return snapshot.combatants.find(
       (combatant) =>
         combatant.id === snapshot.activeCombatantId &&
-        combatant.ownerPlayerId === this.playerId
+        combatant.ownerPlayerId === this.playerId && combatant.hp > 0
     );
   }
 
   private requestMove(target: HexCoord): void {
     const active = this.activeOwnedCombatant();
-    if (!active || this.attackMode) return;
+    if (!active || !this.snapshot || !getReachableBattleCells(this.snapshot, active.id).some(cell => hexKey(cell) === hexKey(target))) return;
+    this.selectedTargetId = null;
+    this.pendingCommand = true;
+    this.refreshHud();
+    this.attackCard?.hide();
 
     gameSocket.sendBattleCommand({
       type: "move",
@@ -229,10 +263,14 @@ export class BattleScene extends Phaser.Scene {
 
   private requestAttack(targetId: EntityId): void {
     const active = this.activeOwnedCombatant();
-    if (!active || !this.attackMode || targetId === active.id) return;
+    const preview = active && this.snapshot ? getBattleAttackPreview(this.snapshot, active.id, targetId) : null;
+    if (!active || !preview?.available) return;
+    this.pendingCommand = true;
+    this.refreshHud();
+    this.refreshAttackCard();
 
     gameSocket.sendBattleCommand({
-      type: this.attackMode,
+      type: preview.type,
       combatantId: active.id,
       targetId
     });
@@ -241,6 +279,9 @@ export class BattleScene extends Phaser.Scene {
   private requestEndTurn(): void {
     const active = this.activeOwnedCombatant();
     if (!active) return;
+    this.pendingCommand = true;
+    this.refreshHud();
+    this.refreshAttackCard();
 
     gameSocket.sendBattleCommand({
       type: "endTurn",
@@ -251,10 +292,63 @@ export class BattleScene extends Phaser.Scene {
   private refreshHud(): void {
     const snapshot = this.snapshot;
     if (!snapshot || !this.hud) return;
-    const active = snapshot.combatants.find(
-      (combatant) => combatant.id === snapshot.activeCombatantId
-    );
-    this.hud.update(active, active?.ownerPlayerId === this.playerId, this.attackMode);
+    const player = playerStateStore.get();
+    const state = player?.character.playerId === this.playerId ? player : null;
+    const own = this.ownCombatant();
+    this.hud.update(own, Boolean(this.activeOwnedCombatant()), state?.inventory ?? { items: [] }, state?.character);
+  }
+
+  private ownCombatant(): CombatantSnapshot | undefined {
+    return this.snapshot?.combatants.find(unit => unit.ownerPlayerId === this.playerId);
+  }
+
+  private enemyAt(cell: HexCoord): CombatantSnapshot | undefined {
+    const own = this.ownCombatant();
+    return own && this.snapshot?.combatants.find(unit => hexKey(unit.position) === hexKey(cell) && areBattleEnemies(own, unit));
+  }
+
+  private previewCell(cell: HexCoord): void {
+    const target = this.enemyAt(cell);
+    if (!target) return;
+    this.selectedTargetId = target.id;
+    this.refreshAttackCard();
+  }
+
+  private selectCell(cell: HexCoord, touch: boolean): void {
+    const target = this.enemyAt(cell);
+    if (target) {
+      this.selectedTargetId = target.id;
+      this.refreshAttackCard();
+      if (!touch) this.requestAttack(target.id);
+    } else this.requestMove(cell);
+  }
+
+  private refreshAttackCard(): void {
+    const own = this.ownCombatant();
+    const target = this.snapshot?.combatants.find(unit => unit.id === this.selectedTargetId);
+    const preview = own && target && this.snapshot ? getBattleAttackPreview(this.snapshot, own.id, target.id) : null;
+    if (!preview || !target || !this.layout) { this.attackCard?.hide(); return; }
+    const local = axialToPixel(target.position, this.layout.hexSize);
+    this.attackCard?.show(this.pendingCommand || this.pendingItem ? { ...preview, available: false, reason: "Oczekiwanie na serwer…" } : preview,
+      target.name, this.layout.centerX + local.x, this.layout.centerY + local.y, this.layout.arena);
+  }
+
+  private async useItem(instanceId: string): Promise<InventoryUpdateResult> {
+    const active = this.activeOwnedCombatant();
+    if (!active) return { ok: false, code: "NOT_ACTIVE_TURN", message: "Przedmiotu możesz użyć w swojej turze." };
+    this.pendingItem = true;
+    this.refreshAttackCard();
+    try { return await gameSocket.useBattleItem(active.id, instanceId); }
+    finally {
+      this.pendingItem = false;
+      if (!this.disposed) { this.refreshHud(); this.refreshAttackCard(); }
+    }
+  }
+
+  private applyInventory(inventory: InventorySnapshot): void {
+    const state = playerStateStore.get();
+    if (state?.character.playerId === this.playerId) playerStateStore.set({ ...state, inventory });
+    this.refreshHud();
   }
 
   private clearRenderObjects(): void {

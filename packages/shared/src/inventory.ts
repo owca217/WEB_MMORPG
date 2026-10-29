@@ -5,6 +5,12 @@ export type ItemCategory = string;
 
 export const CONTAINER_SLOT_COUNT = 4;
 export const CONTAINER_ITEM_CATEGORY = "container";
+export const BATTLE_ITEM_AP_COST = 2;
+
+export interface ConsumableEffects {
+  healHp?: number;
+  restoreAp?: number;
+}
 
 export type ContainerSlotIndex = 0 | 1 | 2 | 3;
 export type ContainerSlots = [
@@ -30,6 +36,7 @@ export interface InventoryItem {
   boundToPlayerId?: string;
   containerInstanceId?: ItemInstanceId;
   containerCapacity?: number;
+  consumableEffects?: ConsumableEffects;
 }
 
 export interface InventorySnapshot {

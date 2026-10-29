@@ -807,81 +807,14 @@ button {
   padding: 0 18px;
 }
 
-.battle-hud {
-  position: fixed;
-  z-index: 1000;
-  left: 50%;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  width: min(700px, calc(100vw - 24px));
-  box-sizing: border-box;
-  display: grid;
-  grid-template-columns: repeat(3, auto);
-  gap: 8px 16px;
-  align-items: center;
-  padding: 12px;
-  color: #f4f1e7;
-  background: rgba(16, 19, 24, 0.94);
-  border: 1px solid #5f6570;
-  border-radius: 12px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
-  max-height: calc(100vh - var(--safe-area-top) - var(--safe-area-bottom) - 24px);
-  max-height: calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom) - 24px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  touch-action: pan-y;
-}
 
-.battle-hud__name {
-  font-weight: 800;
-}
 
-.battle-hud__name small {
-  font-weight: 400;
-  color: #d7c28d;
-}
 
-.battle-hud__combat-stats {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 20px;
-  color: #c9d3df;
-  font-size: 13px;
-}
 
-.battle-hud__injuries {
-  grid-column: 1 / -1;
-  color: #e3cda9;
-  min-height: 20px;
-}
 
-.battle-hud__actions {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
 
-.battle-hud button {
-  min-height: 44px;
-  min-width: 44px;
-  border: 1px solid #727a86;
-  border-radius: 8px;
-  color: #f4f1e7;
-  background: #292f38;
-  font: inherit;
-  font-weight: 700;
-}
 
-.battle-hud button.is-active {
-  background: #806838;
-  border-color: #f4d47d;
-}
 
-.battle-hud button:disabled {
-  opacity: 0.45;
-}
 
 .admin-panel {
   width: min(1120px, calc(100vw - 28px));
@@ -1043,18 +976,8 @@ button {
     padding: 13px;
   }
 
-  .battle-hud {
-    grid-template-columns: 1fr 1fr;
-    font-size: 14px;
-  }
 
-  .battle-hud__name {
-    grid-column: 1 / -1;
-  }
 
-  .battle-hud__actions {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
 }
 
 @media (max-width: 600px), (max-height: 500px) and (orientation: landscape) {
@@ -1128,45 +1051,13 @@ button {
   }
 }
 
-/* The arena layout uses this same breakpoint to reserve the right-hand controls. */
+
 @media (max-height: 500px) and (orientation: landscape) {
-  .battle-hud {
-    top: max(12px, var(--safe-area-top));
-    right: max(12px, var(--safe-area-right));
-    bottom: auto;
-    left: auto;
-    transform: none;
-    width: 230px;
-    grid-template-columns: 1fr 1fr;
-    align-content: start;
-    gap: 8px;
-    padding: 10px;
-    font-size: 13px;
-  }
 
-  .battle-hud__name {
-    grid-column: 1 / -1;
-    overflow-wrap: anywhere;
-  }
 
-  .battle-hud__combat-stats {
-    gap: 4px 12px;
-    font-size: 12px;
-  }
 
-  .battle-hud__injuries {
-    min-height: 0;
-    line-height: 1.35;
-    overflow-wrap: anywhere;
-  }
 
-  .battle-hud__actions {
-    grid-template-columns: 1fr 1fr;
-  }
 
-  .battle-hud__actions button:last-child {
-    grid-column: 1 / -1;
-  }
 }
 
 .character-creator.login-panel {

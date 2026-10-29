@@ -232,6 +232,105 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
 }
 
 describeDatabase("Socket.IO game flow", () => {
+  it("uses a battle bandage and broadcasts matching inventory, character and battle state", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "item_user", "ItemHero");
+    await pool!.query("UPDATE characters SET hp=41,severely_injured=TRUE,injuries='[\"bleeding\"]'::jsonb,x=1320,y=455 WHERE id=$1", [identity.characterId]);
+    const item = (await game.services.inventory.addItems(identity.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items[0]!;
+    const client = await connectClient();
+    const initialState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, identity.token);
+    await initialState;
+    const started = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    await started;
+    const battleState = onceWithTimeout<BattleSnapshot>(client, "battleState");
+    const playerState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const [result, updatedBattle, updatedPlayer] = await Promise.all([
+      client.timeout(800).emitWithAck("useBattleItem", { combatantId: `hero:${identity.characterId}`, itemInstanceId: item.instanceId }),
+      battleState,
+      playerState
+    ]);
+    expect(result).toMatchObject({ ok: true, inventory: { items: [expect.objectContaining({ instanceId: item.instanceId, quantity: 1 })] } });
+    expect(updatedBattle.combatants.find((actor) => actor.ownerPlayerId === identity.characterId)).toMatchObject({ hp: 71, ap: 3, injuries: ["bleeding"] });
+    expect(updatedPlayer.character).toMatchObject({ hp: 71, severelyInjured: true, injuries: ["bleeding"] });
+    expect((await pool!.query("SELECT hp FROM characters WHERE id=$1", [identity.characterId])).rows[0]!.hp).toBe(71);
+  });
+
+  it("rejects unauthenticated, foreign and enemy battle item requests without consuming inventory", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "item_owner", "ItemOwner");
+    const other = await createIdentity(auth, lifecycle, "item_other", "ItemOther");
+    const item = (await game.services.inventory.addItems(other.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items[0]!;
+    const client = await connectClient();
+    const payload = { combatantId: `hero:${identity.characterId}`, itemInstanceId: item.instanceId };
+    expect(await client.timeout(800).emitWithAck("useBattleItem", payload)).toMatchObject({ ok: false, code: "AUTHENTICATION_REQUIRED" });
+    await authenticate(client, identity.token);
+    game.services.world.movePlayer(identity.characterId, { x: 1320, y: 455 }, Date.now() + 10_000);
+    const started = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    const battle = await started;
+    expect(await client.timeout(800).emitWithAck("useBattleItem", { ...payload, combatantId: battle.combatants.find((actor) => !actor.ownerPlayerId)!.id }))
+      .toMatchObject({ ok: false, code: "NOT_OWNER" });
+    expect(await client.timeout(800).emitWithAck("useBattleItem", payload)).toMatchObject({ ok: false, code: "INVENTORY_ITEM_NOT_OWNED" });
+    expect((await game.services.inventory.getSnapshot(other.characterId)).items[0]!.quantity).toBe(2);
+    expect(game.services.battles.getSnapshot(identity.characterId)!.combatants.find((actor) => actor.ownerPlayerId === identity.characterId)!.ap).toBe(5);
+  });
+
+  it("serializes item use and waits for committed healing before reconnect saves", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const identity = await createIdentity(auth, lifecycle, "item_reconnect", "ItemReconnect");
+    await pool!.query("UPDATE characters SET hp=41,x=1320,y=455 WHERE id=$1", [identity.characterId]);
+    const item = (await game.services.inventory.addItems(identity.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items[0]!;
+    const client = await connectClient();
+    const initialState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, identity.token);
+    await initialState;
+    const started = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
+    client.emit("startEncounter", { encounterId: "wolf-pack-01" });
+    await started;
+    let releaseResult!: () => void;
+    const resultGate = new Promise<void>((resolve) => { releaseResult = resolve; });
+    let markCommitted!: () => void;
+    const committed = new Promise<void>((resolve) => { markCommitted = resolve; });
+    const consume = game.services.inventory.consumeBattleItem.bind(game.services.inventory);
+    vi.spyOn(game.services.inventory, "consumeBattleItem").mockImplementationOnce(async (...args) => {
+      const result = await consume(...args);
+      markCommitted();
+      await resultGate;
+      return result;
+    });
+    const payload = { combatantId: `hero:${identity.characterId}`, itemInstanceId: item.instanceId };
+    client.emit("useBattleItem", payload, () => undefined);
+    await committed;
+    expect(await client.timeout(800).emitWithAck("useBattleItem", payload)).toMatchObject({ ok: false, code: "BATTLE_ACTION_PENDING" });
+    const rejected = onceWithTimeout<{ code: string }>(client, "commandRejected");
+    client.emit("battleCommand", { type: "endTurn", combatantId: payload.combatantId });
+    expect((await rejected).code).toBe("BATTLE_ACTION_PENDING");
+    const saved = vi.spyOn(lifecycle, "saveGameplayState");
+    client.disconnect();
+    const replacement = await connectClient();
+    let markValidated!: () => void;
+    const validated = new Promise<void>((resolve) => { markValidated = resolve; });
+    const validateToken = auth.validateToken.bind(auth);
+    vi.spyOn(auth, "validateToken").mockImplementationOnce(async (...args) => {
+      const result = await validateToken(...args);
+      setImmediate(markValidated);
+      return result;
+    });
+    const restoredState = onceWithTimeout<PlayerStateSnapshot>(replacement, "playerState");
+    const authenticated = replacement.emitWithAck("authenticate", { sessionToken: identity.token });
+    try {
+      await validated;
+      expect(saved).not.toHaveBeenCalled();
+    } finally {
+      releaseResult();
+    }
+    expect(await authenticated).toMatchObject({ ok: true });
+    expect(await restoredState).toMatchObject({ character: { hp: 71 }, inventory: { items: [expect.objectContaining({ quantity: 1 })] } });
+    expect((await pool!.query("SELECT hp FROM characters WHERE id=$1", [identity.characterId])).rows[0]!.hp).toBe(71);
+  });
+
   it("moves owned items into the eight-place rag bag and restores their placement after login", async () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const owner = await createIdentity(auth, lifecycle, "bag_owner", "BagOwner");

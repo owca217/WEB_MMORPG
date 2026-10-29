@@ -24,6 +24,15 @@ export interface GameServerOptions {
   connections?: ActiveConnectionRegistry;
 }
 
+const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
+  INVALID_CONTAINER_SLOT: "Wybierz jeden z czterech slotów.",
+  INVALID_CONTAINER_INSTANCE_ID: "Nieprawidłowy przedmiot.",
+  CONTAINER_ITEM_NOT_OWNED: "Nie posiadasz tego pojemnika.",
+  ITEM_NOT_CONTAINER: "W tym slocie można umieścić wyłącznie przedmiot z kategorii Pojemniki.",
+  CONTAINER_ITEM_STORED: "Ten pojemnik znajduje się już wewnątrz innego pojemnika.",
+  CHARACTER_NOT_FOUND: "Nie znaleziono postaci."
+};
+
 export function createGameServer(
   httpServer: HttpServer,
   options: GameServerOptions
@@ -336,6 +345,38 @@ export function createGameServer(
         );
       } catch (error) {
         reject(error, "HEAL_REJECTED", "Leczenie nie jest teraz dostępne.");
+      }
+    });
+
+    socket.on("setContainerSlot", async (payload, ack) => {
+      if (typeof ack !== "function") return;
+      const currentCharacterId = characterId;
+      const currentCharacterVersion = characterVersion;
+      if (!currentCharacterId || !ownsCharacter(currentCharacterId, currentCharacterVersion)) {
+        ack({ ok: false, code: "AUTHENTICATION_REQUIRED", message: "Zaloguj się, aby wybrać pojemnik." });
+        return;
+      }
+      if (!payload || typeof payload.slotIndex !== "number") {
+        ack({ ok: false, code: "INVALID_CONTAINER_SLOT", message: CONTAINER_SLOT_ERRORS.INVALID_CONTAINER_SLOT! });
+        return;
+      }
+      if (payload.itemInstanceId !== null && typeof payload.itemInstanceId !== "string") {
+        ack({ ok: false, code: "INVALID_CONTAINER_INSTANCE_ID", message: CONTAINER_SLOT_ERRORS.INVALID_CONTAINER_INSTANCE_ID! });
+        return;
+      }
+      try {
+        const updatedInventory = await inventory.setContainerSlot(currentCharacterId, payload.slotIndex, payload.itemInstanceId);
+        const character = characters.getSnapshot(currentCharacterId);
+        if (!character || !ownsCharacter(currentCharacterId, currentCharacterVersion)) {
+          ack({ ok: false, code: "SESSION_REPLACED", message: "Połączenie zostało zastąpione. Połącz się ponownie." });
+          return;
+        }
+        socket.emit("playerState", { character, inventory: updatedInventory });
+        ack({ ok: true, inventory: updatedInventory });
+      } catch (error) {
+        const code = error instanceof Error && CONTAINER_SLOT_ERRORS[error.message]
+          ? error.message : "CONTAINER_SLOT_UPDATE_FAILED";
+        ack({ ok: false, code, message: CONTAINER_SLOT_ERRORS[code] ?? "Nie udało się zapisać pojemnika. Spróbuj ponownie." });
       }
     });
 

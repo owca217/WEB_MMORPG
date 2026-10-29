@@ -9,7 +9,8 @@ function cloneState(state: PlayerStateSnapshot): PlayerStateSnapshot {
       injuries: [...state.character.injuries]
     },
     inventory: {
-      items: state.inventory.items.map((item) => ({ ...item }))
+      items: state.inventory.items.map((item) => ({ ...item })),
+      ...(state.inventory.containerSlots ? { containerSlots: [...state.inventory.containerSlots] } : {})
     }
   };
 }

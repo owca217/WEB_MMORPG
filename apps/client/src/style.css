@@ -397,6 +397,160 @@ button {
   flex: 1;
 }
 
+.world-hud__containers {
+  display: grid;
+  gap: 5px;
+}
+
+.world-hud__container-title {
+  color: #dfc998;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.world-hud__container-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(44px, 1fr));
+  gap: 6px;
+}
+
+.world-hud__container-slot {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 3px;
+  min-width: 44px;
+  min-height: 68px;
+  padding: 5px 4px;
+  overflow: hidden;
+  color: #c8ba9d;
+  background: rgba(13, 18, 13, 0.65);
+  border: 1px dashed #71634a;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.world-hud__container-slot.is-equipped {
+  color: #f2ddb0;
+  background: #39402b;
+  border-style: solid;
+  border-color: #a68b55;
+}
+
+.world-hud__container-slot:hover,
+.container-picker__choice:enabled:hover {
+  background: #444d34;
+  border-color: #d2b577;
+}
+
+.world-hud__container-slot:focus-visible,
+.game-panel--containers button:focus-visible {
+  outline: 2px solid #f1cf83;
+  outline-offset: 2px;
+}
+
+.world-hud__container-number {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  color: #bcaa82;
+  font-size: 10px;
+}
+
+.world-hud__container-name {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.container-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  color: #c4ac75;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.container-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.container-picker__description {
+  margin: 0 0 14px;
+  color: #c9c1b3;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.container-picker__list {
+  display: grid;
+  gap: 8px;
+}
+
+.game-panel .container-picker__choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  background: rgba(73, 69, 48, 0.35);
+}
+
+.container-picker__choice .container-icon {
+  width: 44px;
+  height: 44px;
+}
+
+.container-picker__content {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.container-picker__content > span {
+  color: #c9c1b3;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.container-picker__content > .container-picker__action {
+  color: #e0c285;
+}
+
+.game-panel--containers button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.container-picker__feedback {
+  min-height: 18px;
+  margin: 12px 0;
+  color: #d8c28c;
+  font-size: 13px;
+}
+
+.container-picker__feedback[data-state="error"] {
+  color: #f0aba0;
+}
+
+.container-picker__clear {
+  width: 100%;
+  padding: 8px 12px;
+}
+
 .game-panel {
   position: fixed;
   z-index: 1100;
@@ -860,6 +1014,22 @@ button {
 
   .world-hud__actions button {
     font-size: 12px;
+  }
+
+  .world-hud__container-slots {
+    gap: 5px;
+  }
+
+  .world-hud__container-slot {
+    min-height: 56px;
+    padding: 3px;
+    gap: 1px;
+  }
+
+  .world-hud__container-slot .container-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 26px;
   }
 
   .experience-progress {

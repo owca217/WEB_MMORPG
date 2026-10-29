@@ -114,6 +114,11 @@ async function applyLegacyRenderSchema(pool: ReturnType<typeof createPool>): Pro
       ('30000000-0000-4000-8000-000000000003', '22222222-2222-4222-8222-222222222222', 'simple-bag', 'Zwykły worek', 1, 'bag', 'Prosty worek mieszczący osiem przedmiotów.', 8),
       ('30000000-0000-4000-8000-000000000004', '22222222-2222-4222-8222-222222222222', 'expedition-backpack', 'Plecak ekspedycyjny', 1, 'bag', 'Duży plecak na sześćdziesiąt przedmiotów.', 60)
   `);
+  await pool.query(`
+    UPDATE character_items
+    SET container_instance_id = '30000000-0000-4000-8000-000000000003'
+    WHERE instance_id = '30000000-0000-4000-8000-000000000001'
+  `);
 }
 
 describeDatabase("Render legacy production migration compatibility", () => {
@@ -198,6 +203,28 @@ describeDatabase("Render legacy production migration compatibility", () => {
     expect(bagSlots.rows).toEqual([
       { item_id: "expedition-backpack", value: "60" },
       { item_id: "simple-bag", value: "8" }
+    ]);
+
+    const storage = await pool.query<{
+      item_id: string;
+      container_capacity: number | null;
+      container_instance_id: string | null;
+      container_slot: number | null;
+    }>(`
+      SELECT item.item_id, instance.container_capacity, instance.container_instance_id, instance.container_slot
+      FROM item_instances AS instance
+      JOIN items AS item ON item.id = instance.item_id
+      WHERE item.item_id IN ('simple-bag', 'wolf-pelt')
+      ORDER BY item.item_id
+    `);
+    expect(storage.rows).toEqual([
+      { item_id: "simple-bag", container_capacity: 8, container_instance_id: null, container_slot: null },
+      {
+        item_id: "wolf-pelt",
+        container_capacity: null,
+        container_instance_id: "30000000-0000-4000-8000-000000000003",
+        container_slot: null
+      }
     ]);
 
     const columns = await pool.query<{ table_name: string; column_name: string }>(`

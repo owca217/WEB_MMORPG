@@ -45,6 +45,34 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("sends only a container slot and instance ID and returns the server's assignment or rejection", async () => {
+    const payloads: unknown[] = [];
+    const game = await startServer((_token, ack, socket) => {
+      socket.on("setContainerSlot", (payload, reply) => {
+        payloads.push(payload);
+        reply(payload.itemInstanceId === "foreign-item"
+          ? { ok: false, code: "CONTAINER_ITEM_NOT_OWNED", message: "Nie posiadasz tego pojemnika." }
+          : { ok: true, inventory: { items: [], containerSlots: [null, payload.itemInstanceId, null, null] } });
+      });
+      ack(authenticated);
+    });
+    await game.authenticate("session-token");
+    expect(await game.setContainerSlot(1, "chest-2")).toEqual({
+      ok: true, inventory: { items: [], containerSlots: [null, "chest-2", null, null] }
+    });
+    expect(await game.setContainerSlot(1, "foreign-item")).toMatchObject({ ok: false, code: "CONTAINER_ITEM_NOT_OWNED" });
+    expect(payloads).toEqual([
+      { slotIndex: 1, itemInstanceId: "chest-2" }, { slotIndex: 1, itemInstanceId: "foreign-item" }
+    ]);
+  });
+
+  it("returns a usable rejection when a container acknowledgement times out", async () => {
+    const game = await startServer((_token, ack) => ack(authenticated));
+    await game.authenticate("session-token");
+    vi.spyOn(game.connect(), "emitWithAck").mockRejectedValueOnce(new Error("Ack timeout"));
+    expect(await game.setContainerSlot(0, null)).toMatchObject({ ok: false, code: "CONTAINER_SLOT_UPDATE_FAILED" });
+  });
+
   it("authenticates an initial connection once without publishing a reconnect", async () => {
     const tokens: string[] = [];
     const game = await startServer((token, ack) => {

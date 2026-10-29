@@ -46,4 +46,18 @@ describe("PlayerStateStore", () => {
 
     expect(store.get()?.character.hp).toBe(100);
   });
+
+  it("retains four container assignments and isolates them from input, subscribers and readers", () => {
+    const store = new PlayerStateStore();
+    const state: PlayerStateSnapshot = { ...snapshot, inventory: {
+      items: [], containerSlots: ["chest-1", null, "chest-3", null]
+    } };
+    store.subscribe((received) => { received.inventory.containerSlots![0] = null; });
+    store.set(state);
+    state.inventory.containerSlots![2] = null;
+    const first = store.get()!;
+    expect(first.inventory.containerSlots).toEqual(["chest-1", null, "chest-3", null]);
+    first.inventory.containerSlots![0] = null;
+    expect(store.get()?.inventory.containerSlots).toEqual(["chest-1", null, "chest-3", null]);
+  });
 });

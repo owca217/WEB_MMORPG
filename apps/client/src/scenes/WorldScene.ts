@@ -12,7 +12,7 @@ import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
-import { InventoryPanel } from "../ui/InventoryPanel";
+import { ContainerPicker } from "../ui/ContainerPicker";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
@@ -43,7 +43,7 @@ export class WorldScene extends Phaser.Scene {
   private backgroundRenderer: ForestSettlementRenderer | undefined;
   private entitiesRenderer: WorldEntitiesRenderer | undefined;
   private hud: WorldHud | undefined;
-  private inventoryPanel: InventoryPanel | undefined;
+  private containerPicker: ContainerPicker | undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private adminPanel: AdminPanel | undefined;
@@ -116,7 +116,14 @@ export class WorldScene extends Phaser.Scene {
       gameSocket.startEncounter(encounterId);
     };
 
-    this.inventoryPanel = new InventoryPanel();
+    this.containerPicker = new ContainerPicker({
+      onSetContainerSlot: (slotIndex, itemInstanceId) => gameSocket.setContainerSlot(slotIndex, itemInstanceId),
+      onInventoryChanged: (inventory) => {
+        const state = playerStateStore.get();
+        if (state) playerStateStore.set({ ...state, inventory });
+        this.hud?.updateInventory(inventory);
+      }
+    });
     this.characterPanel = new CharacterPanel();
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
@@ -134,7 +141,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.hud = new WorldHud({
-      onInventory: () => this.inventoryPanel?.toggle(),
+      onContainerSlot: (slotIndex) => this.containerPicker?.show(slotIndex),
       onCharacter: () => this.characterPanel?.toggle(),
       onAdmin: () => {
         if (this.adminPanel) void this.adminPanel.showCatalog();
@@ -166,7 +173,7 @@ export class WorldScene extends Phaser.Scene {
       gameSocket.onPlayerState((state) => {
         playerStateStore.set(state);
         this.hud?.update(state);
-        this.inventoryPanel?.update(state.inventory);
+        this.containerPicker?.update(state.inventory);
         this.characterPanel?.update(state.character);
       }),
       gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
@@ -301,14 +308,14 @@ export class WorldScene extends Phaser.Scene {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.adminPanel?.destroy();
     this.hud?.destroy();
-    this.inventoryPanel?.destroy();
+    this.containerPicker?.destroy();
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
     this.adminPanel = undefined;
     this.hud = undefined;
-    this.inventoryPanel = undefined;
+    this.containerPicker = undefined;
     this.characterPanel = undefined;
     this.dialoguePanel = undefined;
     this.entitiesRenderer = undefined;

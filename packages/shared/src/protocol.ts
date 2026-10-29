@@ -1,6 +1,6 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
-import type { InventorySnapshot } from "./inventory";
+import type { InventorySnapshot, SetContainerSlotResult } from "./inventory";
 import type { LocationId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
@@ -20,6 +20,10 @@ export interface ClientToServerEvents {
   requestWorldState: () => void;
   interactNpc: (payload: { npcId: string }) => void;
   healAtNpc: (payload: { npcId: string }) => void;
+  setContainerSlot: (
+    payload: { slotIndex: number; itemInstanceId: string | null },
+    ack: (result: SetContainerSlotResult) => void
+  ) => void;
 }
 
 export interface ServerToClientEvents {

@@ -3,6 +3,17 @@ import type { ItemRarity } from "./items";
 
 export type ItemCategory = string;
 
+export const CONTAINER_SLOT_COUNT = 4;
+export const CONTAINER_ITEM_CATEGORY = "container";
+
+export type ContainerSlotIndex = 0 | 1 | 2 | 3;
+export type ContainerSlots = [
+  ItemInstanceId | null,
+  ItemInstanceId | null,
+  ItemInstanceId | null,
+  ItemInstanceId | null
+];
+
 export interface InventoryItem {
   instanceId: ItemInstanceId;
   itemId: string;
@@ -17,8 +28,14 @@ export interface InventoryItem {
   maxDurability?: number;
   upgradeLevel: number;
   boundToPlayerId?: string;
+  containerInstanceId?: ItemInstanceId;
 }
 
 export interface InventorySnapshot {
   items: InventoryItem[];
+  containerSlots?: ContainerSlots;
 }
+
+export type SetContainerSlotResult =
+  | { ok: true; inventory: InventorySnapshot }
+  | { ok: false; code: string; message: string };

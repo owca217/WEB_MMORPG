@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type {
-  InventoryItem,
-  InventorySnapshot,
-  PlayerId
+import {
+  CONTAINER_ITEM_CATEGORY,
+  CONTAINER_SLOT_COUNT,
+  type ContainerSlots,
+  type InventoryItem,
+  type InventorySnapshot,
+  type PlayerId
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 
@@ -36,6 +39,13 @@ interface InventoryRow {
   max_durability: string | number | null;
   upgrade_level: number;
   bound_to_player_id: string | null;
+  container_slot: number | null;
+  container_instance_id: string | null;
+}
+
+interface ContainerAssignmentRow {
+  category_id: string;
+  container_instance_id: string | null;
 }
 
 type OwnerKind = "character" | "legacyPlayer";
@@ -53,6 +63,77 @@ export class InventoryService {
 
   async getSnapshot(characterId: string): Promise<InventorySnapshot> {
     return this.getSnapshotForOwner("character", characterId);
+  }
+
+  async setContainerSlot(
+    characterId: string,
+    slotIndex: number,
+    itemInstanceId: string | null
+  ): Promise<InventorySnapshot> {
+    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT) {
+      throw new Error("INVALID_CONTAINER_SLOT");
+    }
+    if (itemInstanceId !== null && (
+      typeof itemInstanceId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemInstanceId)
+    )) {
+      throw new Error("INVALID_CONTAINER_INSTANCE_ID");
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const character = await client.query(
+        "SELECT id FROM characters WHERE id = $1 FOR UPDATE",
+        [characterId]
+      );
+      if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
+
+      if (itemInstanceId !== null) {
+        const candidate = await client.query<ContainerAssignmentRow>(
+          `SELECT version.category_id, instance.container_instance_id
+           FROM item_instances instance
+           JOIN items item ON item.id = instance.item_id
+           JOIN item_versions version
+             ON version.item_id = item.id
+            AND version.version_no = item.active_version_no
+            AND version.state = 'PUBLISHED'
+           WHERE instance.id = $1 AND instance.character_id = $2
+           FOR UPDATE OF instance
+           FOR SHARE OF item, version`,
+          [itemInstanceId, characterId]
+        );
+        const row = candidate.rows[0];
+        if (!row) throw new Error("CONTAINER_ITEM_NOT_OWNED");
+        if (row.category_id !== CONTAINER_ITEM_CATEGORY) {
+          throw new Error("ITEM_NOT_CONTAINER");
+        }
+        if (row.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
+      }
+
+      await client.query(
+        `UPDATE item_instances
+         SET container_slot = NULL, updated_at = NOW()
+         WHERE character_id = $1 AND (container_slot = $2 OR id = $3)`,
+        [characterId, slotIndex, itemInstanceId]
+      );
+      if (itemInstanceId !== null) {
+        await client.query(
+          `UPDATE item_instances
+           SET container_slot = $2, updated_at = NOW()
+           WHERE id = $1 AND character_id = $3`,
+          [itemInstanceId, slotIndex, characterId]
+        );
+      }
+      const snapshot = await this.getSnapshotForOwner("character", characterId, client);
+      await client.query("COMMIT");
+      return snapshot;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /**
@@ -111,10 +192,11 @@ export class InventoryService {
 
   private async getSnapshotForOwner(
     ownerKind: OwnerKind,
-    ownerId: string
+    ownerId: string,
+    client?: PoolClient
   ): Promise<InventorySnapshot> {
     const ownerColumn = this.ownerColumn(ownerKind);
-    const result = await this.pool.query<InventoryRow>(
+    const result = await (client ?? this.pool).query<InventoryRow>(
       `SELECT
         instance.id AS instance_id,
         item.id AS item_definition_id,
@@ -128,7 +210,9 @@ export class InventoryService {
         instance.durability,
         instance.max_durability,
         instance.upgrade_level,
-        instance.bound_to_player_id
+        instance.bound_to_player_id,
+        instance.container_slot,
+        instance.container_instance_id
        FROM item_instances instance
        JOIN items item ON item.id = instance.item_id
        JOIN item_versions version
@@ -140,8 +224,20 @@ export class InventoryService {
       [ownerId]
     );
 
+    const containerSlots: ContainerSlots = [null, null, null, null];
+    if (ownerKind === "character") {
+      for (const row of result.rows) {
+        if (row.container_slot !== null &&
+          row.container_slot >= 0 && row.container_slot < CONTAINER_SLOT_COUNT &&
+          row.category_id === CONTAINER_ITEM_CATEGORY &&
+          row.container_instance_id === null) {
+          containerSlots[row.container_slot] = row.instance_id;
+        }
+      }
+    }
     return {
-      items: result.rows.map((row) => this.mapInventoryRow(row))
+      items: result.rows.map((row) => this.mapInventoryRow(row)),
+      containerSlots
     };
   }
 
@@ -268,6 +364,9 @@ export class InventoryService {
         ? {}
         : { maxDurability: Number(row.max_durability) }),
       upgradeLevel: row.upgrade_level,
+      ...(row.container_instance_id
+        ? { containerInstanceId: row.container_instance_id }
+        : {}),
       ...(row.bound_to_player_id
         ? { boundToPlayerId: row.bound_to_player_id }
         : {})

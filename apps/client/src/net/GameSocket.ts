@@ -7,6 +7,7 @@ import type {
   NpcInteractionPayload,
   PlayerStateSnapshot,
   ServerToClientEvents,
+  SetContainerSlotResult,
   SocketAuthResult,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
@@ -125,6 +126,18 @@ export class GameSocket {
 
   healAtNpc(npcId: string): void {
     this.connect().emit("healAtNpc", { npcId });
+  }
+
+  async setContainerSlot(slotIndex: number, itemInstanceId: string | null): Promise<SetContainerSlotResult> {
+    try {
+      return await this.connect().timeout(10_000).emitWithAck("setContainerSlot", { slotIndex, itemInstanceId });
+    } catch {
+      return {
+        ok: false,
+        code: "CONTAINER_SLOT_UPDATE_FAILED",
+        message: "Nie udało się zapisać pojemnika. Sprawdź połączenie i spróbuj ponownie."
+      };
+    }
   }
 
   startEncounter(encounterId: string): void {

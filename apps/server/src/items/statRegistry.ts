@@ -452,7 +452,7 @@ export const SYSTEM_CATEGORIES: readonly SystemCategorySeed[] = [
   { id: "crafting-item", name: "Przedmioty craftingowe", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY["crafting-item"] },
   { id: "quest", name: "Questowe", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.quest },
   { id: "key", name: "Klucze", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.key },
-  { id: "container", name: "Kontenery", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.container },
+  { id: "container", name: "Pojemniki", allowedStatCodes: [], allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.container },
   { id: "backpack", name: "Plecaki", allowedStatCodes: BACKPACK_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.backpack },
   { id: "ammunition", name: "Amunicja", allowedStatCodes: AMMO_STATS, allowedSpecialFieldCodes: SPECIAL_FIELDS_BY_CATEGORY.ammunition },
   {

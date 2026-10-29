@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type {
   BattleCommand,
@@ -7,6 +8,7 @@ import type {
   NpcInteractionPayload,
   PlayerId,
   PlayerStateSnapshot,
+  SetContainerSlotResult,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
 import { io as createClient, type Socket } from "socket.io-client";
@@ -122,6 +124,19 @@ async function authenticate(socket: Socket, token: string): Promise<string> {
   return result.characterId;
 }
 
+async function giveTestContainer(game: ReturnType<typeof createGameServer>, characterId: string) {
+  const definitionId = randomUUID();
+  const stableId = `flow-container-${randomUUID()}`;
+  await pool!.query("INSERT INTO items (id,item_id,status,active_version_no) VALUES ($1,$2,'PUBLISHED',1)", [definitionId, stableId]);
+  await pool!.query(`INSERT INTO item_versions (
+    id,item_id,version_no,revision,state,name,category_id,description,rarity,item_level,minimum_level,
+    sell_value,sellable,tradable,droppable,stackable,max_stack,weight,soulbound,unique_item,special_data,created_by
+  ) VALUES ($1,$2,1,1,'PUBLISHED','Skrzynia testowa','container','Pojemnik testowy','COMMON',1,0,
+    0,TRUE,TRUE,TRUE,FALSE,1,1,'NONE',FALSE,'{}'::jsonb,'00000000-0000-4000-8000-000000000001')`, [randomUUID(), definitionId]);
+  const snapshot = await game.services.inventory.addItems(characterId, [{ itemId: stableId, quantity: 1 }]);
+  return snapshot.items.find((item) => item.itemId === stableId)!.instanceId;
+}
+
 function once<T>(socket: Socket, event: string): Promise<T> {
   return new Promise<T>((resolve) => socket.once(event, resolve));
 }
@@ -217,6 +232,42 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
 }
 
 describeDatabase("Socket.IO game flow", () => {
+  it("persists four container slots using socket identity and rejects unrelated items", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const owner = await createIdentity(auth, lifecycle, "slot_owner", "SlotOwner");
+    const other = await createIdentity(auth, lifecycle, "slot_other", "SlotOther");
+    const container = await giveTestContainer(game, owner.characterId);
+    const foreign = await giveTestContainer(game, other.characterId);
+    const inventory = await game.services.inventory.addItems(owner.characterId, [{ itemId: "wolf-pelt", quantity: 1 }]);
+    const material = inventory.items.find((item) => item.itemId === "wolf-pelt")!.instanceId;
+    const client = await connectClient();
+    expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 0, itemInstanceId: container }))
+      .toMatchObject({ ok: false, code: "AUTHENTICATION_REQUIRED" });
+    const initial = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, owner.token);
+    await initial;
+    const updated = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    const assigned: SetContainerSlotResult = await client.timeout(1000).emitWithAck("setContainerSlot", {
+      slotIndex: 2, itemInstanceId: container, characterId: other.characterId
+    });
+    expect(assigned).toMatchObject({ ok: true, inventory: { containerSlots: [null, null, container, null] } });
+    expect((await updated).inventory.containerSlots).toEqual([null, null, container, null]);
+    expect((await game.services.inventory.getSnapshot(other.characterId)).containerSlots).toEqual([null, null, null, null]);
+    expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 2, itemInstanceId: material }))
+      .toMatchObject({ ok: false, code: "ITEM_NOT_CONTAINER" });
+    expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 2, itemInstanceId: foreign }))
+      .toMatchObject({ ok: false, code: "CONTAINER_ITEM_NOT_OWNED" });
+    expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 4, itemInstanceId: container }))
+      .toMatchObject({ ok: false, code: "INVALID_CONTAINER_SLOT" });
+    const restored = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, owner.token);
+    const state = await restored;
+    expect(state.inventory.containerSlots).toEqual([null, null, container, null]);
+    expect(state.inventory.items.some((item) => item.instanceId === material)).toBe(true);
+    expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 2, itemInstanceId: null }))
+      .toMatchObject({ ok: true, inventory: { containerSlots: [null, null, null, null] } });
+  });
+
   it("emits player state after durable authentication and routes NPC interaction", async () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const identity = await createIdentity(auth, lifecycle, "owczy_flow", "Owczy");

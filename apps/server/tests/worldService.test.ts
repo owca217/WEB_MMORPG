@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { findWorldPath } from "@web-mmorpg/shared";
 import { LootService } from "../src/loot/LootService";
 import { WorldService } from "../src/world/WorldService";
 
@@ -71,7 +72,8 @@ describe("WorldService", () => {
 
     expect(() => world.interactNpc("p1", "healer-ada")).toThrow("NPC_OUT_OF_RANGE");
 
-    world.movePlayer("p1", { x: 720, y: 535 }, 100000);
+    const approach=findWorldPath("forest-settlement-01",world.getPlayer("p1")!,{x:720,y:535},{arrivalRadius:79})!;
+    for(const [index,point] of approach.entries())world.movePlayer("p1",point,100000+index*100000);
     expect(world.interactNpc("p1", "healer-ada")).toMatchObject({
       id: "healer-ada",
       kind: "healer",

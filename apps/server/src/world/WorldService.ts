@@ -6,6 +6,7 @@ import type {
   WorldPlayerSnapshot,
   WorldStateSnapshot
 } from "@web-mmorpg/shared";
+import { findNearestWalkablePosition, resolveWorldMovement } from "@web-mmorpg/shared";
 import {
   ENCOUNTER_ACTIVATION_RADIUS,
   FOREST_SETTLEMENT_01,
@@ -38,12 +39,15 @@ export class WorldService {
     now = Date.now()
   ): WorldPlayerSnapshot {
     const fixture = getWorldFixture(input.locationId ?? FOREST_SETTLEMENT_01.id) ?? FOREST_SETTLEMENT_01;
+    const position=findNearestWalkablePosition(input.locationId??FOREST_SETTLEMENT_01.id,{
+      x:input.x??fixture.spawn.x,y:input.y??fixture.spawn.y
+    });
     const player: WorldPlayerState = {
       id: input.id,
       nickname: input.nickname,
       ...(input.appearance !== undefined ? { appearance: structuredClone(input.appearance) } : {}),
-      x: input.x ?? fixture.spawn.x,
-      y: input.y ?? fixture.spawn.y,
+      x: position.x,
+      y: position.y,
       locationId: input.locationId ?? FOREST_SETTLEMENT_01.id,
       lastMoveAt: now
     };
@@ -71,14 +75,17 @@ export class WorldService {
     const distance = Math.hypot(dx, dy);
     const scale = distance > maxDistance && distance > 0 ? maxDistance / distance : 1;
 
-    player.x = Math.min(
+    const targetX = Math.min(
       fixture.width,
       Math.max(0, player.x + dx * scale)
     );
-    player.y = Math.min(
+    const targetY = Math.min(
       fixture.height,
       Math.max(0, player.y + dy * scale)
     );
+    const position=resolveWorldMovement(player.locationId,player,{x:targetX,y:targetY});
+    player.x=position.x;
+    player.y=position.y;
     player.lastMoveAt = now;
 
     const portal = fixture.teleports.find(zone => player.x >= zone.x && player.x <= zone.x + zone.width && player.y >= zone.y && player.y <= zone.y + zone.height);

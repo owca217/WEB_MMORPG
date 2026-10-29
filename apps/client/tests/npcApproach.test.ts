@@ -27,8 +27,8 @@ function setup() {
   Object.assign(scene,{events,time:clock,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input,add:{text:()=>({setScrollFactor(){return this;},setOrigin(){return this;},setDepth(){return this;},destroy(){}})}});
   scene.init({playerId:"hero"});scene.create();Object.assign(scene,{cursors});scenes.push(events);
   const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void;onEncounterSelected:(id:string)=>void}}).entitiesRenderer;
-  const world=(x=300,npcs:NpcSnapshot[]=[miro])=>transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x,y:420}],npcs,encounters:[{id:"wolves",label:"Wilki",x:800,y:420}]});
-  const choose=(action:"talk"|"shop")=>{renderer.onNpcSelected(miro.id);document.querySelector<HTMLButtonElement>(`[data-npc-action="${action}"]`)!.click();};
+  const world=(x=300,npcs:NpcSnapshot[]=[miro],y=420)=>transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x,y}],npcs,encounters:[{id:"wolves",label:"Wilki",x:800,y:420}]});
+  const choose=(action:"talk"|"shop",npcId=miro.id)=>{renderer.onNpcSelected(npcId);document.querySelector<HTMLButtonElement>(`[data-npc-action="${action}"]`)!.click();};
   const step=(delta=100)=>{clock.now+=delta;scene.update(clock.now,delta);};
   return {scene,events,input,clock,cursors,renderer,world,choose,step};
 }
@@ -88,4 +88,50 @@ it("stops an approach when the server has confirmed no progress for five seconds
   for(let i=0;i<50;i++)step();
   const attempts=move.mock.calls.length;step();world(400);
   expect(move).toHaveBeenCalledTimes(attempts);expect(talk).not.toHaveBeenCalled();
+});
+
+it("blocks keyboard movement at a rock instead of predicting through it",()=>{
+  const moves:Array<{x:number;y:number}>=[];
+  transport.on("moveIntent",position=>moves.push({...position}));
+  const {world,cursors,step}=setup();world(1040,[],340);cursors.right.isDown=true;
+  for(let i=0;i<5;i++)step();
+  expect(moves.length).toBeGreaterThan(0);
+  expect(moves.every(point=>point.x<=1058.01)).toBe(true);
+});
+
+it("places an old position inside a building on nearby ground and keeps reconciliation outside the wall",()=>{
+  const {scene,world,step}=setup();world(625,[],560);step();
+  const p=(scene as unknown as {localPosition:{x:number;y:number}}).localPosition;
+  expect(p.x<=502.5 || p.x>=747.5 || p.y<=490 || p.y>=640).toBe(true);
+});
+
+it("routes a clicked destination around the healer building and sends the final endpoint",()=>{
+  const moves:Array<{x:number;y:number}>=[];
+  const {world,input,step}=setup();world(450,[],560);
+  transport.on("moveIntent",position=>{moves.push({...position});world(position.x,[],position.y);});
+  input.emit("pointerdown",{worldX:800,worldY:560});
+  for(let i=0;i<200;i++)step(50);
+  expect(moves.length).toBeGreaterThan(0);
+  expect(moves.every(p=>p.x<=502.5 || p.x>=747.5 || p.y<=490 || p.y>=640)).toBe(true);
+  expect(moves.at(-1)).toMatchObject({x:800,y:560});
+});
+
+it("sends a short clicked route's final endpoint even if it finishes before the next packet interval",()=>{
+  const move=vi.spyOn(gameSocket,"sendMoveIntent");
+  const {world,input,step}=setup();world();input.emit("pointerdown",{worldX:301,worldY:420});
+  step(16);expect(move).not.toHaveBeenCalled();step(40);
+  expect(move).toHaveBeenLastCalledWith({x:301,y:420,locationId:"forest-settlement-01"});
+});
+
+it("reaches Ada outside her building and talks only after a confirmed reachable arrival",()=>{
+  const ada:NpcSnapshot={id:"healer-ada",name:"Ada",kind:"healer",x:720,y:535,interactionRadius:95};
+  const talk=vi.spyOn(gameSocket,"interactNpc"),moves:Array<{x:number;y:number}>=[];
+  const {world,choose,step}=setup();world(450,[ada],560);
+  transport.on("moveIntent",position=>{moves.push({...position});world(position.x,[ada],position.y);});
+  choose("talk",ada.id);expect(talk).not.toHaveBeenCalled();
+  for(let i=0;i<200 && talk.mock.calls.length===0;i++)step(50);
+  expect(moves.every(p=>p.x<=502.5 || p.x>=747.5 || p.y<=490 || p.y>=640)).toBe(true);
+  expect(talk).toHaveBeenCalledExactlyOnceWith(ada.id);
+  const arrived=moves.at(-1)!;
+  expect(Math.hypot(arrived.x-ada.x,arrived.y-ada.y)).toBeLessThanOrEqual(ada.interactionRadius);
 });

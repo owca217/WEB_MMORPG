@@ -32,11 +32,11 @@ it("switches location bounds, discards old movement and snaps prediction at the 
   Object.assign(scene,{events,cameras:{main:camera},physics:{world:{setBounds:bounds}},textures:{exists:()=>false},time:{now:0},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
   transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x:1550,y:455}],npcs:[],encounters:[]});
-  Object.assign(scene,{pointerTarget:{x:1600,y:455},selectedEncounterId:"old",pendingNpcAction:{npcId:"old"}});
+  Object.assign(scene,{pointerTarget:{x:1600,y:455},navigationPath:[{x:1580,y:455}],navigationKey:"old",pendingFinalIntent:true,selectedEncounterId:"old",pendingNpcAction:{npcId:"old"}});
   transport.emit("worldState",{locationId:"eastern-forest-01",location:{name:"Gęsty Las",width:2000,height:1200,theme:"dense-forest"},players:[{id:"hero",nickname:"Hero",x:150,y:600}],npcs:[],encounters:[]});
   expect(camera.setBounds).toHaveBeenLastCalledWith(0,0,2000,1200);
   expect(bounds).toHaveBeenLastCalledWith(0,0,2000,1200);
-  expect(scene).toMatchObject({pointerTarget:null,pendingNpcAction:null,selectedEncounterId:null,localPosition:{x:150,y:600},authoritativePosition:{x:150,y:600}});
+  expect(scene).toMatchObject({pointerTarget:null,navigationPath:[],navigationKey:null,pendingFinalIntent:false,pendingNpcAction:null,selectedEncounterId:null,localPosition:{x:150,y:600},authoritativePosition:{x:150,y:600}});
   expect(camera.centerOn).toHaveBeenLastCalledWith(150,600);
   expect(document.querySelector('[data-location-name]')?.textContent).toBe("Gęsty Las");
   events.emit("shutdown");

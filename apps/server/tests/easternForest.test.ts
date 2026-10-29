@@ -22,7 +22,10 @@ describe("eastern forest world", () => {
     world.addPlayer({ id: "traveler", nickname: "Traveler", locationId: "eastern-forest-01", x: 1320, y: 455 }, 0);
     expect(() => world.startEncounter("traveler", "wolf-pack-01")).toThrow("ENCOUNTER_NOT_FOUND");
     expect(() => world.interactNpc("traveler", "merchant-miro")).toThrow("NPC_NOT_FOUND");
-    expect(world.movePlayer("traveler", { x: 9999, y: 9999 }, 100000)).toMatchObject({ x: 2000, y: 1200 });
+    // Check outer bounds from the clear eastern path; a direct line through the
+    // forest is now expected to stop at intervening tree trunks.
+    world.addPlayer({id:"traveler",nickname:"Traveler",locationId:"eastern-forest-01",x:1980,y:920},0);
+    expect(world.movePlayer("traveler", { x: 9999, y: 920 }, 100000)).toMatchObject({ x: 2000, y: 920 });
     const forest = world.snapshot("eastern-forest-01");
     expect(forest.location).toMatchObject({ width: 2000, height: 1200, theme: "dense-forest" });
     expect(forest.encounters).toHaveLength(4);

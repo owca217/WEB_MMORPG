@@ -1,5 +1,5 @@
 import type { ContainerSlotIndex, EncounterSnapshot, InventorySnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
-import { getCharacterStatistics, getWeaponCombatStatistics, normalizeWeaponTraining } from "@web-mmorpg/shared";
+import { findNearestWalkablePosition, findWorldPath, getCharacterStatistics, getWeaponCombatStatistics, normalizeWeaponTraining, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
@@ -49,6 +49,9 @@ export class WorldScene extends Phaser.Scene {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
   private pointerTarget: { x: number; y: number } | null = null;
+  private navigationPath:WorldPoint[]=[];
+  private navigationKey:string|null=null;
+  private pendingFinalIntent=false;
   private localPosition: { x: number; y: number } = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
   private authoritativePosition: { x: number; y: number } | null = null;
   private lastIntentSentAt = 0;
@@ -74,7 +77,7 @@ export class WorldScene extends Phaser.Scene {
   private npcs:NpcSnapshot[]=[];
   private selectedNpcId:string|null=null;
   private pendingDialogueNpcId:string|null=null;
-  private pendingNpcAction:{npcId:string;action:"talk"|"shop";lastDistance:number;progressAt:number}|null=null;
+  private pendingNpcAction:{npcId:string;action:"talk"|"shop";lastDistance:number;progressAt:number;lastConfirmedPosition?:WorldPoint}|null=null;
   private adminPanel: AdminPanel | undefined;
   private chat: ChatController | undefined;
   private social:SocialController|undefined;
@@ -89,6 +92,7 @@ export class WorldScene extends Phaser.Scene {
     this.playerId = data.playerId;
     this.battleResult = data.battleResult;
     this.pointerTarget = null;
+    this.clearNavigation();this.pendingFinalIntent=false;this.lastIntentSentAt=0;
     this.authoritativePosition = null;
     this.localPosition = { ...FOREST_SETTLEMENT_LAYOUT.spawn };
     this.cameraFollowing = false;
@@ -294,7 +298,7 @@ export class WorldScene extends Phaser.Scene {
       gameSocket.onNpcInteraction((payload) => this.showNpcDialogue(payload)),
       gameSocket.onConnectionState((state) => {
         this.hud?.setConnectionState(state);
-        if(state!=="connected"){this.healingPanel?.hide();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
+        if(state!=="connected"){this.pointerTarget=null;this.clearNavigation();this.pendingFinalIntent=false;this.healingPanel?.hide();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
       }),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.pendingDialogueNpcId=null;
@@ -313,7 +317,7 @@ export class WorldScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping);
-    if (typing) {this.pointerTarget=null;this.pendingNpcAction=null;}
+    if (typing) {this.pointerTarget=null;this.pendingNpcAction=null;this.clearNavigation();this.pendingFinalIntent=false;}
     const keyboardIntent = resolveKeyboardIntent({
       left: !typing && Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
       right: !typing && Boolean(this.cursors?.right.isDown || this.wasd?.D.isDown),
@@ -326,10 +330,12 @@ export class WorldScene extends Phaser.Scene {
     this.resolvePendingNpcAction();
     const speed = 220;
     const travel = (speed * delta) / 1000;
+    const hadMovementIntent=hasKeyboardIntent || Boolean(this.pointerTarget || this.pendingNpcAction);
 
     if (hasKeyboardIntent) {
       this.pointerTarget = null;
-      this.localPosition = {
+      this.clearNavigation();
+      this.localPosition = resolveWorldMovement(this.locationId??"forest-settlement-01",this.localPosition,{
         x: Phaser.Math.Clamp(
           this.localPosition.x + keyboardIntent.dx * travel,
           0,
@@ -340,29 +346,22 @@ export class WorldScene extends Phaser.Scene {
           0,
           this.worldBounds.height
         )
-      };
+      });
     } else if (this.pendingNpcAction) {
       const npc=this.npcs.find(item=>item.id===this.pendingNpcAction!.npcId)!;
-      const distance=Math.hypot(npc.x-this.localPosition.x,npc.y-this.localPosition.y);
-      const remaining=Math.max(0,distance-Math.max(0,npc.interactionRadius-16));
-      this.localPosition=moveTowardTarget(this.localPosition,npc,Math.min(travel,remaining));
+      this.followNavigation(npc,travel,Math.max(0,npc.interactionRadius-16),`npc:${npc.id}`);
     } else if (this.pointerTarget) {
-      this.localPosition = moveTowardTarget(this.localPosition, this.pointerTarget, travel);
-      if (
-        Phaser.Math.Distance.Between(
-          this.localPosition.x,
-          this.localPosition.y,
-          this.pointerTarget.x,
-          this.pointerTarget.y
-        ) < 2
-      ) {
+      this.followNavigation(this.pointerTarget,travel,0,"pointer");
+      if(this.pointerTarget && this.navigationPath.length===0) {
         this.pointerTarget = null;
+        this.pendingFinalIntent=true;
       }
-    } else if (this.authoritativePosition) {
-      this.localPosition = {
+    } else if (this.authoritativePosition && !this.pendingFinalIntent) {
+      this.clearNavigation();
+      this.localPosition = resolveWorldMovement(this.locationId??"forest-settlement-01",this.localPosition,{
         x: Phaser.Math.Linear(this.localPosition.x, this.authoritativePosition.x, 0.12),
         y: Phaser.Math.Linear(this.localPosition.y, this.authoritativePosition.y, 0.12)
-      };
+      });
     }
 
     if (this.authoritativePosition) {
@@ -373,10 +372,10 @@ export class WorldScene extends Phaser.Scene {
         this.authoritativePosition.y
       );
       if (correctionDistance > 120) {
-        this.localPosition = {
+        this.localPosition = resolveWorldMovement(this.locationId??"forest-settlement-01",this.localPosition,{
           x: Phaser.Math.Linear(this.localPosition.x, this.authoritativePosition.x, 0.3),
           y: Phaser.Math.Linear(this.localPosition.y, this.authoritativePosition.y, 0.3)
-        };
+        });
       }
     }
 
@@ -393,9 +392,41 @@ export class WorldScene extends Phaser.Scene {
     const selectedNpc=this.npcs.find(item=>item.id===this.selectedNpcId);
     if(selectedNpc)this.npcMenu?.reposition(this.worldAnchor(selectedNpc));
 
-    if ((hasKeyboardIntent || this.pointerTarget || this.pendingNpcAction) && this.time.now - this.lastIntentSentAt >= 50) {
+    if ((hadMovementIntent || this.pendingFinalIntent) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
       gameSocket.sendMoveIntent({...this.localPosition,...(this.locationId ? {locationId:this.locationId} : {})});
+      this.pendingFinalIntent=false;
+    }
+  }
+
+  private clearNavigation():void {
+    this.navigationKey=null;
+    this.navigationPath=[];
+  }
+
+  private followNavigation(target:WorldPoint,travel:number,arrivalRadius:number,kind:string):void {
+    const zone=this.locationId??"forest-settlement-01";
+    const key=`${zone}:${kind}:${target.x}:${target.y}:${arrivalRadius}`;
+    if(this.navigationKey!==key) {
+      const path=findWorldPath(zone,this.localPosition,target,{arrivalRadius});
+      if(path===null) {
+        this.pointerTarget=null;this.pendingNpcAction=null;this.clearNavigation();
+        this.showToast("Nie można dojść w to miejsce.");return;
+      }
+      this.navigationKey=key;this.navigationPath=path.map(point=>({...point}));
+    }
+    let remaining=travel;
+    while(remaining>0 && this.navigationPath.length>0) {
+      const waypoint=this.navigationPath[0]!;
+      const next=moveTowardTarget(this.localPosition,waypoint,remaining);
+      const moved=resolveWorldMovement(zone,this.localPosition,next);
+      const distance=Math.hypot(moved.x-this.localPosition.x,moved.y-this.localPosition.y);
+      this.localPosition=moved;remaining=Math.max(0,remaining-distance);
+      if(Math.hypot(waypoint.x-moved.x,waypoint.y-moved.y)<0.01)this.navigationPath.shift();
+      else if(distance<0.001) {
+        this.pointerTarget=null;this.pendingNpcAction=null;this.clearNavigation();
+        this.showToast("Droga jest zablokowana. Wybierz inne miejsce.");break;
+      }else break;
     }
   }
 
@@ -429,17 +460,20 @@ export class WorldScene extends Phaser.Scene {
     if(distance<=npc.interactionRadius) {
       // Prediction can arrive before the server. Only its snapshot permits the interaction.
       this.pendingNpcAction=null;
+      this.clearNavigation();
       if(pending.action==="talk") {
         this.pendingDialogueNpcId=npc.id;
         gameSocket.interactNpc(npc.id);
       }else if(npc.kind==="merchant")void this.openShop(npc.id);
-    }else if(distance<pending.lastDistance-0.5) {
+    }else if(distance<pending.lastDistance-0.5 || (pending.lastConfirmedPosition && Math.hypot(this.authoritativePosition.x-pending.lastConfirmedPosition.x,this.authoritativePosition.y-pending.lastConfirmedPosition.y)>0.5)) {
       pending.lastDistance=distance;
       pending.progressAt=this.time.now;
     }else if(this.time.now-pending.progressAt>=5000) {
       this.pendingNpcAction=null;
+      this.clearNavigation();
       this.showToast("Nie udało się podejść do tej postaci. Spróbuj ponownie.");
     }
+    pending.lastConfirmedPosition={...this.authoritativePosition};
   }
 
   private dismissNpcWindows():void {
@@ -495,6 +529,7 @@ export class WorldScene extends Phaser.Scene {
     }
     if(changed) {
       this.pointerTarget=null;this.authoritativePosition=null;
+      this.clearNavigation();this.pendingFinalIntent=false;
       this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
       this.characterPanel?.hide();this.healingPanel?.hide();this.containerPicker?.hide();this.containerContents?.hide();
       this.cameras.main.stopFollow?.();this.cameraFollowing=false;
@@ -514,8 +549,8 @@ export class WorldScene extends Phaser.Scene {
     if (!local) {this.pendingNpcAction=null;this.authoritativePosition=null;return;}
 
     if (!this.authoritativePosition) {
-      this.localPosition = { x: local.x, y: local.y };
-      this.entitiesRenderer?.setLocalPlayerPosition(local.x, local.y);
+      this.localPosition = findNearestWalkablePosition(snapshot.locationId,{x:local.x,y:local.y});
+      this.entitiesRenderer?.setLocalPlayerPosition(this.localPosition.x,this.localPosition.y);
     }
     this.authoritativePosition = { x: local.x, y: local.y };
     if(changed)this.cameras.main.centerOn?.(local.x,local.y);
@@ -545,6 +580,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.clearNavigation();this.pendingFinalIntent=false;
     this.healingPanel?.destroy();this.healingPanel=undefined;
     this.npcMenu?.destroy();this.npcMenu=undefined;
     this.npcs=[];this.selectedNpcId=null;this.pendingDialogueNpcId=null;
@@ -590,6 +626,7 @@ export class WorldScene extends Phaser.Scene {
   }
   private updateKeyboardCapture():void {
     this.pointerTarget=null;
+    this.clearNavigation();this.pendingFinalIntent=false;
     const keyboard=this.input.keyboard;if(!keyboard)return;
     const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping);
     if(typing)this.pendingNpcAction=null;

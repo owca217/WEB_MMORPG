@@ -46,7 +46,9 @@ export class ForestSettlementRenderer {
         .setStrokeStyle(4, 0x2d241e).setDepth(-17));
     }
     const fence = this.keep(this.scene.add.graphics().setDepth(-16));
-    fence.lineStyle(8, 0x60482f, 1).strokeRect(110, 170, 800, 550).fillStyle(0x60482f, 1);
+    fence.lineStyle(8,0x60482f,1).beginPath()
+      .moveTo(910,385).lineTo(910,170).lineTo(110,170).lineTo(110,720).lineTo(910,720).lineTo(910,555)
+      .strokePath().fillStyle(0x60482f,1);
     for (let x = 130; x <= 890; x += 45) {
       if (x > 850 && x < 930) continue;
       fence.fillRect(x, 165, 7, 22).fillRect(x, 705, 7, 22);

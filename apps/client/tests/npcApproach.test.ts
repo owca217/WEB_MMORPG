@@ -11,7 +11,7 @@ vi.mock("phaser", () => ({ default: {
 } }));
 vi.mock("../src/world/ForestSettlementRenderer", () => ({ ForestSettlementRenderer: class { render() {} destroy() {} } }));
 vi.mock("../src/world/WorldEntitiesRenderer", () => ({ WorldEntitiesRenderer: class {
-  render() {} destroy() {} setLocalPlayerPosition() {} updateRemotePlayers() {} getLocalPlayerObject() {}
+  render() {} destroy() {} setLocalPlayerPosition() {} updateRemotePlayers() {} updateEncounters() {} getLocalPlayerObject() {}
 } }));
 import { gameSocket } from "../src/net/GameSocket";
 import { WorldScene } from "../src/scenes/WorldScene";
@@ -42,12 +42,12 @@ afterEach(()=>{for(const events of scenes.splice(0))events.emit("shutdown");vi.r
 
 it.each(["talk","shop"] as const)("walks before %s, keeps sending the endpoint, and acts once only after confirmed arrival",async action=>{
   const talk=vi.spyOn(gameSocket,"interactNpc"),shop=vi.spyOn(gameSocket,"requestMerchantShop").mockResolvedValue({ok:true,shop:{npcId:miro.id,npcName:miro.name,gold:100,offers:[]}});
-  const moves:Array<{x:number;y:number}>=[];transport.on("moveIntent",position=>moves.push({...position}));
+  const moves:Array<{x:number;y:number;locationId?:string}>=[];transport.on("moveIntent",position=>moves.push({...position}));
   const {world,choose,step}=setup();world();choose(action);
   expect(talk).not.toHaveBeenCalled();expect(shop).not.toHaveBeenCalled();
   for(let i=0;i<12;i++)step();
-  expect(moves[0]).toEqual({x:322,y:420});
-  expect(moves.slice(-2)).toEqual([{x:401,y:420},{x:401,y:420}]);
+  expect(moves[0]).toEqual({x:322,y:420,locationId:"forest-settlement-01"});
+  expect(moves.slice(-2)).toEqual([{x:401,y:420,locationId:"forest-settlement-01"},{x:401,y:420,locationId:"forest-settlement-01"}]);
   expect(talk).not.toHaveBeenCalled();expect(shop).not.toHaveBeenCalled();
   world(384);expect(talk).not.toHaveBeenCalled();expect(shop).not.toHaveBeenCalled();
   world(385);world(390);step();await Promise.resolve();

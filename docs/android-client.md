@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany `WEB-MMORPG-0.1.9.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany `WEB-MMORPG-0.1.10.apk` z wydania Android w repozytorium. Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -25,6 +25,8 @@ Wersja 0.1.7 odświeża teren i roślinność Zielonego Brzegu. Trawa, ziemna dr
 Wersja 0.1.8 dodaje menu przy potworze z opcjami „Walcz” i „Auto”. Samo dotknięcie potwora otwiera wybór; wybrana opcja uruchamia spotkanie w dotychczasowym zasięgu. Auto wykonuje ruchy i ataki po stronie serwera, priorytetowo eliminując możliwych do dobicia przeciwników i dobierając pozycję oraz ataki do kosztu PA, pancerza i przeszkód. Nie wydaje przedmiotów użytkowych. Panel walki pokazuje włączony automat i pozwala przejąć sterowanie lub ponownie włączyć auto. Wynik przyznaje zwykłe doświadczenie, złoto, premię drużyny i łup. Automat kończy się wraz z walką lub rozłączeniem; po ponownym połączeniu klient wraca do świata. Menu dopasowuje pozycję do kamery i ekranu telefonu.
 
 Wersja 0.1.9 dodaje małe menu przy NPC. „Rozmowa” jest dostępna u każdej postaci niezależnej, a „Sklep” tylko u kupca. Kliknięcie Miro pozwala teraz osobno wybrać dialog lub ofertę handlową. Dialog Ady zachowuje leczenie. Menu podąża za postacią wraz z kamerą i mieści się na ekranie telefonu; można je zamknąć kliknięciem poza nim, Escape lub Wstecz. Nowy wybór zamyka poprzednie okna NPC, a opóźnione odpowiedzi nie otwierają nieaktualnego sklepu lub rozmowy.
+
+Wersja 0.1.10 dodaje automatyczne podejście do NPC po wybraniu „Rozmowa” lub „Sklep”, gdy postać jest poza zasięgiem. Wybrana interakcja otwiera się dopiero po potwierdzeniu przez serwer, że gracz dotarł wystarczająco blisko. Ręczny ruch, wybór innego celu lub utrata połączenia anulują podejście.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

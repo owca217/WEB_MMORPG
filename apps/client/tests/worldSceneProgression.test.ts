@@ -12,7 +12,7 @@ vi.mock("../src/world/ForestSettlementRenderer", () => ({ ForestSettlementRender
   render() {} destroy() {}
 } }));
 vi.mock("../src/world/WorldEntitiesRenderer", () => ({ WorldEntitiesRenderer: class {
-  render() {} destroy() {}
+  render() {} destroy() {} setLocalPlayerPosition() {} getLocalPlayerObject() {}
 } }));
 
 import { gameSocket } from "../src/net/GameSocket";
@@ -25,7 +25,7 @@ let transport: EventEmitter;
 it("opens the monster menu without starting combat and forwards the explicit mode choice",()=>{
   const start=vi.spyOn(gameSocket,"startEncounter");
   const scene=new WorldScene(),events=new EventEmitter();
-  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},time:{now:0},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
   transport.emit("worldState",{locationId:"forest-settlement-01",players:[],npcs:[],encounters:[{id:"wolf-pack-01",label:"Wilki",x:800,y:400}]});
   const renderer=(scene as unknown as {entitiesRenderer:{onEncounterSelected:(id:string)=>void}}).entitiesRenderer;
@@ -74,10 +74,10 @@ it("opens the merchant only after choosing Sklep and applies a purchase to inven
   const talk=vi.spyOn(gameSocket,"interactNpc");
   vi.spyOn(gameSocket,"purchaseMerchantItem").mockResolvedValue({ok:true,shop:{...shop,gold:70},inventory});
   const scene=new WorldScene(),events=new EventEmitter();
-  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},time:{now:0},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
   transport.emit("playerState",{character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory:{items:[]},gold:100});
-  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],encounters:[],npcs:[{id:shop.npcId,name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95}]});
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x:480,y:420}],encounters:[],npcs:[{id:shop.npcId,name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95}]});
   const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void}}).entitiesRenderer;
   renderer.onNpcSelected(shop.npcId);
   expect(requestShop).not.toHaveBeenCalled();expect(talk).not.toHaveBeenCalled();
@@ -93,9 +93,9 @@ it("opens the merchant only after choosing Sklep and applies a purchase to inven
 it("routes Rozmowa to dialogue for both merchant and healer, retaining the healer action",()=>{
   const talk=vi.spyOn(gameSocket,"interactNpc"),shop=vi.spyOn(gameSocket,"requestMerchantShop"),heal=vi.spyOn(gameSocket,"healAtNpc");
   const scene=new WorldScene(),events=new EventEmitter();
-  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},time:{now:0},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
-  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],encounters:[],npcs:[{id:"merchant-miro",name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95},{id:"healer-ada",name:"Ada",kind:"healer",x:720,y:535,interactionRadius:95}]});
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x:545,y:420}],encounters:[],npcs:[{id:"merchant-miro",name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95},{id:"healer-ada",name:"Ada",kind:"healer",x:560,y:420,interactionRadius:95}]});
   const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void}}).entitiesRenderer;
   renderer.onNpcSelected("merchant-miro");
   document.querySelector<HTMLButtonElement>('[data-npc-action="talk"]')!.click();
@@ -116,9 +116,9 @@ it("ignores delayed shop and dialogue responses after selecting a different NPC"
   let finishShop!:(result:unknown)=>void;
   vi.spyOn(gameSocket,"requestMerchantShop").mockImplementation(()=>new Promise(resolve=>{finishShop=resolve as typeof finishShop;}));
   const scene=new WorldScene(),events=new EventEmitter();
-  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},time:{now:0},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
-  transport.emit("worldState",{locationId:"forest-settlement-01",players:[],encounters:[],npcs:[{id:"merchant-miro",name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95},{id:"guide-boran",name:"Boran",kind:"guide",x:610,y:420,interactionRadius:95}]});
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x:545,y:420}],encounters:[],npcs:[{id:"merchant-miro",name:"Miro",kind:"merchant",x:480,y:420,interactionRadius:95},{id:"guide-boran",name:"Boran",kind:"guide",x:610,y:420,interactionRadius:95}]});
   const renderer=(scene as unknown as {entitiesRenderer:{onNpcSelected:(id:string)=>void}}).entitiesRenderer;
   renderer.onNpcSelected("merchant-miro");document.querySelector<HTMLButtonElement>('[data-npc-action="shop"]')!.click();
   renderer.onNpcSelected("guide-boran");document.querySelector<HTMLButtonElement>('[data-npc-action="talk"]')!.click();

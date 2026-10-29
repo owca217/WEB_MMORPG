@@ -22,11 +22,24 @@ export class WorldHud {
   private readonly connection: HTMLElement;
   private readonly adminButton: HTMLButtonElement;
   private readonly containerSlots: HTMLButtonElement[] = [];
+  private readonly content: HTMLElement;
+  private readonly toggleButton: HTMLButtonElement;
+  private readonly compactViewport: MediaQueryList | null;
+  private collapsed = false;
+  private readonly onViewportChange = (): void => {
+    if (!this.compactViewport?.matches) this.collapsed = false;
+    this.updateVisibility();
+  };
 
   constructor(handlers: WorldHudHandlers) {
     this.root = document.createElement("div");
     this.root.className = "world-hud";
     this.root.innerHTML = `
+      <button type="button" class="world-hud__toggle" data-hud-toggle aria-controls="world-hud-content" aria-expanded="true" aria-label="Zwiń panel gry" hidden>
+        <svg class="world-hud__toggle-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m6 14 6-6 6 6"/></svg>
+        <svg class="world-hud__toggle-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h2m4-3h3m-3 3h3"/></svg>
+      </button>
+      <div class="world-hud__content" id="world-hud-content" data-hud-content>
       <div class="world-hud__identity">
         <strong data-name>—</strong>
         <span data-connection>Łączenie…</span>
@@ -47,9 +60,22 @@ export class WorldHud {
         <button type="button" data-admin hidden>Panel ADMIN</button>
         <button type="button" data-logout>Wyloguj</button>
       </div>
+      </div>
     `;
     document.body.appendChild(this.root);
 
+    this.content = this.require("[data-hud-content]");
+    this.toggleButton = this.require<HTMLButtonElement>("[data-hud-toggle]");
+    this.compactViewport = typeof window.matchMedia === "function"
+      ? window.matchMedia("(max-width: 600px), (max-height: 500px) and (orientation: landscape)")
+      : null;
+    this.compactViewport?.addEventListener("change", this.onViewportChange);
+    this.toggleButton.addEventListener("click", () => {
+      if (!this.compactViewport?.matches) return;
+      this.collapsed = !this.collapsed;
+      this.updateVisibility();
+    });
+    this.updateVisibility();
     this.name = this.require("[data-name]");
     this.hp = this.require("[data-hp]");
     this.level = this.require("[data-level]");
@@ -105,7 +131,10 @@ export class WorldHud {
       button.title = `Pojemnik ${slotIndex + 1}: ${item?.name ?? "pusty"}`;
       button.setAttribute("aria-label", `${button.title}. Wybierz pojemnik`);
       button.classList.toggle("is-equipped", Boolean(item));
-      button.replaceChildren(number, containerIcon(item), label);
+      button.classList.toggle("is-empty", !item);
+      button.replaceChildren(containerIcon(item));
+      if (item) button.prepend(number);
+      if (item) button.append(label);
     });
   }
 
@@ -127,7 +156,20 @@ export class WorldHud {
   }
 
   destroy(): void {
+    this.compactViewport?.removeEventListener("change", this.onViewportChange);
     this.root.remove();
+  }
+
+  private updateVisibility(): void {
+    const compact = this.compactViewport?.matches ?? false;
+    const collapsed = compact && this.collapsed;
+    this.toggleButton.hidden = !compact;
+    this.content.hidden = collapsed;
+    this.root.classList.toggle("is-collapsed", collapsed);
+    this.toggleButton.setAttribute("aria-expanded", `${!collapsed}`);
+    const label = collapsed ? "Rozwiń panel gry" : "Zwiń panel gry";
+    this.toggleButton.setAttribute("aria-label", label);
+    this.toggleButton.title = label;
   }
 
   private require<T extends HTMLElement = HTMLElement>(selector: string): T {

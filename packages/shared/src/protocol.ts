@@ -1,6 +1,6 @@
 import type { BattleCommand, BattleSnapshot } from "./battle";
 import type { CharacterSnapshot, PlayerStateSnapshot } from "./character";
-import type { InventorySnapshot, SetContainerSlotResult } from "./inventory";
+import type { InventorySnapshot, InventoryUpdateResult, SetContainerSlotResult } from "./inventory";
 import type { LocationId } from "./ids";
 import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 
@@ -23,6 +23,10 @@ export interface ClientToServerEvents {
   setContainerSlot: (
     payload: { slotIndex: number; itemInstanceId: string | null },
     ack: (result: SetContainerSlotResult) => void
+  ) => void;
+  moveItemToContainer: (
+    payload: { itemInstanceId: string; targetContainerInstanceId: string | null },
+    ack: (result: InventoryUpdateResult) => void
   ) => void;
 }
 

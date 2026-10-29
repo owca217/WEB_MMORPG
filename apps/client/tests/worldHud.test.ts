@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorldHud } from "../src/ui/WorldHud";
 import type { InventoryItem } from "@web-mmorpg/shared";
 
@@ -8,6 +8,7 @@ beforeEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe("WorldHud session controls", () => {
   it("keeps four container slots directly in the HUD and opens the clicked slot", () => {
@@ -22,6 +23,13 @@ describe("WorldHud session controls", () => {
       "Pojemnik 1: pusty. Wybierz pojemnik", "Pojemnik 2: pusty. Wybierz pojemnik",
       "Pojemnik 3: pusty. Wybierz pojemnik", "Pojemnik 4: pusty. Wybierz pojemnik"
     ]);
+    for (const slot of slots) {
+      expect(slot.classList.contains("is-empty")).toBe(true);
+      expect(slot.querySelector(".container-icon--muted svg")).not.toBeNull();
+      expect(slot.querySelector(".world-hud__container-number")).toBeNull();
+      expect(slot.querySelector(".world-hud__container-name")).toBeNull();
+      expect(slot.textContent?.trim()).toBe("");
+    }
     slots[2]!.click();
     expect(onContainerSlot).toHaveBeenCalledWith(2);
     hud.destroy();
@@ -42,11 +50,69 @@ describe("WorldHud session controls", () => {
     const icon = equipped.querySelector("img")!;
     icon.dispatchEvent(new Event("error"));
     expect(equipped.querySelector("img")).toBeNull();
-    expect(equipped.querySelector("[data-container-icon]")?.textContent).toBe("▣");
+    expect(equipped.querySelector("[data-container-icon] svg")).not.toBeNull();
 
     hud.updateInventory({ items: [container], containerSlots: [null, null, null, null] });
-    expect(equipped.textContent).toContain("Pusty");
+    expect(equipped.textContent?.trim()).toBe("");
+    expect(equipped.getAttribute("aria-label")).toBe("Pojemnik 2: pusty. Wybierz pojemnik");
     hud.destroy();
+  });
+
+  it("minimizes on phones, keeps live updates and actions after restore, and restores the panel on desktop", () => {
+    const viewportEvents = new EventTarget();
+    const media = {
+      matches: true,
+      addEventListener: viewportEvents.addEventListener.bind(viewportEvents),
+      removeEventListener: vi.fn(viewportEvents.removeEventListener.bind(viewportEvents))
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+    const onContainerSlot = vi.fn();
+    const onCharacter = vi.fn();
+    const onAdmin = vi.fn();
+    const onLogout = vi.fn();
+    const hud = new WorldHud({ onContainerSlot, onCharacter, onAdmin, onLogout });
+    const toggle = document.querySelector<HTMLButtonElement>("[data-hud-toggle]")!;
+    const content = document.querySelector<HTMLElement>("[data-hud-content]")!;
+
+    expect(toggle.hidden).toBe(false);
+    toggle.click();
+    expect(content.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-label")).toBe("Rozwiń panel gry");
+    expect(toggle.querySelector("svg")).not.toBeNull();
+
+    hud.update({
+      character: { playerId: "hero", nickname: "Owczy", level: 2, experience: 250,
+        hp: 95, maxHp: 120, maxAp: 5, initiative: 10, severelyInjured: false, injuries: [] },
+      inventory: { items: [{ instanceId: "bag", itemId: "bag", itemDefinitionId: "bag", name: "Torba podróżna",
+        category: "container", description: "Torba", quantity: 1, rarity: "COMMON", upgradeLevel: 0 }],
+        containerSlots: ["bag", null, null, null] }
+    });
+    hud.updateSession("ADMIN");
+    toggle.click();
+
+    expect(content.hidden).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("[data-experience]")?.textContent).toContain("150 / 200");
+    expect(document.querySelector('[data-container-slot="0"]')?.textContent).toContain("Torba podróżna");
+    expect(document.querySelector<HTMLButtonElement>("[data-admin]")?.hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+    document.querySelector<HTMLButtonElement>("[data-character]")!.click();
+    document.querySelector<HTMLButtonElement>("[data-admin]")!.click();
+    document.querySelector<HTMLButtonElement>("[data-logout]")!.click();
+    expect(onContainerSlot).toHaveBeenCalledWith(0);
+    expect(onCharacter).toHaveBeenCalledTimes(1);
+    expect(onAdmin).toHaveBeenCalledTimes(1);
+    expect(onLogout).toHaveBeenCalledTimes(1);
+
+    toggle.click();
+    media.matches = false;
+    viewportEvents.dispatchEvent(new Event("change"));
+    expect(content.hidden).toBe(false);
+    expect(toggle.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    hud.destroy();
+    expect(media.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
   });
 
   it("derives ADMIN button visibility from the current SessionView role", () => {

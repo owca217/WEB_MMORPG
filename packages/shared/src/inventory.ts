@@ -29,6 +29,7 @@ export interface InventoryItem {
   upgradeLevel: number;
   boundToPlayerId?: string;
   containerInstanceId?: ItemInstanceId;
+  containerCapacity?: number;
 }
 
 export interface InventorySnapshot {
@@ -36,6 +37,8 @@ export interface InventorySnapshot {
   containerSlots?: ContainerSlots;
 }
 
-export type SetContainerSlotResult =
+export type InventoryUpdateResult =
   | { ok: true; inventory: InventorySnapshot }
   | { ok: false; code: string; message: string };
+
+export type SetContainerSlotResult = InventoryUpdateResult;

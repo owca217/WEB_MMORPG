@@ -102,6 +102,67 @@ describeDatabase("persistent catalog-backed inventory", () => {
     });
   });
 
+  it("seeds an equipable eight-place rag bag without granting an instance automatically", async () => {
+    expect((await catalog.getItem("rag-bag")).item).toMatchObject({
+      itemId: "rag-bag",
+      name: "Szmaciany worek",
+      categoryId: "container",
+      status: "PUBLISHED",
+      activeVersionNo: 1,
+      stackable: false,
+      maxStack: 1,
+      specialData: { capacity: 8 }
+    });
+    const inventory = new InventoryService(pool);
+    expect((await inventory.getSnapshot(characterId)).items).toEqual([]);
+    const snapshot = await inventory.addItems(characterId, [{ itemId: "rag-bag", quantity: 1 }]);
+    const bag = snapshot.items[0]!;
+    expect(bag).toMatchObject({ name: "Szmaciany worek", category: "container", containerCapacity: 8 });
+    expect((await inventory.setContainerSlot(characterId, 2, bag.instanceId)).containerSlots)
+      .toEqual([null, null, bag.instanceId, null]);
+  });
+
+  it("preserves edited rag bag definitions on reseed and resolves their published capacity", async () => {
+    const inventory = new InventoryService(pool);
+    const bag = (await inventory.addItems(characterId, [{ itemId: "rag-bag", quantity: 1 }])).items[0]!;
+    await pool.query("UPDATE item_instances SET container_capacity = 4 WHERE id = $1", [bag.instanceId]);
+    const source = (await catalog.getItem("rag-bag")).item;
+    await catalog.updateDraft("rag-bag", asDraft(source, {
+      name: "Uszyty worek",
+      specialData: { capacity: 12 }
+    }), 1, actor);
+    await catalog.publish("rag-bag", 1, actor);
+    await seedItemMetadata(pool);
+    await seedItemMetadata(pool);
+    expect((await catalog.getItem("rag-bag")).item).toMatchObject({
+      name: "Uszyty worek", activeVersionNo: 2, specialData: { capacity: 12 }
+    });
+    expect((await inventory.getSnapshot(characterId)).items).toEqual([
+      expect.objectContaining({ instanceId: bag.instanceId, name: "Uszyty worek", containerCapacity: 12 })
+    ]);
+  });
+
+  it("uses valid legacy bag capacity when the published definition has none", async () => {
+    const inventory = new InventoryService(pool);
+    const snapshot = await inventory.addItems(characterId, [
+      { itemId: "rag-bag", quantity: 1 }, { itemId: "simple-bag", quantity: 1 }
+    ]);
+    const source = (await catalog.getItem("rag-bag")).item;
+    await catalog.updateDraft("rag-bag", asDraft(source, { specialData: {} }), 1, actor);
+    await catalog.publish("rag-bag", 1, actor);
+    for (const item of snapshot.items) {
+      await pool.query("UPDATE item_instances SET container_capacity = 8 WHERE id = $1", [item.instanceId]);
+    }
+    expect((await inventory.getSnapshot(characterId)).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemId: "rag-bag", containerCapacity: 8 }),
+      expect.objectContaining({ itemId: "simple-bag", containerCapacity: 8 })
+    ]));
+    await pool.query("UPDATE item_instances SET container_capacity = 0 WHERE character_id = $1", [characterId]);
+    for (const item of (await inventory.getSnapshot(characterId)).items) {
+      expect(item).not.toHaveProperty("containerCapacity");
+    }
+  });
+
   it("persists character-owned item instances and resolves published definitions in snapshots", async () => {
     const inventory = new InventoryService(pool);
     const rewards = new LootService().rollEncounterLoot("wolf-pack-01", 1);

@@ -232,6 +232,43 @@ async function winBattle(socket: Socket, initial: BattleSnapshot, playerId: Play
 }
 
 describeDatabase("Socket.IO game flow", () => {
+  it("moves owned items into the eight-place rag bag and restores their placement after login", async () => {
+    const { game, connectClient, auth, lifecycle } = await startTestServer();
+    const owner = await createIdentity(auth, lifecycle, "bag_owner", "BagOwner");
+    const other = await createIdentity(auth, lifecycle, "bag_other", "BagOther");
+    const inventory = await game.services.inventory.addItems(owner.characterId, [
+      { itemId: "rag-bag", quantity: 1 }, { itemId: "wolf-pelt", quantity: 2 }
+    ]);
+    const bag = inventory.items.find((item) => item.itemId === "rag-bag")!;
+    const item = inventory.items.find((item) => item.itemId === "wolf-pelt")!;
+    const foreign = await giveTestContainer(game, other.characterId);
+    const client = await connectClient();
+    expect(await client.timeout(1000).emitWithAck("moveItemToContainer", { itemInstanceId: item.instanceId, targetContainerInstanceId: bag.instanceId }))
+      .toMatchObject({ ok: false, code: "AUTHENTICATION_REQUIRED" });
+    const initial = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, owner.token); await initial;
+    expect(bag.containerCapacity).toBe(8);
+    const changed = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
+      itemInstanceId: item.instanceId, targetContainerInstanceId: bag.instanceId, characterId: other.characterId
+    })).toMatchObject({ ok: true, inventory: { items: expect.arrayContaining([
+      expect.objectContaining({ instanceId: item.instanceId, quantity: 2, containerInstanceId: bag.instanceId })
+    ]) } });
+    expect((await changed).inventory.items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBe(bag.instanceId);
+    expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
+      itemInstanceId: item.instanceId, targetContainerInstanceId: foreign
+    })).toMatchObject({ ok: false, code: "CONTAINER_ITEM_NOT_OWNED" });
+    const restored = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
+    await authenticate(client, owner.token);
+    expect((await restored).inventory.items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBe(bag.instanceId);
+    expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
+      itemInstanceId: item.instanceId, targetContainerInstanceId: null
+    })).toMatchObject({ ok: true, inventory: { items: expect.arrayContaining([
+      expect.objectContaining({ instanceId: item.instanceId })
+    ]) } });
+    expect((await game.services.inventory.getSnapshot(owner.characterId)).items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBeUndefined();
+  });
+
   it("persists four container slots using socket identity and rejects unrelated items", async () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const owner = await createIdentity(auth, lifecycle, "slot_owner", "SlotOwner");

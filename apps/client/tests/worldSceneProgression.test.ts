@@ -99,7 +99,7 @@ it("opens the HUD container slot and applies the acknowledged inventory to the H
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(false);
   document.querySelector<HTMLButtonElement>('[data-container-instance="bag"]')!.click();
   expect(request).toEqual({ event: "setContainerSlot", payload: { slotIndex: 2, itemInstanceId: "bag" } });
-  expect(document.querySelector('[data-container-slot="2"]')?.textContent).toContain("Pusty");
+  expect(document.querySelector('[data-container-slot="2"]')?.getAttribute("aria-label")).toBe("Pojemnik 3: pusty. Wybierz pojemnik");
 
   const acknowledged: InventorySnapshot = { ...inventory, containerSlots: [null, null, "bag", null] };
   acknowledge({ ok: true, inventory: acknowledged });
@@ -107,4 +107,36 @@ it("opens the HUD container slot and applies the acknowledged inventory to the H
   expect(playerStateStore.get()?.inventory).toEqual(acknowledged);
   events.emit("shutdown");
   expect(document.querySelector("[data-container-picker]")).toBeNull();
+});
+
+it("opens eight-place contents for an equipped bag and can switch to the container chooser", () => {
+  const scene = new WorldScene();
+  const events = new EventEmitter();
+  Object.assign(scene, {
+    events, cameras: { main: { setBackgroundColor() {}, setBounds() {} } },
+    physics: { world: { setBounds() {} } }, textures: { exists: () => false }, input: { on() {} }
+  });
+  const state: PlayerStateSnapshot = {
+    character: { playerId: "hero", nickname: "Owczy", level: 1, hp: 100, maxHp: 100, maxAp: 5,
+      initiative: 10, severelyInjured: false, injuries: [] },
+    inventory: { items: [{ instanceId: "rag", itemId: "rag-bag", itemDefinitionId: "rag-def",
+      name: "Szmaciany worek", category: "container", description: "Worek", quantity: 1,
+      rarity: "COMMON", upgradeLevel: 0, containerCapacity: 8 }], containerSlots: ["rag", null, null, null] }
+  };
+  scene.init({ playerId: "hero" }); scene.create(); transport.emit("playerState", state);
+  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  const contents = document.querySelector<HTMLElement>('[data-container-contents]');
+  expect(contents?.classList.contains("is-hidden")).toBe(false);
+  expect(contents?.textContent).toContain("Szmaciany worek");
+  expect(contents?.querySelectorAll("[data-storage-cell]")).toHaveLength(8);
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
+  expect(contents?.classList.contains("is-hidden")).toBe(true);
+  expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(false);
+  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  expect(contents?.classList.contains("is-hidden")).toBe(false);
+  expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(true);
+  contents?.querySelector<HTMLButtonElement>("[data-change-container]")!.click();
+  expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(false);
+  events.emit("shutdown");
+  expect(document.querySelector("[data-container-contents]")).toBeNull();
 });

@@ -1,17 +1,37 @@
 import type { InventoryItem } from "@web-mmorpg/shared";
 
+function backpackGlyph(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 32 32");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("focusable", "false");
+  svg.innerHTML = `<path d="M11 8V6a5 5 0 0 1 10 0v2M7 15H4v10h3m18-10h3v10h-3"/>
+    <rect x="7" y="8" width="18" height="22" rx="5"/>
+    <path d="M8 14h16M13 14v4m6-4v4"/><rect x="11" y="21" width="10" height="6" rx="2"/>`;
+  return svg;
+}
+
 export function containerIcon(item?: InventoryItem): HTMLSpanElement {
   const icon = document.createElement("span");
   icon.className = "container-icon";
   icon.dataset.containerIcon = "";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "▣";
+  const showFallback = (): void => {
+    icon.classList.add("container-icon--muted");
+    icon.replaceChildren(backpackGlyph());
+  };
+  showFallback();
 
   if (item?.iconUrl) {
     const image = document.createElement("img");
     image.alt = "";
     image.src = item.iconUrl;
-    image.addEventListener("error", () => { icon.textContent = "▣"; }, { once: true });
+    image.addEventListener("error", showFallback, { once: true });
+    icon.classList.remove("container-icon--muted");
     icon.replaceChildren(image);
   }
   return icon;

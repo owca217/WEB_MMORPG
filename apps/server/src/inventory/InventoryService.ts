@@ -41,11 +41,19 @@ interface InventoryRow {
   bound_to_player_id: string | null;
   container_slot: number | null;
   container_instance_id: string | null;
+  container_capacity: number | null;
+  special_data: Record<string, unknown> | null;
 }
 
 interface ContainerAssignmentRow {
   category_id: string;
   container_instance_id: string | null;
+}
+
+interface ContainerStorageRow extends ContainerAssignmentRow {
+  container_slot: number | null;
+  container_capacity: number | null;
+  special_data: Record<string, unknown> | null;
 }
 
 type OwnerKind = "character" | "legacyPlayer";
@@ -73,10 +81,7 @@ export class InventoryService {
     if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT) {
       throw new Error("INVALID_CONTAINER_SLOT");
     }
-    if (itemInstanceId !== null && (
-      typeof itemInstanceId !== "string" ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemInstanceId)
-    )) {
+    if (itemInstanceId !== null && !this.isInstanceId(itemInstanceId)) {
       throw new Error("INVALID_CONTAINER_INSTANCE_ID");
     }
 
@@ -123,6 +128,85 @@ export class InventoryService {
            SET container_slot = $2, updated_at = NOW()
            WHERE id = $1 AND character_id = $3`,
           [itemInstanceId, slotIndex, characterId]
+        );
+      }
+      const snapshot = await this.getSnapshotForOwner("character", characterId, client);
+      await client.query("COMMIT");
+      return snapshot;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async moveItemToContainer(
+    characterId: string,
+    itemInstanceId: string,
+    targetContainerInstanceId: string | null
+  ): Promise<InventorySnapshot> {
+    if (!this.isInstanceId(itemInstanceId)) throw new Error("INVALID_ITEM_INSTANCE_ID");
+    if (targetContainerInstanceId !== null && !this.isInstanceId(targetContainerInstanceId)) {
+      throw new Error("INVALID_CONTAINER_INSTANCE_ID");
+    }
+    itemInstanceId = itemInstanceId.toLowerCase();
+    targetContainerInstanceId = targetContainerInstanceId?.toLowerCase() ?? null;
+    if (itemInstanceId === targetContainerInstanceId) throw new Error("CONTAINER_CANNOT_STORE_SELF");
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const character = await client.query("SELECT id FROM characters WHERE id = $1 FOR UPDATE", [characterId]);
+      if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
+      const readOwned = async (id: string, missingCode: string): Promise<ContainerStorageRow> => {
+        const result = await client.query<ContainerStorageRow>(
+          `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity,
+             version.category_id, version.special_data
+           FROM item_instances instance
+           JOIN items item ON item.id = instance.item_id
+           JOIN item_versions version
+             ON version.item_id = item.id
+            AND version.version_no = item.active_version_no
+            AND version.state = 'PUBLISHED'
+           WHERE instance.id = $1 AND instance.character_id = $2
+           FOR UPDATE OF instance
+           FOR SHARE OF item, version`,
+          [id, characterId]
+        );
+        const row = result.rows[0];
+        if (!row) throw new Error(missingCode);
+        return row;
+      };
+
+      const source = await readOwned(itemInstanceId, "INVENTORY_ITEM_NOT_OWNED");
+      if (targetContainerInstanceId !== null) {
+        const target = await readOwned(targetContainerInstanceId, "CONTAINER_ITEM_NOT_OWNED");
+        if (target.category_id !== CONTAINER_ITEM_CATEGORY) throw new Error("ITEM_NOT_CONTAINER");
+        if (target.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
+        const capacity = this.getContainerCapacity(target);
+        if (capacity === undefined) throw new Error("CONTAINER_CAPACITY_INVALID");
+        if (source.container_slot !== null) throw new Error("CONTAINER_ITEM_EQUIPPED");
+
+        const children = await client.query(
+          "SELECT 1 FROM item_instances WHERE container_instance_id = $1 LIMIT 1",
+          [itemInstanceId]
+        );
+        if (children.rowCount) throw new Error("CONTAINER_NOT_EMPTY");
+        if (source.container_instance_id !== targetContainerInstanceId) {
+          const occupied = await client.query<{ count: number }>(
+            "SELECT COUNT(*)::int AS count FROM item_instances WHERE container_instance_id = $1",
+            [targetContainerInstanceId]
+          );
+          if ((occupied.rows[0]?.count ?? 0) >= capacity) throw new Error("CONTAINER_FULL");
+        }
+      }
+
+      if (source.container_instance_id !== targetContainerInstanceId) {
+        await client.query(
+          `UPDATE item_instances SET container_instance_id = $2, updated_at = NOW()
+           WHERE id = $1 AND character_id = $3`,
+          [itemInstanceId, targetContainerInstanceId, characterId]
         );
       }
       const snapshot = await this.getSnapshotForOwner("character", characterId, client);
@@ -212,7 +296,9 @@ export class InventoryService {
         instance.upgrade_level,
         instance.bound_to_player_id,
         instance.container_slot,
-        instance.container_instance_id
+        instance.container_instance_id,
+        instance.container_capacity,
+        version.special_data
        FROM item_instances instance
        JOIN items item ON item.id = instance.item_id
        JOIN item_versions version
@@ -246,6 +332,11 @@ export class InventoryService {
     if (!Number.isInteger(reward.quantity) || reward.quantity <= 0) {
       throw new Error("INVALID_REWARD_QUANTITY");
     }
+  }
+
+  private isInstanceId(value: unknown): value is string {
+    return typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   }
 
   private async requirePublishedDefinition(
@@ -348,7 +439,18 @@ export class InventoryService {
     );
   }
 
+  private getContainerCapacity(row: Pick<InventoryRow, "special_data" | "container_capacity" | "category_id">): number | undefined {
+    const capacity = row.special_data?.capacity ?? row.container_capacity;
+    return (
+      (row.category_id === CONTAINER_ITEM_CATEGORY || row.category_id === "backpack") &&
+      typeof capacity === "number" && Number.isSafeInteger(capacity) && capacity > 0 && capacity <= 10000
+        ? capacity
+        : undefined
+    );
+  }
+
   private mapInventoryRow(row: InventoryRow): InventoryItem {
+    const containerCapacity = this.getContainerCapacity(row);
     return {
       instanceId: row.instance_id,
       itemId: row.item_id,
@@ -364,6 +466,7 @@ export class InventoryService {
         ? {}
         : { maxDurability: Number(row.max_durability) }),
       upgradeLevel: row.upgrade_level,
+      ...(containerCapacity === undefined ? {} : { containerCapacity }),
       ...(row.container_instance_id
         ? { containerInstanceId: row.container_instance_id }
         : {}),

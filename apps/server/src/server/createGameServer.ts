@@ -30,6 +30,13 @@ const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
   CONTAINER_ITEM_NOT_OWNED: "Nie posiadasz tego pojemnika.",
   ITEM_NOT_CONTAINER: "W tym slocie można umieścić wyłącznie przedmiot z kategorii Pojemniki.",
   CONTAINER_ITEM_STORED: "Ten pojemnik znajduje się już wewnątrz innego pojemnika.",
+  INVALID_ITEM_INSTANCE_ID: "Nieprawidłowy przedmiot.",
+  INVENTORY_ITEM_NOT_OWNED: "Nie posiadasz tego przedmiotu.",
+  CONTAINER_CAPACITY_INVALID: "Ten pojemnik nie ma określonej pojemności.",
+  CONTAINER_FULL: "Ten pojemnik jest pełny.",
+  CONTAINER_CANNOT_STORE_SELF: "Nie można schować pojemnika w nim samym.",
+  CONTAINER_ITEM_EQUIPPED: "Najpierw zdejmij ten pojemnik ze slotu.",
+  CONTAINER_NOT_EMPTY: "Najpierw opróżnij ten pojemnik.",
   CHARACTER_NOT_FOUND: "Nie znaleziono postaci."
 };
 
@@ -377,6 +384,38 @@ export function createGameServer(
         const code = error instanceof Error && CONTAINER_SLOT_ERRORS[error.message]
           ? error.message : "CONTAINER_SLOT_UPDATE_FAILED";
         ack({ ok: false, code, message: CONTAINER_SLOT_ERRORS[code] ?? "Nie udało się zapisać pojemnika. Spróbuj ponownie." });
+      }
+    });
+
+    socket.on("moveItemToContainer", async (payload, ack) => {
+      if (typeof ack !== "function") return;
+      const currentCharacterId = characterId;
+      const currentCharacterVersion = characterVersion;
+      if (!currentCharacterId || !ownsCharacter(currentCharacterId, currentCharacterVersion)) {
+        ack({ ok: false, code: "AUTHENTICATION_REQUIRED", message: "Zaloguj się, aby przenosić przedmioty." });
+        return;
+      }
+      if (!payload || typeof payload.itemInstanceId !== "string") {
+        ack({ ok: false, code: "INVALID_ITEM_INSTANCE_ID", message: CONTAINER_SLOT_ERRORS.INVALID_ITEM_INSTANCE_ID! });
+        return;
+      }
+      if (payload.targetContainerInstanceId !== null && typeof payload.targetContainerInstanceId !== "string") {
+        ack({ ok: false, code: "INVALID_CONTAINER_INSTANCE_ID", message: CONTAINER_SLOT_ERRORS.INVALID_CONTAINER_INSTANCE_ID! });
+        return;
+      }
+      try {
+        const updatedInventory = await inventory.moveItemToContainer(currentCharacterId, payload.itemInstanceId, payload.targetContainerInstanceId);
+        const character = characters.getSnapshot(currentCharacterId);
+        if (!character || !ownsCharacter(currentCharacterId, currentCharacterVersion)) {
+          ack({ ok: false, code: "SESSION_REPLACED", message: "Połączenie zostało zastąpione. Połącz się ponownie." });
+          return;
+        }
+        socket.emit("playerState", { character, inventory: updatedInventory });
+        ack({ ok: true, inventory: updatedInventory });
+      } catch (error) {
+        const code = error instanceof Error && CONTAINER_SLOT_ERRORS[error.message]
+          ? error.message : "CONTAINER_ITEM_MOVE_FAILED";
+        ack({ ok: false, code, message: CONTAINER_SLOT_ERRORS[code] ?? "Nie udało się przenieść przedmiotu. Spróbuj ponownie." });
       }
     });
 

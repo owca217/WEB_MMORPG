@@ -11,6 +11,7 @@ interface StarterItemSeed {
   stackable: boolean;
   maxStack: number;
   weight: number;
+  specialData?: Readonly<Record<string, unknown>>;
   stats?: readonly {
     id: string;
     statCode: string;
@@ -85,6 +86,19 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
         value: 60
       }
     ]
+  },
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000005",
+    versionUuid: "10000000-0000-4000-8000-000000000015",
+    itemId: "rag-bag",
+    name: "Szmaciany worek",
+    categoryId: "container",
+    subcategoryId: null,
+    description: "Szmaciany worek mieszczący osiem przedmiotów.",
+    stackable: false,
+    maxStack: 1,
+    weight: 0,
+    specialData: { capacity: 8 }
   }
 ];
 
@@ -108,7 +122,7 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         weight, soulbound, unique_item, special_data, created_by
       ) VALUES (
         $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, 'COMMON', 1, 0,
-        0, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, '{}'::jsonb, $10
+        0, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, $10::jsonb, $11
       )`,
       [
         seed.versionUuid,
@@ -120,6 +134,7 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         seed.stackable,
         seed.maxStack,
         seed.weight,
+        JSON.stringify(seed.specialData ?? {}),
         seedActor
       ]
     );

@@ -1,4 +1,4 @@
-import type { PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, InventorySnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { resolveGameServerUrl } from "../hosting";
@@ -13,6 +13,7 @@ import { AdminPanel } from "../ui/AdminPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { ContainerPicker } from "../ui/ContainerPicker";
+import { ContainerContentsPanel } from "../ui/ContainerContentsPanel";
 import { WorldHud } from "../ui/WorldHud";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
 import { ForestSettlementRenderer } from "../world/ForestSettlementRenderer";
@@ -44,6 +45,7 @@ export class WorldScene extends Phaser.Scene {
   private entitiesRenderer: WorldEntitiesRenderer | undefined;
   private hud: WorldHud | undefined;
   private containerPicker: ContainerPicker | undefined;
+  private containerContents: ContainerContentsPanel | undefined;
   private characterPanel: CharacterPanel | undefined;
   private dialoguePanel: DialoguePanel | undefined;
   private adminPanel: AdminPanel | undefined;
@@ -118,11 +120,12 @@ export class WorldScene extends Phaser.Scene {
 
     this.containerPicker = new ContainerPicker({
       onSetContainerSlot: (slotIndex, itemInstanceId) => gameSocket.setContainerSlot(slotIndex, itemInstanceId),
-      onInventoryChanged: (inventory) => {
-        const state = playerStateStore.get();
-        if (state) playerStateStore.set({ ...state, inventory });
-        this.hud?.updateInventory(inventory);
-      }
+      onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory)
+    });
+    this.containerContents = new ContainerContentsPanel({
+      onMoveItem: (itemInstanceId, targetContainerInstanceId) => gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId),
+      onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
+      onChangeContainer: (slotIndex) => this.containerPicker?.show(slotIndex)
     });
     this.characterPanel = new CharacterPanel();
     this.dialoguePanel = new DialoguePanel({
@@ -141,7 +144,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.hud = new WorldHud({
-      onContainerSlot: (slotIndex) => this.containerPicker?.show(slotIndex),
+      onContainerSlot: (slotIndex) => this.openContainerSlot(slotIndex),
       onCharacter: () => this.characterPanel?.toggle(),
       onAdmin: () => {
         if (this.adminPanel) void this.adminPanel.showCatalog();
@@ -174,6 +177,7 @@ export class WorldScene extends Phaser.Scene {
         playerStateStore.set(state);
         this.hud?.update(state);
         this.containerPicker?.update(state.inventory);
+        this.containerContents?.update(state.inventory);
         this.characterPanel?.update(state.character);
       }),
       gameSocket.onNpcInteraction((payload) => this.dialoguePanel?.show(payload)),
@@ -261,6 +265,28 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private openContainerSlot(slotIndex: ContainerSlotIndex): void {
+    const state = playerStateStore.get();
+    const inventory = state?.character.playerId === this.playerId ? state.inventory : undefined;
+    const instanceId = inventory?.containerSlots?.[slotIndex];
+    const container = inventory?.items.find((item) => item.instanceId === instanceId);
+    if (container && (container.containerCapacity ?? 0) > 0) {
+      this.containerPicker?.hide();
+      this.containerContents?.show(slotIndex);
+    } else {
+      this.containerContents?.hide();
+      this.containerPicker?.show(slotIndex);
+    }
+  }
+
+  private applyInventoryUpdate(inventory: InventorySnapshot): void {
+    const state = playerStateStore.get();
+    if (state?.character.playerId === this.playerId) playerStateStore.set({ ...state, inventory });
+    this.hud?.updateInventory(inventory);
+    this.containerPicker?.update(inventory);
+    this.containerContents?.update(inventory);
+  }
+
   private async logout(serverUrl: string): Promise<void> {
     const authApi = new AuthApi(serverUrl);
     await logoutSession({
@@ -309,6 +335,7 @@ export class WorldScene extends Phaser.Scene {
     this.adminPanel?.destroy();
     this.hud?.destroy();
     this.containerPicker?.destroy();
+    this.containerContents?.destroy();
     this.characterPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.entitiesRenderer?.destroy();
@@ -316,6 +343,7 @@ export class WorldScene extends Phaser.Scene {
     this.adminPanel = undefined;
     this.hud = undefined;
     this.containerPicker = undefined;
+    this.containerContents = undefined;
     this.characterPanel = undefined;
     this.dialoguePanel = undefined;
     this.entitiesRenderer = undefined;

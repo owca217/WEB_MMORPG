@@ -4,6 +4,7 @@ import type {
   CharacterSnapshot,
   ClientToServerEvents,
   InventorySnapshot,
+  InventoryUpdateResult,
   NpcInteractionPayload,
   PlayerStateSnapshot,
   ServerToClientEvents,
@@ -136,6 +137,17 @@ export class GameSocket {
         ok: false,
         code: "CONTAINER_SLOT_UPDATE_FAILED",
         message: "Nie udało się zapisać pojemnika. Sprawdź połączenie i spróbuj ponownie."
+      };
+    }
+  }
+
+  async moveItemToContainer(itemInstanceId: string, targetContainerInstanceId: string | null): Promise<InventoryUpdateResult> {
+    try {
+      return await this.connect().timeout(10_000).emitWithAck("moveItemToContainer", { itemInstanceId, targetContainerInstanceId });
+    } catch {
+      return {
+        ok: false, code: "CONTAINER_ITEM_MOVE_FAILED",
+        message: "Nie udało się przenieść przedmiotu. Sprawdź połączenie i spróbuj ponownie."
       };
     }
   }

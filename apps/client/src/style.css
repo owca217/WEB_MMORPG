@@ -317,6 +317,59 @@ button {
   gap: 10px;
 }
 
+.world-hud__content {
+  display: grid;
+  gap: inherit;
+}
+
+.world-hud__content[hidden],
+.world-hud__toggle[hidden] {
+  display: none;
+}
+
+.world-hud__toggle {
+  position: absolute;
+  box-sizing: border-box;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 9px;
+  color: #dfc998;
+  background: rgba(9, 13, 10, 0.6);
+  border: 1px solid #71634a;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.world-hud__toggle svg {
+  width: 24px;
+  height: 24px;
+}
+
+.world-hud__toggle-expand,
+.world-hud.is-collapsed .world-hud__toggle-collapse {
+  display: none;
+}
+
+.world-hud.is-collapsed .world-hud__toggle-expand {
+  display: block;
+}
+
+.world-hud.is-collapsed {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+}
+
+.world-hud.is-collapsed .world-hud__toggle {
+  position: static;
+}
+
 .world-hud__identity {
   justify-content: space-between;
 }
@@ -439,6 +492,12 @@ button {
   border-color: #a68b55;
 }
 
+.world-hud__container-slot.is-empty,
+.world-hud__container-slot.is-empty:hover {
+  background: #000;
+  border: 1px solid #3a3a34;
+}
+
 .world-hud__container-slot:hover,
 .container-picker__choice:enabled:hover {
   background: #444d34;
@@ -446,6 +505,7 @@ button {
 }
 
 .world-hud__container-slot:focus-visible,
+.world-hud__toggle:focus-visible,
 .game-panel--containers button:focus-visible {
   outline: 2px solid #f1cf83;
   outline-offset: 2px;
@@ -484,6 +544,16 @@ button {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.container-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.container-icon--muted {
+  color: #a3a397;
+  opacity: 0.4;
 }
 
 .container-picker__description {
@@ -1001,6 +1071,18 @@ button {
   .world-hud__stats,
   .world-hud__actions {
     gap: 5px;
+  }
+
+  .world-hud__identity {
+    min-height: 36px;
+    padding-right: 44px;
+  }
+
+  .world-hud__identity strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .world-hud__stats span {

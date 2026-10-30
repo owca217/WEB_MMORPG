@@ -3,6 +3,7 @@ import type {
   ItemCreatorMetadata
 } from "@web-mmorpg/shared";
 import { AdminApi, AdminApiRequestError } from "../../net/AdminApi";
+import "./CategoryManagerView.css";
 
 export interface CategoryManagerHandlers {
   onBack?: () => void;
@@ -11,6 +12,7 @@ export interface CategoryManagerHandlers {
 export class CategoryManagerView {
   private metadata: ItemCreatorMetadata | null = null;
   private destroyed = false;
+  private query = "";
 
   constructor(
     private readonly host: HTMLElement,
@@ -45,7 +47,11 @@ export class CategoryManagerView {
     header.className = "category-manager__header";
     const heading = document.createElement("h3");
     heading.textContent = "Kategorie przedmiotów";
-    header.append(heading);
+    const intro = document.createElement("div");
+    const description = document.createElement("p");
+    description.textContent = "Wybierz kategorię, aby ustawić dozwolone statystyki i pola jej przedmiotów.";
+    intro.append(heading, description);
+    header.append(intro);
     if (this.handlers.onBack) {
       const back = document.createElement("button");
       back.type = "button";
@@ -58,7 +64,31 @@ export class CategoryManagerView {
     const status = document.createElement("div");
     status.className = "category-manager__status";
     status.dataset.categoryStatus = "";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
     root.append(status);
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "category-manager__toolbar";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "Szukaj kategorii lub podkategorii…";
+    search.setAttribute("aria-label", "Szukaj kategorii lub podkategorii");
+    search.dataset.categorySearch = "";
+    search.value = this.query;
+    const count = document.createElement("span");
+    count.dataset.categoryCount = "";
+    count.setAttribute("role", "status");
+    toolbar.append(search, count);
+    root.append(toolbar);
+
+    const creation = document.createElement("div");
+    creation.className = "category-manager__creation";
+    creation.append(
+      this.creationPanel("Nowa kategoria", this.renderCreateCategory(status)),
+      this.creationPanel("Nowa podkategoria", this.renderCreateSubcategory(status))
+    );
+    root.append(creation);
 
     const list = document.createElement("div");
     list.className = "category-manager__list";
@@ -66,27 +96,51 @@ export class CategoryManagerView {
       list.append(this.renderCategory(category, status));
     }
     root.append(list);
-    root.append(this.renderCreateCategory(status));
-    root.append(this.renderCreateSubcategory(status));
+    const empty = document.createElement("p");
+    empty.className = "category-manager__empty";
+    empty.dataset.categoryEmpty = "";
+    empty.textContent = "Brak pasujących kategorii. Spróbuj innej nazwy lub ID.";
+    root.append(empty);
+    this.styleChoices(root);
     this.host.append(root);
+    search.addEventListener("input", () => { this.query = search.value; this.filterCategories(); });
+    this.filterCategories();
   }
 
   private renderCategory(category: ItemCategoryDefinition, status: HTMLElement): HTMLElement {
-    const card = document.createElement("article");
+    const card = document.createElement("details");
     card.className = "category-manager__category";
     card.dataset.category = category.id;
 
-    const title = document.createElement("div");
+    const subcategories = this.metadata!.subcategories.filter(entry => entry.categoryId === category.id);
+    card.dataset.categoryFilter = [category.name, category.id, ...subcategories.flatMap(entry => [entry.name, entry.id])].join(" ");
+    const title = document.createElement("summary");
+    const identity = document.createElement("span");
+    identity.className = "category-manager__identity";
     const name = document.createElement("strong");
     name.textContent = category.name;
-    const meta = document.createElement("span");
-    meta.textContent = ` ${category.id} • ${category.system ? "systemowa" : "własna"}`;
-    title.append(name, meta);
+    const meta = document.createElement("small");
+    meta.textContent = category.id;
+    identity.append(name, meta);
+    const badge = document.createElement("span");
+    badge.className = "category-manager__badge";
+    badge.textContent = category.system ? "Systemowa" : "Własna";
+    const totals = document.createElement("span");
+    totals.className = "category-manager__totals";
+    const updateTotals = () => {
+      const stats = card.querySelectorAll<HTMLInputElement>("[data-category-stat]:checked").length;
+      const fields = card.querySelectorAll<HTMLInputElement>("[data-category-special-field]:checked").length;
+      totals.textContent = `Statystyki: ${stats} · Pola: ${fields} · Podkategorie: ${subcategories.length}`;
+    };
+    title.append(identity, badge, totals);
     card.append(title);
+    const body = document.createElement("div");
+    body.className = "category-manager__body";
+    card.append(body);
 
     const stats = document.createElement("fieldset");
     const legend = document.createElement("legend");
-    legend.textContent = "Dozwolone statystyki silnika";
+    legend.textContent = "Dozwolone statystyki";
     stats.append(legend);
     for (const stat of this.metadata!.stats) {
       const label = document.createElement("label");
@@ -98,11 +152,10 @@ export class CategoryManagerView {
       label.append(checkbox, document.createTextNode(`${stat.label} (${stat.code})`));
       stats.append(label);
     }
-    card.append(stats);
 
     const specialFields = document.createElement("fieldset");
     const specialLegend = document.createElement("legend");
-    specialLegend.textContent = "Dozwolone pola specjalistyczne silnika";
+    specialLegend.textContent = "Dozwolone pola dodatkowe";
     specialFields.append(specialLegend);
     for (const field of this.metadata!.specialFields) {
       const label = document.createElement("label");
@@ -114,36 +167,45 @@ export class CategoryManagerView {
       label.append(checkbox, document.createTextNode(`${field.label} (${field.code})`));
       specialFields.append(label);
     }
-    card.append(specialFields);
 
     const saveSpecial = document.createElement("button");
     saveSpecial.type = "button";
     saveSpecial.dataset.saveCategorySpecialFields = category.id;
-    saveSpecial.textContent = "Zapisz mapowanie pól specjalistycznych";
+    saveSpecial.textContent = "Zapisz pola kategorii";
     saveSpecial.addEventListener("click", () => {
       void this.saveAllowedSpecialFields(category.id, status);
     });
-    card.append(saveSpecial);
 
     const save = document.createElement("button");
     save.type = "button";
     save.dataset.saveCategoryStats = category.id;
-    save.textContent = "Zapisz mapowanie statystyk";
+    save.textContent = "Zapisz statystyki";
     save.addEventListener("click", () => {
       void this.saveAllowedStats(category.id, status);
     });
-    card.append(save);
+    body.append(this.optionGroup("Statystyki", stats, save), this.optionGroup("Pola dodatkowe", specialFields, saveSpecial));
 
-    const subcategories = this.metadata!.subcategories.filter(
-      (entry) => entry.categoryId === category.id
-    );
+    const subheading = document.createElement("h4");
+    subheading.textContent = `Podkategorie (${subcategories.length})`;
+    body.append(subheading);
+    if (!subcategories.length) {
+      const note = document.createElement("p");
+      note.className = "category-manager__note";
+      note.textContent = "Ta kategoria nie ma jeszcze podkategorii.";
+      body.append(note);
+    }
     for (const subcategory of subcategories) {
-      const subcategoryCard = document.createElement("section");
+      const subcategoryCard = document.createElement("details");
       subcategoryCard.className = "category-manager__subcategory";
       subcategoryCard.dataset.subcategory = subcategory.id;
-      const subcategoryTitle = document.createElement("strong");
-      subcategoryTitle.textContent = `${subcategory.name} (${subcategory.id})`;
-      subcategoryCard.append(subcategoryTitle);
+      const subcategoryTitle = document.createElement("summary");
+      const subname = document.createElement("strong"), subid = document.createElement("small");
+      subname.textContent = subcategory.name;
+      subid.textContent = subcategory.id;
+      subcategoryTitle.append(subname, subid);
+      const subbody = document.createElement("div");
+      subbody.className = "category-manager__subbody";
+      subcategoryCard.append(subcategoryTitle, subbody);
 
       const subcategoryFields = document.createElement("fieldset");
       const subcategoryLegend = document.createElement("legend");
@@ -159,7 +221,7 @@ export class CategoryManagerView {
         label.append(checkbox, document.createTextNode(`${field.label} (${field.code})`));
         subcategoryFields.append(label);
       }
-      subcategoryCard.append(subcategoryFields);
+      subbody.append(subcategoryFields);
 
       const saveSubcategoryFields = document.createElement("button");
       saveSubcategoryFields.type = "button";
@@ -169,13 +231,67 @@ export class CategoryManagerView {
       saveSubcategoryFields.addEventListener("click", () => {
         void this.saveSubcategorySpecialFields(category.id, subcategory.id, status);
       });
-      subcategoryCard.append(saveSubcategoryFields);
-      card.append(subcategoryCard);
+      subbody.append(saveSubcategoryFields);
+      body.append(subcategoryCard);
     }
-
-    // Celowo brak przycisku hard-delete. Kategorie systemowe i własne są zachowywane
-    // dla stabilności istniejących definicji przedmiotów.
+    card.addEventListener("change", updateTotals);
+    updateTotals();
     return card;
+  }
+
+  private optionGroup(title: string, fields: HTMLFieldSetElement, save: HTMLButtonElement): HTMLDetailsElement {
+    const group = document.createElement("details");
+    group.className = "category-manager__group";
+    const summary = document.createElement("summary"), name = document.createElement("strong"), count = document.createElement("span");
+    name.textContent = title;
+    count.className = "category-manager__count";
+    const update = () => { count.textContent = `${fields.querySelectorAll("input:checked").length} z ${fields.querySelectorAll("input").length}`; };
+    fields.addEventListener("change", update);
+    update();
+    summary.append(name, count);
+    const body = document.createElement("div");
+    body.className = "category-manager__group-body";
+    body.append(fields, save);
+    group.append(summary, body);
+    return group;
+  }
+
+  private creationPanel(title: string, section: HTMLElement): HTMLDetailsElement {
+    const panel = document.createElement("details"), summary = document.createElement("summary");
+    panel.className = "category-manager__create-panel";
+    summary.textContent = `＋ ${title}`;
+    section.querySelector("h4")?.remove();
+    panel.append(summary, section);
+    return panel;
+  }
+
+  private filterCategories(): void {
+    const normalize = (text: string) => text.toLocaleLowerCase("pl").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ł/g, "l");
+    const query = normalize(this.query.trim());
+    const cards = [...this.host.querySelectorAll<HTMLDetailsElement>("[data-category]")];
+    let visible = 0;
+    for (const card of cards) {
+      card.hidden = !normalize(card.dataset.categoryFilter ?? "").includes(query);
+      if (!card.hidden) visible++;
+    }
+    this.require<HTMLElement>("[data-category-count]").textContent = `Kategorie: ${visible} / ${cards.length}`;
+    this.require<HTMLElement>("[data-category-empty]").hidden = visible > 0;
+  }
+
+  private styleChoices(root: HTMLElement): void {
+    for (const fields of root.querySelectorAll("fieldset")) {
+      fields.classList.add("category-manager__options");
+      for (const label of fields.querySelectorAll("label")) {
+        const input = label.querySelector<HTMLInputElement>('input[type="checkbox"]');
+        if (!input) continue;
+        const text = label.textContent ?? "", suffix = ` (${input.value})`;
+        const copy = document.createElement("span"), name = document.createElement("span"), code = document.createElement("small");
+        name.textContent = text.endsWith(suffix) ? text.slice(0, -suffix.length) : text;
+        code.textContent = input.value;
+        copy.append(name, code);
+        label.replaceChildren(input, copy);
+      }
+    }
   }
 
   private renderCreateCategory(status: HTMLElement): HTMLElement {

@@ -233,6 +233,21 @@ describe("ItemHistoryView", () => {
 });
 
 describe("CategoryManagerView", () => {
+  it("finds categories by subcategory names without losing unsaved checkbox edits",async()=>{
+    const host=document.createElement("div"),api=categoryApi(),view=new CategoryManagerView(host,api);
+    await view.show();
+    const card=host.querySelector<HTMLDetailsElement>('[data-category="weapon"]')!;
+    expect(card.open).toBe(false);card.open=true;
+    const physical=host.querySelector<HTMLInputElement>('[data-category-stat="weapon"][value="PHYSICAL_DAMAGE"]')!;
+    physical.checked=false;physical.dispatchEvent(new Event("change",{bubbles:true}));
+    const search=host.querySelector<HTMLInputElement>("[data-category-search]")!;
+    search.value="relikty";search.dispatchEvent(new Event("input"));expect(card.hidden).toBe(true);
+    search.value="MIECZE";search.dispatchEvent(new Event("input"));expect(card.hidden).toBe(false);
+    expect(card.open).toBe(true);expect(physical.checked).toBe(false);
+    click(host,'[data-save-category-stats="weapon"]');await flush();
+    expect(api.updateCategoryAllowedStats).toHaveBeenCalledWith("weapon",["WEIGHT"]);
+    view.destroy();
+  });
   it("creates a custom category using only metadata-provided engine stat codes", async () => {
     const host = document.createElement("div");
     const api = categoryApi();

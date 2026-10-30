@@ -62,7 +62,7 @@ export class ContainerContentsPanel {
         this.root.setAttribute("aria-labelledby", "container-contents-title");
         this.root.innerHTML = `<div class="game-panel__header"><h2 id="container-contents-title" data-container-contents-title>Pojemnik</h2><div class="container-contents__header-actions"><button type="button" data-container-pending aria-pressed="false" hidden>Oczekujące</button><button type="button" data-close aria-label="Zamknij zawartość pojemnika">×</button></div></div>
       <p class="container-contents__capacity" data-container-capacity></p><p class="game-panel__empty" data-container-contents-empty hidden></p>
-      <p class="container-contents__drag-hint" id="container-drag-hint">Przeciągnij przedmiot nad wybrany plecak.</p>
+      <p class="container-contents__drag-hint" id="container-drag-hint">Najedź przedmiotem na plecak lub upuść go w pasującym slocie uzbrojenia.</p>
       <div class="container-contents__grid" data-container-grid role="list" aria-label="Miejsca w pojemniku"></div>
       <nav class="container-contents__pagination" data-container-pagination aria-label="Strony pojemnika" hidden><button type="button" data-container-page-prev aria-label="Poprzednia strona pojemnika">‹</button><span data-container-page-label aria-live="polite"></span><button type="button" data-container-page-next aria-label="Następna strona pojemnika">›</button></nav>
       <p class="container-contents__feedback" data-container-contents-feedback role="status" aria-live="polite"></p><button type="button" class="container-contents__change" data-change-container>Zmień pojemnik</button>
@@ -88,6 +88,11 @@ export class ContainerContentsPanel {
             enabled:()=>!this.pending&&!this.destroyed&&!this.root.classList.contains("is-hidden"),
             onStart:()=>{this.feedback.textContent="";delete this.feedback.dataset.state;this.closeSelection(false);},
             onDrop:(id,target)=>{void this.perform(()=>this.handlers.onMoveItem(id,target),"Przeniesiono przedmiot.");},
+            canEquip:(item,slot)=>!!this.character && !!this.handlers.onEquipItem && item.equipment?.slot===slot && !equipmentDisabledReason(item,this.character,this.snapshot),
+            onEquipDrop:id=>{
+                const item=this.visibleItems().find(entry=>entry.instanceId===id);
+                if(item&&this.handlers.onEquipItem)void this.perform(()=>this.handlers.onEquipItem!(item),"Założono przedmiot.");
+            },
             onStateChange:()=>this.handlers.onTypingChange?.(),
             onMessage:message=>{this.feedback.textContent=message;delete this.feedback.dataset.state;}
         });

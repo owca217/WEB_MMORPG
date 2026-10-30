@@ -494,13 +494,15 @@ button {
   border-color: #a68b55;
 }
 
-.world-hud__container-slot.inventory-drop-target--valid {
+.world-hud__container-slot.inventory-drop-target--valid,
+.equipment-slot.inventory-drop-target--valid {
   outline: 3px solid #63d78a;
   outline-offset: 2px;
   background: #36533a;
 }
 
-.world-hud__container-slot.inventory-drop-target--invalid {
+.world-hud__container-slot.inventory-drop-target--invalid,
+.equipment-slot.inventory-drop-target--invalid {
   outline: 3px solid #e88476;
   outline-offset: 2px;
   background: #58312b;
@@ -1434,3 +1436,26 @@ button {
 .container-equipment-action { font-size:12px; }
 .world-hud__pending-count { position:absolute; top:2px; right:2px; min-width:15px; padding:2px 4px; border-radius:9px; background:#a64a2e; color:#fff2d3; font-size:10px; line-height:1.2; text-align:center; }
 @media(max-width:520px) { .equipment-slots { grid-template-columns:1fr; } .character-tabs { gap:4px; padding:0 10px 10px; } .character-tabs [role="tab"] { font-size:13px; } }
+.equipment-slot[data-equipment-drop-target]:focus-visible { outline:2px solid #f1cf83; outline-offset:2px; }
+
+body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel--character,
+body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel.container-contents {
+  width:min(520px,calc((100vw - var(--safe-area-left) - var(--safe-area-right) - 40px)/2));
+  transform:translateY(-50%);
+}
+body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel--character { left:auto; right:calc(50% + 6px); }
+body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel.container-contents { left:calc(50% + 6px); right:auto; }
+
+@media(max-width:600px) and (orientation:portrait) {
+  body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel--character,
+  body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel.container-contents {
+    left:calc((100% + var(--safe-area-left) - var(--safe-area-right))/2);
+    right:auto;
+    width:calc(100vw - var(--safe-area-left) - var(--safe-area-right) - 24px);
+    max-height:45vh;
+    max-height:45dvh;
+    transform:translateX(-50%);
+  }
+  body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel--character { top:auto; bottom:calc(50% + 6px); }
+  body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel.container-contents { top:calc(50% + 6px); bottom:auto; }
+}

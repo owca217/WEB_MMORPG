@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [WEB-MMORPG-0.1.21.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.21/WEB-MMORPG-0.1.21.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [WEB-MMORPG-0.1.22.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.22/WEB-MMORPG-0.1.22.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -49,6 +49,8 @@ Wersja 0.1.19 automatycznie odkłada zdobyte przedmioty najpierw do stałego ple
 Wersja 0.1.20 upraszcza sloty ekwipunku do ikon przedmiotów. Pełne informacje o wybranym przedmiocie są dostępne w osobnym oknie szczegółów, otwieranym z jego menu. Zmiana obejmuje również interfejs telefonu.
 
 Wersja 0.1.21 zmniejsza sloty ekwipunku o połowę i dodaje przenoszenie przedmiotów przez przeciąganie nad wyposażony pojemnik. Na komputerze przeciągnij ikonę myszą; na telefonie najpierw przytrzymaj ją dłużej, a następnie przeciągnij nad wybrany pojemnik. Okno szczegółów nie zawiera już opcji „Przenieś”.
+
+Wersja 0.1.22 wyśrodkowuje podgląd przeciąganego przedmiotu pod kursorem lub palcem. Upuszczenie przedmiotu na pasujący slot uzbrojenia zakłada go, jeśli spełnia wymagania tego slotu i postaci.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

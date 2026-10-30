@@ -16,6 +16,25 @@ beforeEach(()=>{
 });
 afterEach(()=>{window.dispatchEvent(new Event("blur"));controller.destroy();vi.useRealTimers();vi.restoreAllMocks();});
 
+it("centers the dragged icon and equips only on release over a matching currently eligible equipment slot",()=>{
+ controller.destroy();
+ snapshot.items=snapshot.items.map(entry=>entry.instanceId==="wood"?item("wood",{quantity:1,containerInstanceId:"pack",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[]}}):entry);
+ const gear=document.createElement("article");gear.dataset.equipmentDropTarget="mainHand";document.body.append(gear);hit=gear;
+ let eligible=true;const equip=vi.fn();
+ controller=new InventoryDragController(root,{snapshot:()=>snapshot,source:id=>snapshot.items.find(entry=>entry.instanceId===id),enabled:()=>true,onStart:vi.fn(),onDrop:drop,canEquip:()=>eligible,onEquipDrop:equip,onStateChange:state,onMessage:vi.fn()});
+ pointer("pointerdown",source);pointer("pointermove",document,100,120);
+ const ghost=document.querySelector<HTMLElement>("[data-inventory-drag-ghost]")!;
+ expect(ghost.style.left).toBe("100px");expect(ghost.style.top).toBe("120px");expect(gear.classList.contains("inventory-drop-target--valid")).toBe(true);
+ expect(equip).not.toHaveBeenCalled();expect(drop).not.toHaveBeenCalled();
+ pointer("pointerup",document.body,100,120);expect(equip).toHaveBeenCalledExactlyOnceWith("wood","mainHand");
+ gear.dataset.equipmentDropTarget="helmet";
+ pointer("pointerdown",source);pointer("pointermove",document,100,120);pointer("pointerup",document.body,100,120);expect(equip).toHaveBeenCalledTimes(1);
+ gear.dataset.equipmentDropTarget="mainHand";
+ pointer("pointerdown",source);pointer("pointermove",document,100,120);eligible=false;pointer("pointerup",document.body,100,120);expect(equip).toHaveBeenCalledTimes(1);
+ eligible=true;gear.hidden=true;
+ pointer("pointerdown",source);pointer("pointermove",document,100,120);pointer("pointerup",document.body,100,120);expect(equip).toHaveBeenCalledTimes(1);expect(drop).not.toHaveBeenCalled();
+});
+
 it("commits once on valid hover before release, survives a replaced source and shields compatibility releases",()=>{
  pointer("pointerdown",source);pointer("pointermove",document,3,0);expect(drop).not.toHaveBeenCalled();pointer("pointermove",document,8,0);expect(drop).toHaveBeenCalledExactlyOnceWith("wood","side");expect(controller.isDragging).toBe(true);
  source.remove();snapshot={...snapshot,items:snapshot.items.map(entry=>entry.instanceId==="wood"?{...entry,containerInstanceId:"side"}:entry)};controller.revalidate();pointer("pointermove",document,30,20);expect(drop).toHaveBeenCalledTimes(1);

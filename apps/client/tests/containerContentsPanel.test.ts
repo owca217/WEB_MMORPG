@@ -111,6 +111,19 @@ it("shows complete gear details and equips through the details action without mo
     expect(onMoveItem).not.toHaveBeenCalled();
     expect(document.querySelector('[data-container-item="sword"]')).toBeNull();
 });
+it("equips through a gear drop target only after the character meets its requirements",async()=>{
+    const sword=item("sword",{containerInstanceId:"pack",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:3,modifiers:[]}});
+    const hero:CharacterSnapshot={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+    const equipped={...sword,equippedSlot:"mainHand" as const};delete equipped.containerInstanceId;
+    const onEquipItem=vi.fn().mockResolvedValue({ok:true,inventory:inventory([bag(),equipped])}),onMoveItem=vi.fn();
+    const value=panel({onEquipItem,onMoveItem});value.update(inventory([bag(),sword]),hero);value.show(0);
+    const target=document.createElement("article");target.dataset.equipmentDropTarget="mainHand";target.tabIndex=0;document.body.append(target);
+    const attempt=()=>{button('[data-container-item="sword"]').dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true}));target.focus();target.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));};
+    attempt();expect(onEquipItem).not.toHaveBeenCalled();document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
+    value.update(inventory([bag(),sword]),{...hero,level:3});attempt();
+    await vi.waitFor(()=>expect(onEquipItem).toHaveBeenCalledExactlyOnceWith(sword));expect(onMoveItem).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-container-item="sword"]')).toBeNull();
+});
 it("dismisses stale selection and refreshes rather than applying an ACK after newer state", async () => {
     let finish!: (result: InventoryUpdateResult) => void;
     const onMoveItem = vi.fn(() => new Promise<InventoryUpdateResult>(resolve => { finish = resolve; })), onInventoryChanged = vi.fn(), onRefresh = vi.fn();

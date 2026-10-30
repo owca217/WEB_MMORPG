@@ -1,4 +1,4 @@
-import { type InventoryItem, type InventorySnapshot } from "@web-mmorpg/shared";
+import { isEquipmentSlot, type EquipmentSlot, type InventoryItem, type InventorySnapshot } from "@web-mmorpg/shared";
 import { inventoryItemIcon } from "./InventoryItemIcon";
 import { applyItemQualityFrame } from "./ItemQualityFrame";
 import { getAssignedContainers } from "./PermanentBackpack";
@@ -9,6 +9,8 @@ interface DragOptions {
     enabled: () => boolean;
     onStart: () => void;
     onDrop: (instanceId: string, containerInstanceId: string) => void;
+    canEquip?: (item: InventoryItem, slot: EquipmentSlot) => boolean;
+    onEquipDrop?: (instanceId: string, slot: EquipmentSlot) => void;
     onStateChange: () => void;
     onMessage: (message: string) => void;
 }
@@ -79,6 +81,19 @@ export class InventoryDragController {
         if (!target) return false;
         return snapshot.items.filter(child => child.containerInstanceId === containerId && !child.equippedSlot).length < target.containerCapacity!;
     }
+    private canEquipAt(instanceId: string, target: HTMLElement): boolean {
+        const slot = target.dataset.equipmentDropTarget, item = this.sourceItem(instanceId);
+        return !!item && isEquipmentSlot(slot) && item.equipment?.slot === slot
+            && !!this.options.onEquipDrop && this.options.canEquip?.(item, slot) === true;
+    }
+    private validTarget(instanceId: string, target: HTMLElement): boolean {
+        if (target.closest("[hidden], .is-hidden")) return false;
+        return target.hasAttribute("data-equipment-drop-target") ? this.canEquipAt(instanceId, target)
+            : this.canDrop(instanceId, target.dataset.containerDropTarget ?? "");
+    }
+    private targetAt(x: number, y: number): HTMLElement | null {
+        return document.elementFromPoint?.(x, y)?.closest<HTMLElement>("[data-container-drop-target], [data-equipment-drop-target]") ?? null;
+    }
     private sourceButton(event: Event): HTMLElement | null {
         return event.target instanceof Element ? event.target.closest<HTMLElement>("[data-container-item]") : null;
     }
@@ -99,9 +114,9 @@ export class InventoryDragController {
         event.preventDefault(); event.stopImmediatePropagation();
         this.clearClickGuard();
         const rect = source.getBoundingClientRect();
-        this.gesture = { source, instanceId, pointerId: null, touch: false, x: rect.right, y: rect.top, startX: rect.right, startY: rect.top, active: false, committed: false,cancelled:false };
+        this.gesture = { source, instanceId, pointerId: null, touch: false, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, startX: rect.left, startY: rect.top, active: false, committed: false,cancelled:false };
         this.listen(); this.activate();
-        this.targets().find(target => this.canDrop(instanceId, target.dataset.containerDropTarget!))?.focus();
+        this.targets().find(target => this.validTarget(instanceId, target))?.focus();
     };
     private activate(): void {
         const gesture = this.gesture, item = gesture && this.sourceItem(gesture.instanceId);
@@ -116,7 +131,7 @@ export class InventoryDragController {
         if (item.quantity > 1) { const count = document.createElement("span"); count.className = "container-contents__quantity"; count.textContent = String(item.quantity); ghost.append(count); }
         document.body.append(ghost); this.ghost = ghost; this.positionGhost(); this.highlightTargets();
         if (gesture.pointerId !== null) { try { gesture.source.setPointerCapture?.(gesture.pointerId); } catch { /* The document listeners also cover replaced cells. */ } }
-        this.options.onMessage("Najedź na wybrany plecak. Klawiatura: Tab wybiera pojemnik, Enter przenosi, Escape anuluje.");
+        this.options.onMessage("Najedź na plecak lub upuść przedmiot w slocie uzbrojenia. Klawiatura: Tab wybiera slot, Enter zatwierdza, Escape anuluje.");
         this.options.onStateChange();
     }
     private readonly onPointerMove = (event: PointerEvent): void => {
@@ -134,14 +149,21 @@ export class InventoryDragController {
         event.preventDefault(); event.stopImmediatePropagation();
         if (gesture.committed) return;
         this.positionGhost(); this.highlightTargets();
-        const target = document.elementFromPoint?.(event.clientX, event.clientY)?.closest<HTMLElement>("[data-container-drop-target]");
-        if (target && this.canDrop(gesture.instanceId, target.dataset.containerDropTarget!)) this.commit(target.dataset.containerDropTarget!);
+        const target = this.targetAt(event.clientX, event.clientY);
+        if (target?.hasAttribute("data-container-drop-target") && this.validTarget(gesture.instanceId, target)) this.commit(target.dataset.containerDropTarget!);
     };
     private readonly onPointerUp = (event: PointerEvent): void => {
         const gesture = this.gesture;
         if (!gesture || gesture.pointerId === null || event.pointerId !== gesture.pointerId) return;
         const shield=gesture.active||gesture.cancelled;
         if (shield) { event.preventDefault(); event.stopImmediatePropagation(); }
+        if (gesture.active && !gesture.cancelled && !gesture.committed) {
+            const target = this.targetAt(event.clientX, event.clientY);
+            if (target?.hasAttribute("data-equipment-drop-target")) {
+                if (this.validTarget(gesture.instanceId, target)) this.commitEquipment(target);
+                else this.options.onMessage("Nie można założyć przedmiotu w tym slocie. Sprawdź jego wymagania.");
+            }
+        }
         this.finish(false);
         if(shield)this.blockNextClick();
     };
@@ -161,13 +183,15 @@ export class InventoryDragController {
         if (event.key === " " || event.key === "Spacebar") { event.preventDefault(); event.stopImmediatePropagation(); this.finish(true); return; }
         if (event.key !== "Enter") return;
         event.preventDefault(); event.stopImmediatePropagation();
-        const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-container-drop-target]") : null;
-        if (target && this.canDrop(gesture.instanceId, target.dataset.containerDropTarget!)) this.commit(target.dataset.containerDropTarget!);
-        else this.options.onMessage("Nie można przenieść przedmiotu do tego pojemnika.");
+        const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-container-drop-target], [data-equipment-drop-target]") : null;
+        if (target && this.validTarget(gesture.instanceId, target)) {
+            if (target.hasAttribute("data-equipment-drop-target")) this.commitEquipment(target);
+            else this.commit(target.dataset.containerDropTarget!);
+        } else this.options.onMessage("Nie można umieścić przedmiotu w tym slocie.");
     };
     private readonly onFocus = (event: FocusEvent): void => {
         if (this.gesture?.pointerId !== null || !(event.target instanceof HTMLElement)) return;
-        const rect = event.target.getBoundingClientRect(); this.gesture.x = rect.right; this.gesture.y = rect.top; this.positionGhost();
+        const rect = event.target.getBoundingClientRect(); this.gesture.x = rect.left + rect.width / 2; this.gesture.y = rect.top + rect.height / 2; this.positionGhost();
     };
     private commit(containerId: string): void {
         const gesture = this.gesture;
@@ -178,13 +202,22 @@ export class InventoryDragController {
         this.options.onDrop(gesture.instanceId, containerId);
         if (keyboard) this.finish(false);
     }
-    private targets(): HTMLElement[] { return [...document.querySelectorAll<HTMLElement>("[data-container-drop-target]")]; }
+    private commitEquipment(target: HTMLElement): void {
+        const gesture = this.gesture, slot = target.dataset.equipmentDropTarget;
+        if (!gesture || gesture.committed || !isEquipmentSlot(slot) || !this.validTarget(gesture.instanceId, target)) return;
+        gesture.committed = true;
+        this.clearVisuals();
+        const keyboard = gesture.pointerId === null;
+        this.options.onEquipDrop!(gesture.instanceId, slot);
+        if (keyboard) this.finish(false);
+    }
+    private targets(): HTMLElement[] { return [...document.querySelectorAll<HTMLElement>("[data-container-drop-target], [data-equipment-drop-target]")]; }
     private highlightTargets(): void {
         const gesture = this.gesture;
         if (!gesture?.active || gesture.committed) return;
-        for (const target of this.targets()) {this.highlightedTargets.add(target); const valid = this.canDrop(gesture.instanceId, target.dataset.containerDropTarget!); target.classList.toggle("inventory-drop-target--valid", valid); target.classList.toggle("inventory-drop-target--invalid", !valid); }
+        for (const target of this.targets()) {this.highlightedTargets.add(target); const valid = this.validTarget(gesture.instanceId, target); target.classList.toggle("inventory-drop-target--valid", valid); target.classList.toggle("inventory-drop-target--invalid", !valid); }
     }
-    private positionGhost(): void { if (this.ghost && this.gesture) { this.ghost.style.left = `${Math.max(0, this.gesture.x + 12)}px`; this.ghost.style.top = `${Math.max(0, this.gesture.y + 12)}px`; } }
+    private positionGhost(): void { if (this.ghost && this.gesture) { this.ghost.style.left = `${this.gesture.x}px`; this.ghost.style.top = `${this.gesture.y}px`; } }
     private clearVisuals(): void {
         this.ghost?.remove(); this.ghost = null; this.gesture?.source.classList.remove("inventory-drag-source");
         for (const target of this.highlightedTargets) target.classList.remove("inventory-drop-target--valid", "inventory-drop-target--invalid");this.highlightedTargets.clear();

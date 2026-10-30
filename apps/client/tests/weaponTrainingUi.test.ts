@@ -15,6 +15,15 @@ it("has three accessible tabs, preserves selection and removes free style choice
  expect(document.querySelector('[data-weapon-melee]')).toBeNull();
  expect(document.querySelector('[data-equipment-equip="sword"]')?.textContent).toContain("Załóż");panel.destroy();
 });
+it("exposes labelled focusable equipment drop targets only for a visible editable equipment tab",()=>{
+ const panel=new CharacterPanel({onSetEquipmentSlot:vi.fn()});panel.update(hero,{items:[sword]});panel.show();
+ expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(0);click('[data-character-tab="equipment"]');
+ const targets=[...document.querySelectorAll<HTMLElement>('[data-equipment-drop-target]')];expect(targets).toHaveLength(8);
+ expect(targets.find(row=>row.dataset.equipmentDropTarget==="mainHand")?.getAttribute("aria-label")).toBe("Broń");
+ expect(targets.every(row=>row.tabIndex===0&&row.tagName==="ARTICLE"&&!row.hasAttribute("role"))).toBe(true);
+ panel.hide();expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(0);panel.show();expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(8);
+ click('[data-character-tab="statistics"]');expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(0);panel.destroy();
+});
 it("keeps game pointer events inside the panel",()=>{
  const panel=new CharacterPanel();panel.update(hero);panel.show();const listener=vi.fn();document.addEventListener("pointerdown",listener);
  try{document.querySelector('[data-character-tab="proficiency"]')!.dispatchEvent(new Event("pointerdown",{bubbles:true}));expect(listener).not.toHaveBeenCalled();}finally{document.removeEventListener("pointerdown",listener);panel.destroy();}
@@ -29,9 +38,11 @@ it("equips once after acknowledgement and displays authoritative equipment/stati
  const gate=deferred<any>(),request=vi.fn().mockReturnValue(gate.promise),changed=vi.fn();
  const panel=new CharacterPanel({onSetEquipmentSlot:request,onChanged:changed});panel.update(hero,{items:[sword]});panel.show();click('[data-character-tab="equipment"]');click('[data-equipment-equip="sword"]');click('[data-equipment-equip="sword"]');
  expect(request).toHaveBeenCalledExactlyOnceWith({slot:"mainHand",itemInstanceId:"sword"});expect(document.querySelector<HTMLButtonElement>('[data-equipment-equip="sword"]')!.disabled).toBe(true);
+ expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(0);
  const equipped={...sword,equippedSlot:"mainHand" as const},equipment={...emptyCharacterEquipment(),mainHand:equipped};
  const result={ok:true,character:{...hero,equipment,statistics:{strength:12,dexterity:11,vitality:13,maxHp:130,maxAp:5,initiative:10,meleeDamage:44,rangedDamage:0,armor:3}},inventory:{items:[equipped]}};
  gate.resolve(result);await vi.waitFor(()=>expect(changed).toHaveBeenCalledWith(result));
+ expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(8);
  expect(document.querySelector('[data-equipment-slot="mainHand"]')?.textContent).toContain("Miecz treningowy");click('[data-character-tab="statistics"]');expect(document.querySelector('[data-stat="meleeDamage"]')?.textContent).toBe("44");panel.destroy();
 });
 it("shows rejected equipment requests and ignores old acknowledgements after hiding or changing character",async()=>{

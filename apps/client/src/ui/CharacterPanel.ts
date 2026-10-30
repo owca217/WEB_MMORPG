@@ -51,6 +51,12 @@ export class CharacterPanel {
  private syncTabs():void {
   for(const button of this.root.querySelectorAll<HTMLButtonElement>("[data-character-tab]")){const selected=button.dataset.characterTab===this.activeTab;button.setAttribute("aria-selected",String(selected));button.tabIndex=selected?0:-1;}
   for(const panel of this.root.querySelectorAll<HTMLElement>("[data-character-panel]"))panel.hidden=panel.dataset.characterPanel!==this.activeTab;
+  const acceptsEquipment=!!this.handlers&&!this.saving&&this.activeTab==="equipment"&&!this.root.classList.contains("is-hidden");
+  for(const row of this.root.querySelectorAll<HTMLElement>("[data-equipment-slot]")){
+   const slot=row.dataset.equipmentSlot as EquipmentSlot;row.setAttribute("aria-label",EQUIPMENT_SLOT_LABELS[slot]);
+   if(acceptsEquipment){row.dataset.equipmentDropTarget=slot;row.tabIndex=0;}
+   else{delete row.dataset.equipmentDropTarget;row.removeAttribute("tabindex");}
+  }
  }
  private render():void {
   const character=this.character;if(!character)return;
@@ -87,8 +93,8 @@ export class CharacterPanel {
   this.render();
  }
  get isTyping():boolean{const active=document.activeElement;return!this.root.classList.contains("is-hidden")&&active instanceof HTMLElement&&this.root.contains(active)&&active.matches("select,input,textarea");}
- show():void{if(this.character)this.render();this.root.classList.remove("is-hidden");}
- hide():void{this.root.classList.add("is-hidden");this.requestVersion++;this.saving=false;if(document.activeElement instanceof HTMLElement&&this.root.contains(document.activeElement))document.activeElement.blur();this.handlers?.onTypingChange?.();}
+ show():void{if(this.character)this.render();this.root.classList.remove("is-hidden");this.syncTabs();}
+ hide():void{this.root.classList.add("is-hidden");this.requestVersion++;this.saving=false;this.syncTabs();if(document.activeElement instanceof HTMLElement&&this.root.contains(document.activeElement))document.activeElement.blur();this.handlers?.onTypingChange?.();}
  toggle():void{if(this.root.classList.contains("is-hidden"))this.show();else this.hide();}
  destroy():void{this.hide();this.destroyed=true;this.root.remove();}
  private require<T extends HTMLElement=HTMLElement>(selector:string):T{const element=this.root.querySelector<T>(selector);if(!element)throw new Error(`Character panel element missing: ${selector}`);return element;}

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { getEquipmentItemProperties, type InventorySnapshot, type ItemStatModifier, type MerchantOffer, type MerchantPurchase, type MerchantSnapshot } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 import { InventoryService } from "../inventory/InventoryService";
+import { autoStoreOwnedItems, getStorageDestinations } from "../inventory/autoStorage";
+import { ensurePermanentBackpack } from "../inventory/permanentBackpack";
 import { BASIC_EQUIPMENT_ITEMS } from "../items/basicEquipment";
 
 const MERCHANT_ID = "merchant-miro";
@@ -71,6 +73,7 @@ export class MerchantService {
     try {
       await client.query("BEGIN");
       const level = await this.lockCharacter(client, characterId);
+      await ensurePermanentBackpack(client,characterId);
       const gold = await this.lockWallet(client, characterId);
       const receipt = (await client.query<ReceiptRow>(
         "SELECT character_id,npc_id,item_id,quantity FROM merchant_purchase_receipts WHERE request_id=$1",
@@ -101,6 +104,7 @@ export class MerchantService {
         await client.query("UPDATE character_wallets SET gold=gold-$2,updated_at=NOW() WHERE character_id=$1", [characterId, total]);
         await this.grantItems(client, characterId, definition, request.quantity);
       }
+      await autoStoreOwnedItems(client,characterId);
       // Do not await anything between validating the owner/range and issuing COMMIT.
       assertCurrent();
       await client.query("COMMIT");
@@ -214,14 +218,15 @@ export class MerchantService {
     const { row } = definition;
     const boundTo = row.soulbound === "ON_PICKUP" ? characterId : null;
     let remaining = quantity;
+    const storageIds=(await getStorageDestinations(client,characterId)).map(item=>item.id);
     if (row.stackable && !row.unique_item) {
       const stacks = await client.query<{ id: string; quantity: number }>(
         `SELECT id,quantity FROM item_instances WHERE character_id=$1 AND item_id=$2 AND quantity<$3
-           AND container_instance_id IS NULL AND container_slot IS NULL AND durability IS NULL
+           AND (container_instance_id IS NULL OR container_instance_id=ANY($6::uuid[])) AND container_slot IS NULL AND equipment_slot IS NULL AND durability IS NULL
            AND max_durability IS NULL AND upgrade_level=0 AND affixes='[]'::jsonb AND sockets='[]'::jsonb
            AND bound_to_player_id IS NOT DISTINCT FROM $4::uuid
            AND quality=$5
-         ORDER BY created_at,id FOR UPDATE`, [characterId, row.id, row.max_stack, boundTo, row.quality]
+         ORDER BY array_position($6::uuid[],container_instance_id) ASC NULLS LAST,created_at,id FOR UPDATE`, [characterId, row.id, row.max_stack, boundTo, row.quality,storageIds]
       );
       for (const stack of stacks.rows) {
         const added = Math.min(remaining, row.max_stack - stack.quantity);

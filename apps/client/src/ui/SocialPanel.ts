@@ -11,6 +11,7 @@ import type {
 } from "@web-mmorpg/shared";
 import "./SocialPanel.css";
 import { itemQualityText } from "./ItemQualityFrame";
+import { getAssignedContainers } from "./PermanentBackpack";
 
 interface SocialPanelHandlers {
   onAction: (action: SocialAction) => Promise<SocialActionResult>;
@@ -368,8 +369,9 @@ export class SocialPanel {
 
   private eligibleItems(): InventoryItem[] {
     const equipped = new Set(this.inventory.containerSlots?.filter((id) => id !== null));
+    const accessibleParents=new Set(getAssignedContainers(this.inventory).map(item=>item.instanceId));
     const nonempty = new Set(this.inventory.items.map((item) => item.containerInstanceId).filter(Boolean));
-    return this.inventory.items.filter((item) => !item.containerInstanceId && !item.boundToPlayerId && !item.permanentContainer && !equipped.has(item.instanceId) && !nonempty.has(item.instanceId) && item.quantity > 0);
+    return this.inventory.items.filter((item) => (!item.containerInstanceId||accessibleParents.has(item.containerInstanceId)) && !item.equippedSlot && !item.boundToPlayerId && !item.permanentContainer && !equipped.has(item.instanceId) && !nonempty.has(item.instanceId) && item.quantity > 0);
   }
 
   private renderOfferEditor(trade: TradeSnapshot, self: TradeParticipant): void {
@@ -438,7 +440,7 @@ export class SocialPanel {
     const confirm = this.action("Zatwierdź wymianę", { type: "confirmTrade", tradeId: trade.id, revision: trade.revision }, dirty || self.confirmed || this.inBattle || trade.participants.some((participant) => !participant.player.online || participant.player.inBattle));
     confirm.dataset.tradeConfirm = "";
     editor.append(node("p", dirty ? "Masz niezapisane zmiany. Zapisz ofertę przed zatwierdzeniem." : `Aktualna oferta · wersja ${trade.revision}`, "social-widget__hint"), this.actions(save, confirm, this.action("Anuluj wymianę", { type: "cancelTrade", tradeId: trade.id })));
-    editor.append(node("p", "Do oferty możesz dodać niezałożone przedmioty z głównego ekwipunku i puste pojemniki. Serwer sprawdzi możliwość przekazania każdego przedmiotu.", "social-widget__hint"));
+    editor.append(node("p", "Do oferty możesz dodać niezałożone przedmioty z plecaka, założonych pojemników i oczekujących oraz puste pojemniki. Serwer sprawdzi możliwość przekazania każdego przedmiotu.", "social-widget__hint"));
   }
 
   private async perform(action: SocialAction): Promise<void> {

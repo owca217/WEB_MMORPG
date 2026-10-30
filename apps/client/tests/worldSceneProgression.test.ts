@@ -82,7 +82,9 @@ it("discards a delayed bag acknowledgement from before a gear change and applies
   const state:PlayerStateSnapshot={character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:{...emptyCharacterEquipment(),mainHand:oldWeapon}},inventory:{items:[bag,wood,oldWeapon,newWeapon],containerSlots:[null,"bag",null,null],equipmentSlots:{...emptyEquipmentSlots(),mainHand:oldWeapon.instanceId}},gold:100};
   transport.emit("playerState",state);
   document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
-  document.querySelector<HTMLButtonElement>('[data-container-put="wood"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-pending]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-move]')!.click();
   const equippedNew={...newWeapon,equippedSlot:"mainHand" as const},unequippedOld=weapon("old-sword");
   const fresh:PlayerStateSnapshot={...state,character:{...state.character,hp:77,equipment:{...emptyCharacterEquipment(),mainHand:equippedNew}},inventory:{...state.inventory,items:[bag,wood,unequippedOld,equippedNew],equipmentSlots:{...emptyEquipmentSlots(),mainHand:newWeapon.instanceId}}};
   transport.emit("playerState",fresh);
@@ -90,17 +92,19 @@ it("discards a delayed bag acknowledgement from before a gear change and applies
   finishMove({ok:true,inventory:{...state.inventory,items:[bag,{...wood,containerInstanceId:"bag"},oldWeapon,newWeapon]}});
   await vi.waitFor(()=>expect(refresh.mock.calls.length).toBe(previousCalls+1));
   expect(playerStateStore.get()).toEqual(fresh);
-  expect(document.querySelector('[data-container-put="new-sword"]')).toBeNull();
-  expect(document.querySelector('[data-container-put="old-sword"]')).not.toBeNull();
-  expect(document.querySelector('[data-container-remove="wood"]')).toBeNull();
+  expect(document.querySelector('[data-container-item="new-sword"]')).toBeNull();
+  expect(document.querySelector('[data-container-item="old-sword"]')).not.toBeNull();
+  expect(playerStateStore.get()?.inventory.items.find(item=>item.instanceId==="wood")?.containerInstanceId).toBeUndefined();
 
   const valid:InventorySnapshot={...fresh.inventory,items:[bag,{...wood,containerInstanceId:"bag"},unequippedOld,equippedNew]};
   vi.mocked(gameSocket.moveItemToContainer).mockResolvedValue({ok:true,inventory:valid});
-  document.querySelector<HTMLButtonElement>('[data-container-put="wood"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-move]')!.click();
   await vi.waitFor(()=>expect(playerStateStore.get()?.inventory).toEqual(valid));
   expect(refresh.mock.calls.length).toBe(previousCalls+1);
   expect(playerStateStore.get()?.character.equipment?.mainHand?.instanceId).toBe("new-sword");
-  expect(document.querySelector('[data-container-remove="wood"]')).not.toBeNull();
+  document.querySelector<HTMLButtonElement>('[data-container-pending]')!.click();
+  expect(document.querySelector('[data-container-item="wood"]')).not.toBeNull();
   events.emit("shutdown");
 });
 

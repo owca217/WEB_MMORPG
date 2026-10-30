@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SocialPlayer, TradeOfferEntry, TradeOfferItem, TradeSnapshot } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
+import { autoStoreOwnedItems, getStorageDestinations } from "../inventory/autoStorage";
+import { ensurePermanentBackpack } from "../inventory/permanentBackpack";
 
 interface Position { locationId: string; x: number; y: number; }
 interface Trade {
@@ -204,6 +206,7 @@ export class TradeService {
         await client.query("COMMIT");
         return;
       }
+      for(const id of trade.participants.map(player=>player.id).sort())await ensurePermanentBackpack(client,id);
       const instances = await this.validateOffers(client, trade, trade.offers);
       const receiptInserted = await client.query(
         `INSERT INTO trade_receipts (trade_id,participant_a,participant_b,offers)
@@ -219,7 +222,7 @@ export class TradeService {
           const instance = instances.get(offer.instanceId)!;
           if (offer.quantity === instance.quantity) {
             await client.query(
-              "UPDATE item_instances SET character_id=$2, player_id=NULL, updated_at=NOW() WHERE id=$1",
+              "UPDATE item_instances SET character_id=$2, player_id=NULL,container_instance_id=NULL, updated_at=NOW() WHERE id=$1",
               [instance.id, recipientId]
             );
           } else {
@@ -229,13 +232,14 @@ export class TradeService {
               `INSERT INTO item_instances (id,player_id,item_id,quantity,durability,max_durability,upgrade_level,
                 affixes,sockets,bound_to_player_id,created_at,updated_at,character_id,container_capacity,container_instance_id,container_slot,quality)
                SELECT $2,NULL,item_id,$3,durability,max_durability,upgrade_level,affixes,sockets,bound_to_player_id,
-                created_at,NOW(),$4,container_capacity,container_instance_id,container_slot,quality
+                created_at,NOW(),$4,container_capacity,NULL,NULL,quality
                FROM item_instances WHERE id=$1`,
               [instance.id, randomUUID(), offer.quantity, recipientId]
             );
           }
         }
       }
+      for(const id of trade.participants.map(player=>player.id).sort())await autoStoreOwnedItems(client,id);
       // No asynchronous work may occur between this lifecycle check and issuing COMMIT.
       this.assertEligible(trade);
       this.assertNotExpired(trade);
@@ -280,7 +284,8 @@ export class TradeService {
         if(row.permanent_container)throw new Error("TRADE_PERMANENT_BACKPACK");
         if(row.equipment_slot!==null)throw new Error("TRADE_ITEM_EQUIPPED");
         if (!row.tradable || row.soulbound !== "NONE" || row.bound_to_player_id) throw new Error("TRADE_ITEM_NOT_TRADABLE");
-        if (row.container_instance_id !== null || row.container_slot !== null) throw new Error("TRADE_ITEM_NOT_TOP_LEVEL");
+        if(row.container_slot!==null)throw new Error("TRADE_ITEM_NOT_TOP_LEVEL");
+        if(row.container_instance_id!==null && !(await getStorageDestinations(client,ownerId)).some(parent=>parent.id===row.container_instance_id))throw new Error("TRADE_ITEM_NOT_TOP_LEVEL");
         if (row.has_children) throw new Error("TRADE_CONTAINER_NOT_EMPTY");
         if (offer.quantity > row.quantity || row.quantity > row.max_stack || (!row.stackable && row.quantity !== 1)) {
           throw new Error("TRADE_INVALID_QUANTITY");

@@ -350,6 +350,7 @@ describeDatabase("Socket.IO game flow", () => {
     ]);
     const bag = inventory.items.find((item) => item.itemId === "rag-bag")!;
     const item = inventory.items.find((item) => item.itemId === "wolf-pelt")!;
+    await game.services.inventory.setContainerSlot(owner.characterId,1,bag.instanceId);
     const foreign = await giveTestContainer(game, other.characterId);
     const client = await connectClient();
     expect(await client.timeout(1000).emitWithAck("moveItemToContainer", { itemInstanceId: item.instanceId, targetContainerInstanceId: bag.instanceId }))
@@ -375,7 +376,8 @@ describeDatabase("Socket.IO game flow", () => {
     })).toMatchObject({ ok: true, inventory: { items: expect.arrayContaining([
       expect.objectContaining({ instanceId: item.instanceId })
     ]) } });
-    expect((await game.services.inventory.getSnapshot(owner.characterId)).items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBeUndefined();
+    const organized=await game.services.inventory.getSnapshot(owner.characterId);
+    expect(organized.items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBe(organized.containerSlots![0]);
   });
 
   it("keeps a permanent starter backpack and persists three changeable container slots using socket identity", async () => {

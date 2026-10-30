@@ -84,7 +84,10 @@ describeDatabase("permanent character backpack",()=>{
  it("migrates a full former first-slot bag without deleting the bag, its contents or their parent links",async()=>{
   const granted=await inventory.addItems(alice,[{itemId:"rag-bag",quantity:1},{itemId:"training-dagger",quantity:8}]);
   const old=granted.items.find(item=>item.itemId==="rag-bag")!,children=granted.items.filter(item=>item.itemId==="training-dagger");
+  await inventory.setContainerSlot(alice,1,old.instanceId);
   for(const child of children)await inventory.moveItemToContainer(alice,child.instanceId,old.instanceId);
+  const removed=await pool.query("DELETE FROM item_instances pack WHERE pack.character_id=$1 AND pack.permanent_container AND NOT EXISTS(SELECT 1 FROM item_instances child WHERE child.container_instance_id=pack.id)",[alice]);
+  expect(removed.rowCount).toBe(1);
   await pool.query("ALTER TABLE item_instances DROP COLUMN IF EXISTS permanent_container CASCADE; DELETE FROM schema_migrations WHERE migration_name='013_permanent_backpack'");
   await pool.query("UPDATE item_instances SET container_slot=0 WHERE id=$1",[old.instanceId]);
   await runMigrations(pool);await seedItemMetadata(pool);

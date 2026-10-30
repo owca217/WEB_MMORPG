@@ -55,6 +55,8 @@ describeDatabase("container item storage", () => {
 
   it("stores eight whole instances in the rag bag and rejects a ninth without losing its original parent", async () => {
     const [bag, otherBag] = await add("rag-bag", 2);
+    await inventory.setContainerSlot(characterId, 1, bag!);
+    await inventory.setContainerSlot(characterId, 2, otherBag!);
     const tokens = await add("storage-token", 9);
     for (const token of tokens.slice(0, 8)) {
       await inventory.moveItemToContainer(characterId, token!, bag!);
@@ -68,8 +70,10 @@ describeDatabase("container item storage", () => {
       .filter((item) => item.containerInstanceId === bag)).toHaveLength(8);
   });
 
-  it("moves whole stacks between bags and removes them to the top level", async () => {
+  it("moves whole stacks between bags and automatically stores removed stacks in the backpack", async () => {
     const [first, second] = await add("rag-bag", 2);
+    await inventory.setContainerSlot(characterId, 1, first!);
+    await inventory.setContainerSlot(characterId, 2, second!);
     const [stack] = await add("wolf-pelt", 99);
     await inventory.moveItemToContainer(characterId, stack!, first!);
     const moved = await inventory.moveItemToContainer(characterId, stack!, second!);
@@ -77,13 +81,14 @@ describeDatabase("container item storage", () => {
       .toMatchObject({ quantity: 99, containerInstanceId: second });
     expect(moved.items.filter((item) => item.containerInstanceId === first)).toHaveLength(0);
     const removed = await inventory.moveItemToContainer(characterId, stack!, null);
-    expect(removed.items.find((item) => item.instanceId === stack)).not.toHaveProperty("containerInstanceId");
+    expect(removed.items.find((item) => item.instanceId === stack)).toMatchObject({containerInstanceId:backpack,quantity:99});
     expect((await new InventoryService(pool).getSnapshot(characterId)).items
-      .find((item) => item.instanceId === stack)).toMatchObject({ quantity: 99 });
+      .find((item) => item.instanceId === stack)).toMatchObject({ quantity: 99, containerInstanceId:backpack });
   });
 
   it("rejects foreign items, foreign targets, invalid UUIDs, and non-container targets while preserving storage", async () => {
     const [bag] = await add("rag-bag");
+    await inventory.setContainerSlot(characterId, 1, bag!);
     const [token] = await add("storage-token");
     const [foreignBag] = await add("rag-bag", 1, otherCharacterId);
     const [foreignToken] = await add("storage-token", 1, otherCharacterId);
@@ -107,24 +112,27 @@ describeDatabase("container item storage", () => {
     await expect(inventory.moveItemToContainer(characterId, token!, bag!)).rejects.toThrow("CONTAINER_CAPACITY_INVALID");
   });
 
-  it("allows empty unassigned containers but rejects equipped sources, nested targets, and nonempty sources", async () => {
+  it("moves empty containers, assigns them from owned storage and rejects equipped or nonempty sources and nested targets", async () => {
     const [first, second, third] = await add("rag-bag", 3);
     const [token] = await add("storage-token");
     await inventory.setContainerSlot(characterId, 1, first!);
-    await expect(inventory.moveItemToContainer(characterId, first!, second!)).rejects.toThrow("CONTAINER_ITEM_EQUIPPED");
+    await inventory.setContainerSlot(characterId, 3, third!);
+    await expect(inventory.moveItemToContainer(characterId, first!, third!)).rejects.toThrow("CONTAINER_ITEM_EQUIPPED");
     await inventory.moveItemToContainer(characterId, second!, first!);
     await expect(inventory.moveItemToContainer(characterId, token!, second!)).rejects.toThrow("CONTAINER_ITEM_STORED");
-    await inventory.moveItemToContainer(characterId, second!, null);
+    await inventory.setContainerSlot(characterId, 2, second!);
     await inventory.moveItemToContainer(characterId, token!, second!);
+    await inventory.setContainerSlot(characterId, 2, null);
     await expect(inventory.moveItemToContainer(characterId, second!, third!)).rejects.toThrow("CONTAINER_NOT_EMPTY");
     const snapshot = await inventory.getSnapshot(characterId);
-    expect(snapshot.containerSlots).toEqual([backpack, first, null, null]);
+    expect(snapshot.containerSlots).toEqual([backpack, first, null, third]);
     expect(snapshot.items.find((item) => item.instanceId === second)).not.toHaveProperty("containerInstanceId");
     expect(snapshot.items.find((item) => item.instanceId === token)).toMatchObject({ containerInstanceId: second });
   });
 
   it("counts a stack as one place and serializes competing moves into the last free place", async () => {
     const [bag] = await add("rag-bag");
+    await inventory.setContainerSlot(characterId, 1, bag!);
     const [stack] = await add("wolf-pelt", 99);
     const tokens = await add("storage-token", 8);
     await inventory.moveItemToContainer(characterId, stack!, bag!);

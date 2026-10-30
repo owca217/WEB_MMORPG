@@ -56,6 +56,27 @@ it("excludes containers stored inside another container from slot choices", () =
   picker.destroy();
 });
 
+it("assigns an ordinary bag directly from the backpack and contains touch events",async()=>{
+  const pack={...item("pack"),permanentContainer:true,containerCapacity:16},stored={...item("stored"),containerCapacity:8,containerInstanceId:"pack"};
+  const onSetContainerSlot=vi.fn().mockResolvedValue({ok:true,inventory:{items:[pack,item("stored")],containerSlots:["pack","stored",null,null]}});
+  const picker=new ContainerPicker({onSetContainerSlot,onInventoryChanged:vi.fn()});
+  picker.update({items:[pack,stored,item("unassigned"),{...item("nested"),containerInstanceId:"unassigned"}],containerSlots:["pack",null,null,null]});picker.show(1);
+  expect(choice("stored").textContent).toContain("W pojemniku");expect(document.querySelector('[data-container-instance="nested"]')).toBeNull();
+  const behind=vi.fn();document.body.addEventListener("pointerup",behind);document.body.addEventListener("touchend",behind);
+  choice("stored").dispatchEvent(new Event("pointerup",{bubbles:true}));choice("stored").dispatchEvent(new Event("touchend",{bubbles:true}));expect(behind).not.toHaveBeenCalled();
+  choice("stored").click();await vi.waitFor(()=>expect(onSetContainerSlot).toHaveBeenCalledExactlyOnceWith(1,"stored"));
+  document.body.removeEventListener("pointerup",behind);document.body.removeEventListener("touchend",behind);picker.destroy();
+});
+
+it("closes a successful assignment after its newer server push without restoring the old ACK inventory",async()=>{
+  let finish!:(value:{ok:true;inventory:InventorySnapshot})=>void;
+  const changed=vi.fn(),onRefresh=vi.fn(),picker=new ContainerPicker({onSetContainerSlot:()=>new Promise(resolve=>{finish=resolve;}),onInventoryChanged:changed,onRefresh});
+  const initial:InventorySnapshot={items:[item("a"),item("b")],containerSlots:[null,"a",null,null]};picker.update(initial);picker.show(1);choice("b").click();
+  picker.update({items:[item("a"),item("b"),item("new")],containerSlots:[null,"b",null,null]});finish({ok:true,inventory:{...initial,containerSlots:[null,"b",null,null]}});
+  await vi.waitFor(()=>expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(true));
+  expect(changed).not.toHaveBeenCalled();expect(onRefresh).toHaveBeenCalledOnce();picker.show(1);expect(choice("b").textContent).toContain("Założony");expect(choice("new")).toBeTruthy();expect(document.querySelector('[data-container-feedback][data-state="pending"]')).toBeNull();picker.destroy();
+});
+
 it("waits for the server before replacing a slot, supports moving equipped containers and clears a slot", async () => {
   const inventory: InventorySnapshot = { items: [item("a"), item("b")], containerSlots: [null, "a", "b", null] };
   let resolve!: (value: { ok: true; inventory: InventorySnapshot }) => void;

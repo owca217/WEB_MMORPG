@@ -196,11 +196,14 @@ export class WorldScene extends Phaser.Scene {
 
     this.containerPicker = new ContainerPicker({
       onSetContainerSlot: (slotIndex, itemInstanceId) => gameSocket.setContainerSlot(slotIndex, itemInstanceId),
-      onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory)
+      onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
+      onRefresh:()=>gameSocket.requestPlayerState()
     });
     this.containerContents = new ContainerContentsPanel({
       onMoveItem: (itemInstanceId, targetContainerInstanceId) => gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId),
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
+      onRefresh:()=>gameSocket.requestPlayerState(),
+      onTypingChange:()=>this.updateKeyboardCapture(),
       onEquipItem: async item=>{
         const result=await this.setEquipmentSlot({slot:item.equipment!.slot,itemInstanceId:item.instanceId});
         return result.ok?{ok:true,inventory:playerStateStore.get()?.inventory??result.inventory}:result;
@@ -302,7 +305,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping);
+    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.containerContents?.isTyping);
     if (typing) {this.pointerTarget=null;this.pendingNpcAction=null;this.clearNavigation();this.pendingFinalIntent=false;}
     const keyboardIntent = resolveKeyboardIntent({
       left: !typing && Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
@@ -659,7 +662,7 @@ export class WorldScene extends Phaser.Scene {
     this.pointerTarget=null;
     this.clearNavigation();this.pendingFinalIntent=false;
     const keyboard=this.input.keyboard;if(!keyboard)return;
-    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping);
+    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.containerContents?.isTyping);
     if(typing)this.pendingNpcAction=null;
     keyboard.resetKeys?.();keyboard.enabled=!typing;
     if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();

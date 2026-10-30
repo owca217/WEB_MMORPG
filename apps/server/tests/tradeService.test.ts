@@ -178,8 +178,10 @@ describeDatabase("atomic item barter", () => {
     const rows = await inventoryRows();
     expect(rows.find(row => row.id === whole)).toMatchObject({ character_id: alice, quantity: 1 });
     expect(rows.find(row => row.id === stack)).toMatchObject({ character_id: alice, quantity: 6 });
-    const clone = rows.find(row => row.character_id === bob)!;
-    expect(clone).toMatchObject({ ...before, id: expect.any(String), player_id: null, character_id: bob, quantity: 4, updated_at: expect.any(Date) });
+    const recipientBackpack=rows.find(row=>row.character_id===bob&&row.permanent_container)!;
+    const clone = rows.find(row => row.character_id === bob && !row.permanent_container && row.item_id===before.item_id)!;
+    expect(recipientBackpack).toMatchObject({container_slot:0,container_capacity:16});
+    expect(clone).toMatchObject({ ...before, id: expect.any(String), player_id: null, character_id: bob, quantity: 4,container_instance_id:recipientBackpack.id, updated_at: expect.any(Date) });
     expect(clone.id).not.toBe(stack);
     await Promise.all([service.confirm(alice, trade.id, trade.revision), service.confirm(bob, trade.id, trade.revision)]);
     expect(await inventoryRows()).toEqual(rows);
@@ -288,7 +290,8 @@ describeDatabase("atomic item barter", () => {
       await blocker.query("COMMIT");
       await Promise.all([first, final, service.waitForPending(alice)]);
       expect(service.getSnapshot(alice)?.status).toBe("completed");
-      expect((await pool.query("SELECT quantity FROM item_instances WHERE character_id=$1", [bob])).rows).toEqual([{ quantity: 2 }]);
+      expect((await pool.query("SELECT quantity FROM item_instances WHERE character_id=$1 AND NOT permanent_container", [bob])).rows).toEqual([{ quantity: 2 }]);
+      expect((await pool.query("SELECT COUNT(*)::int AS count FROM item_instances WHERE character_id=$1 AND permanent_container",[bob])).rows[0].count).toBe(1);
       expect((await pool.query("SELECT * FROM trade_receipts")).rows).toHaveLength(1);
     } finally { await blocker.query("ROLLBACK"); blocker.release(); }
   });

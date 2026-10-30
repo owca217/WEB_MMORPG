@@ -53,6 +53,7 @@ describeDatabase("battle item persistence", () => {
   it("consumes exactly one stored item and commits matching HP while preserving injuries", async () => {
     const id = await give();
     const bag = (await inventory.addItems(characterId, [{ itemId: "rag-bag", quantity: 1 }])).items.find((item) => item.itemId === "rag-bag")!;
+    await inventory.setContainerSlot(characterId,1,bag.instanceId);
     await inventory.moveItemToContainer(characterId, id, bag.instanceId);
     const battles = start();
     const applied = await battles.useConsumable(characterId, `hero:${characterId}`, (prepare) =>

@@ -134,12 +134,18 @@ it("reviews both offers and saves a local draft before allowing confirmation of 
   expect(actions).toHaveLength(2);
 });
 
-it("excludes equipped, contained, bound and nonempty-container items and never offers automatic confirmation", () => {
+it("offers stored items from assigned bags while excluding inaccessible, equipped, bound and nonempty-container items", () => {
   const instance = panel(undefined, snapshot({ trade: trade() }));
-  instance.update(snapshot({ trade: trade() }), { items: [inventoryItem("herb"), inventoryItem("equipped", { category: "container", containerCapacity: 8 }), inventoryItem("inside", { containerInstanceId: "bag" }), inventoryItem("bag", { category: "container", containerCapacity: 8 }), inventoryItem("bound", { boundToPlayerId: "self" }), inventoryItem("permanent",{category:"container",permanentContainer:true,containerCapacity:16}), inventoryItem("empty", { name: "Pusty plecak", category: "container", containerCapacity: 8 })], containerSlots: ["equipped", null, null, null] }, "connected", false);
+  instance.update(snapshot({ trade: trade() }), { items: [inventoryItem("herb"),
+    inventoryItem("equipped", {category:"container",containerCapacity:8,quantity:1}),
+    inventoryItem("inside",{containerInstanceId:"permanent"}),inventoryItem("inside-side",{containerInstanceId:"equipped"}),
+    inventoryItem("nested-child",{containerInstanceId:"bag"}),inventoryItem("bag",{category:"container",containerCapacity:8,quantity:1}),
+    inventoryItem("bound",{boundToPlayerId:"self",containerInstanceId:"permanent"}),inventoryItem("weapon",{equippedSlot:"mainHand"}),
+    inventoryItem("permanent",{category:"container",permanentContainer:true,containerCapacity:16,quantity:1}),
+    inventoryItem("empty",{name:"Pusty plecak",category:"container",containerCapacity:8,quantity:1,containerInstanceId:"permanent"})],containerSlots:["permanent","equipped",null,null]},"connected",false);
   tab("trade");
   const choices = [...element<HTMLSelectElement>("[data-trade-item]").options].map((option) => option.value);
-  expect(choices).toEqual(["herb", "empty"]);
+  expect(choices).toEqual(["herb","inside","inside-side","empty"]);
   instance.update(snapshot({ trade: trade({ status: "completed" }) }), inventory, "connected", false);
   expect(element("[data-social-content]").textContent).toContain("Wymiana zakończona");
   expect(element("[data-social-content]").textContent).toContain("Miecz ×1");

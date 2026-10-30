@@ -8,6 +8,7 @@ import {
 } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
 import { InventoryService } from "../inventory/InventoryService";
+import { autoStoreOwnedItems } from "../inventory/autoStorage";
 
 interface EquipmentRow {
   id:string;
@@ -89,6 +90,7 @@ export class EquipmentService {
           [instanceId,slot,characterId,item.soulbound==="ON_EQUIP"||item.soulbound==="ON_PICKUP"]
         );
       }
+      await autoStoreOwnedItems(client,characterId);
       const snapshot=await this.inventory.getSnapshot(characterId,client);
       // No await is allowed between the current-session assertion and COMMIT.
       assertCurrent();

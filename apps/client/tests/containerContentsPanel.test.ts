@@ -1,230 +1,166 @@
 /* @vitest-environment jsdom */
-
-import type { InventoryItem, InventorySnapshot } from "@web-mmorpg/shared";
-import { beforeEach, expect, it, vi } from "vitest";
+import type { CharacterSnapshot, InventoryItem, InventorySnapshot, InventoryUpdateResult } from "@web-mmorpg/shared";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ContainerContentsPanel } from "../src/ui/ContainerContentsPanel";
-
-function item(instanceId: string, changes: Partial<InventoryItem> = {}): InventoryItem {
-  return {
-    instanceId, itemId: instanceId, itemDefinitionId: instanceId, name: `Przedmiot ${instanceId}`,
-    quantity: 1, category: "material", description: "Opis", rarity: "COMMON", upgradeLevel: 0,
-    ...changes
-  };
-}
-
-function bag(instanceId = "bag", capacity = 8): InventoryItem {
-  return item(instanceId, { name: "Szmaciany worek", category: "container", containerCapacity: capacity });
-}
-
-function inventory(items: InventoryItem[]): InventorySnapshot {
-  return { items, containerSlots: [null, "bag", null, null] };
-}
-
-function button(selector: string): HTMLButtonElement {
-  const element = document.querySelector<HTMLButtonElement>(selector);
-  if (!element) throw new Error(`Contents button missing: ${selector}`);
-  return element;
-}
-
-function ids(selector: string, attribute: string): Array<string | null> {
-  return [...document.querySelectorAll(selector)].map((element) => element.getAttribute(attribute));
-}
-
+function item(instanceId: string, changes: Partial<InventoryItem> = {}): InventoryItem { return { instanceId, itemId: instanceId, itemDefinitionId: instanceId, name: `Przedmiot ${instanceId}`, quantity: 1, category: "material", description: "Opis", rarity: "COMMON", upgradeLevel: 0, ...changes }; }
+function bag(instanceId = "pack", capacity = 16): InventoryItem { return item(instanceId, { name: instanceId === "pack" ? "Plecak podróżnika" : "Torba", category: "container", containerCapacity: capacity, ...(instanceId === "pack" ? { permanentContainer: true } : {}) }); }
+function inventory(items: InventoryItem[]): InventorySnapshot { return { items, containerSlots: ["pack", "bag", null, null] }; }
+function button(selector: string): HTMLButtonElement { const value = document.querySelector<HTMLButtonElement>(selector); if (!value)
+    throw new Error(`Missing ${selector}`); return value; }
+function inspect(id: string): void { button(`[data-container-item="${id}"]`).click(); }
+function move(): void { button("[data-container-move]").click(); }
+const panels: ContainerContentsPanel[] = [];
+function panel(handlers: Partial<ConstructorParameters<typeof ContainerContentsPanel>[0]> = {}): ContainerContentsPanel { const value = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer: vi.fn(), ...handlers }); panels.push(value); return value; }
 beforeEach(() => document.body.replaceChildren());
-
-it("opens sixteen real backpack places and never changes or stores a permanent container",async()=>{
-  const backpack=bag("permanent",16);backpack.permanentContainer=true;
-  const loosePermanent={...bag("loose-permanent",16),permanentContainer:true};
-  const onChangeContainer=vi.fn(),onMoveItem=vi.fn().mockResolvedValue({ok:true,inventory:{items:[backpack,loosePermanent,item("wood",{containerInstanceId:"permanent"})],containerSlots:["permanent",null,null,null]}});
-  const panel=new ContainerContentsPanel({onMoveItem,onInventoryChanged:vi.fn(),onChangeContainer});
-  panel.update({items:[backpack,loosePermanent,item("wood")],containerSlots:["permanent",null,null,null]});panel.show(0);
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
-  expect(button("[data-change-container]").hidden).toBe(true);
-  button("[data-change-container]").click();expect(onChangeContainer).not.toHaveBeenCalled();
-  expect(document.querySelector('[data-container-put="loose-permanent"]')).toBeNull();
-  button('[data-container-put="wood"]').click();await vi.waitFor(()=>expect(onMoveItem).toHaveBeenCalledWith("wood","permanent"));
-  await vi.waitFor(()=>expect(document.querySelector('[data-container-remove="wood"]')).not.toBeNull());
-  panel.destroy();
+afterEach(() => { panels.splice(0).forEach(value => value.destroy()); vi.restoreAllMocks(); });
+it("renders only sixteen backpack cells and opens item actions without removing it", () => {
+    const onMoveItem = vi.fn(), value = panel({ onMoveItem });
+    value.update(inventory([bag(), item("medicine", { category: "medical", containerInstanceId: "pack", consumableEffects: { healHp: 30 } })]));
+    value.show(0);
+    expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
+    expect(document.querySelector("[data-container-candidates-section]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Włóż do pojemnika");
+    expect(button("[data-change-container]").hidden).toBe(true);
+    inspect("medicine");
+    expect(onMoveItem).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLElement>("[data-container-item-actions]")?.hidden).toBe(false);
+    expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("Do użycia w walce");
+    expect(button("[data-container-move]").disabled).toBe(true);
 });
-
-it("renders eight places, counts a stack once and offers only eligible top-level items", () => {
-  const panel = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer: vi.fn() });
-  panel.update({
-    items: [
-      bag(),
-      item("wood", { quantity: 37, containerInstanceId: "bag" }),
-      item("medicine", { category: "medical", containerInstanceId: "bag" }),
-      item("loose", { category: "weapon" }),
-      bag("equipped"),
-      bag("empty"),
-      bag("filled"),
-      item("elsewhere", { containerInstanceId: "filled" })
-    ],
-    containerSlots: [null, "bag", "equipped", null]
-  });
-  panel.show(1);
-
-  expect(document.querySelector("[data-container-contents-title]")?.textContent).toBe("Szmaciany worek");
-  expect(document.querySelector("[data-container-capacity]")?.textContent).toContain("2 / 8");
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(8);
-  expect(document.querySelectorAll("[data-container-empty-cell]")).toHaveLength(6);
-  expect(ids("[data-container-remove]", "data-container-remove")).toEqual(["wood", "medicine"]);
-  expect(button('[data-container-remove="wood"]').textContent).toContain("×37");
-  expect(ids("[data-container-put]", "data-container-put")).toEqual(["loose", "empty"]);
-  panel.destroy();
+it("shows pending items in the header grid and returns when an acknowledged move empties it", async () => {
+    const initial = inventory([bag(), bag("bag", 8), item("wood"), item("equipped", { equippedSlot: "mainHand" }), item("contained", { containerInstanceId: "pack" })]);
+    let finish!: (result: InventoryUpdateResult) => void;
+    const onMoveItem = vi.fn(() => new Promise<InventoryUpdateResult>(resolve => { finish = resolve; })), onInventoryChanged = vi.fn();
+    const value = panel({ onMoveItem, onInventoryChanged });
+    value.update(initial);
+    value.show(0);
+    expect(button("[data-container-pending]").textContent).toContain("Oczekujące (1)");
+    button("[data-container-pending]").click();
+    expect(document.querySelectorAll("[data-container-item]")).toHaveLength(1);
+    inspect("wood");
+    move();
+    expect(onMoveItem).toHaveBeenCalledExactlyOnceWith("wood", "pack");
+    expect(button("[data-container-move]").disabled).toBe(true);
+    const updated = inventory(initial.items.map(entry => entry.instanceId === "wood" ? { ...entry, containerInstanceId: "pack" } : entry));
+    finish({ ok: true, inventory: updated });
+    await vi.waitFor(() => expect(onInventoryChanged).toHaveBeenCalledWith(updated));
+    expect(button("[data-container-pending]").hidden).toBe(true);
+    expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
+    expect(button('[data-container-item="wood"]')).toBeTruthy();
 });
-
-it("moves items only after an acknowledgement and uses its returned inventory for the contents", async () => {
-  const initial = inventory([bag(), item("wood", { quantity: 37 })]);
-  let resolve!: (value: { ok: true; inventory: InventorySnapshot }) => void;
-  const onMoveItem = vi.fn().mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
-  const onInventoryChanged = vi.fn();
-  const panel = new ContainerContentsPanel({ onMoveItem, onInventoryChanged, onChangeContainer: vi.fn() });
-  panel.update(initial);
-  panel.show(1);
-  button('[data-container-put="wood"]').click();
-
-  expect(onMoveItem).toHaveBeenCalledWith("wood", "bag");
-  expect(button('[data-container-put="wood"]').disabled).toBe(true);
-  expect(button("[data-change-container]").disabled).toBe(true);
-  expect(document.querySelectorAll("[data-container-remove]")).toHaveLength(0);
-  expect(document.querySelector("[data-container-capacity]")?.textContent).toContain("0 / 8");
-  expect(onInventoryChanged).not.toHaveBeenCalled();
-  expect(initial.items[1]?.containerInstanceId).toBeUndefined();
-
-  const moved = inventory([bag(), item("wood", { quantity: 37, containerInstanceId: "bag" })]);
-  resolve({ ok: true, inventory: moved });
-  await vi.waitFor(() => expect(onInventoryChanged).toHaveBeenCalledWith(moved));
-  expect(button('[data-container-remove="wood"]').disabled).toBe(false);
-  expect(document.querySelector("[data-container-capacity]")?.textContent).toContain("1 / 8");
-  expect(document.querySelector("[data-container-contents]")?.classList.contains("is-hidden")).toBe(false);
-
-  onMoveItem.mockResolvedValueOnce({ ok: true, inventory: initial });
-  button('[data-container-remove="wood"]').click();
-  await vi.waitFor(() => expect(onInventoryChanged).toHaveBeenCalledTimes(2));
-  expect(onMoveItem).toHaveBeenLastCalledWith("wood", null);
-  expect(document.querySelectorAll("[data-container-remove]")).toHaveLength(0);
-  expect(button('[data-container-put="wood"]').disabled).toBe(false);
-  panel.destroy();
+it("moves stored items only to an explicit equipped bag and retains them on failure", async () => {
+    const side = { ...bag("bag", 8), quantity: 5 }, initial = inventory([bag(), side, item("wood", { containerInstanceId: "pack" })]);
+    const onMoveItem = vi.fn().mockResolvedValueOnce({ ok: false, code: "CONTAINER_FULL", message: "Brak wolnego miejsca." }).mockResolvedValueOnce({ ok: true, inventory: inventory([bag(), side, item("wood", { containerInstanceId: "bag" })]) });
+    const value = panel({ onMoveItem });
+    value.update(initial);
+    value.show(0);
+    inspect("wood");
+    expect([...document.querySelector<HTMLSelectElement>("[data-container-move-target]")!.options].map(option => option.value)).toEqual(["bag"]);
+    move();
+    await vi.waitFor(() => expect(document.querySelector("[data-container-contents-feedback]")?.textContent).toContain("Brak wolnego miejsca"));
+    expect(button('[data-container-item="wood"]')).toBeTruthy();
+    move();
+    await vi.waitFor(() => expect(document.querySelector('[data-container-item="wood"]')).toBeNull());
+    expect(onMoveItem.mock.calls).toEqual([["wood", "bag"], ["wood", "bag"]]);
 });
-
-it("keeps contents on a server rejection or network failure and allows retrying", async () => {
-  const onMoveItem = vi.fn()
-    .mockResolvedValueOnce({ ok: false, code: "CONTAINER_FULL", message: "Brak wolnego miejsca." })
-    .mockRejectedValueOnce(new Error("offline"));
-  const onInventoryChanged = vi.fn();
-  const panel = new ContainerContentsPanel({ onMoveItem, onInventoryChanged, onChangeContainer: vi.fn() });
-  panel.update(inventory([bag(), item("wood", { containerInstanceId: "bag" }), item("loose")]));
-  panel.show(1);
-  button('[data-container-put="loose"]').click();
-
-  await vi.waitFor(() => expect(document.querySelector("[data-container-contents-feedback]")?.textContent).toContain("Brak wolnego miejsca"));
-  expect(onInventoryChanged).not.toHaveBeenCalled();
-  expect(button('[data-container-put="loose"]').disabled).toBe(false);
-  expect(button('[data-container-remove="wood"]').disabled).toBe(false);
-  button('[data-container-remove="wood"]').click();
-  await vi.waitFor(() => expect(onMoveItem).toHaveBeenCalledTimes(2));
-  await vi.waitFor(() => expect(button('[data-container-remove="wood"]').disabled).toBe(false));
-  expect(document.querySelector('[data-container-contents-feedback][data-state="error"]')?.textContent).toBeTruthy();
-  expect(onInventoryChanged).not.toHaveBeenCalled();
-  expect(document.querySelector("[data-container-capacity]")?.textContent).toContain("1 / 8");
-  panel.destroy();
+it("keeps overflow visible when all bags are full and forbids nonempty bag nesting", () => {
+    const full = Array.from({ length: 16 }, (_, index) => item(`child-${index}`, { containerInstanceId: "pack" }));
+    const value = panel();
+    value.update(inventory([bag(), ...full, item("overflow"), bag("nested", 8), item("inside", { containerInstanceId: "nested" })]));
+    value.show(0);
+    button("[data-container-pending]").click();
+    inspect("overflow");
+    expect(button("[data-container-move]").disabled).toBe(true);
+    expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("Brak wolnego miejsca");
+    inspect("nested");
+    expect(button("[data-container-move]").disabled).toBe(true);
+    expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("zawiera przedmioty");
 });
-
-it("disables inserting when all eight places are occupied but allows removing a stack", () => {
-  const contained = Array.from({ length: 8 }, (_, index) => item(`child-${index}`, { quantity: 50, containerInstanceId: "bag" }));
-  const panel = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer: vi.fn() });
-  panel.update(inventory([bag(), ...contained, item("loose")]));
-  panel.show(1);
-
-  expect(document.querySelector("[data-container-capacity]")?.textContent).toContain("8 / 8");
-  expect(button('[data-container-put="loose"]').disabled).toBe(true);
-  expect(button('[data-container-remove="child-0"]').disabled).toBe(false);
-  panel.destroy();
+it("equips stored gear with a sibling action without moving it to hidden storage", async () => {
+    const sword = item("sword", { category: "weapon", containerInstanceId: "pack", equipment: { slot: "mainHand", weaponFamily: "sword", twoHanded: false, minimumLevel: 1, modifiers: [] } }), equipped = { ...sword, equippedSlot: "mainHand" as const };
+    delete equipped.containerInstanceId;
+    const onMoveItem = vi.fn(), onEquipItem = vi.fn().mockResolvedValue({ ok: true, inventory: inventory([bag(), equipped]) });
+    const value = panel({ onMoveItem, onEquipItem });
+    value.update(inventory([bag(), sword]));
+    value.show(0);
+    const equip = button('[data-container-equip="sword"]');
+    expect(equip.closest('[data-container-item]')).toBeNull();
+    equip.click();
+    await vi.waitFor(() => expect(onEquipItem).toHaveBeenCalledWith(sword));
+    expect(onMoveItem).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-container-item="sword"]')).toBeNull();
 });
-
-it("handles missing or invalid assigned containers and opens the chooser for the same slot", () => {
-  const onChangeContainer = vi.fn();
-  const panel = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer });
-  panel.update({ items: [bag()], containerSlots: [null, null, "missing", null] });
-  panel.show(2);
-
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(0);
-  expect(document.querySelectorAll("[data-container-put]")).toHaveLength(0);
-  expect(document.querySelector("[data-container-contents-empty]")?.textContent).toBeTruthy();
-  button("[data-change-container]").click();
-  expect(onChangeContainer).toHaveBeenCalledWith(2);
-  expect(document.querySelector("[data-container-contents]")?.classList.contains("is-hidden")).toBe(true);
-
-  panel.update(inventory([bag("bag", 0)]));
-  panel.show(1);
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(0);
-  panel.destroy();
+it("dismisses stale selection and refreshes rather than applying an ACK after newer state", async () => {
+    let finish!: (result: InventoryUpdateResult) => void;
+    const onMoveItem = vi.fn(() => new Promise<InventoryUpdateResult>(resolve => { finish = resolve; })), onInventoryChanged = vi.fn(), onRefresh = vi.fn();
+    const value = panel({ onMoveItem, onInventoryChanged, onRefresh });
+    const initial = inventory([bag(), bag("bag", 8), item("wood", { containerInstanceId: "pack" })]);
+    value.update(initial);
+    value.show(0);
+    inspect("wood");
+    move();
+    const newer = inventory([bag(), bag("bag", 8), item("fresh", { containerInstanceId: "pack" })]);
+    value.update(newer);
+    expect(document.querySelector<HTMLElement>("[data-container-item-actions]")?.hidden).toBe(true);
+    finish({ ok: true, inventory: initial });
+    await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+    expect(onInventoryChanged).not.toHaveBeenCalled();
+    expect(button('[data-container-item="fresh"]')).toBeTruthy();
+    expect(document.querySelector('[data-container-item="wood"]')).toBeNull();
+    expect(document.querySelector('[data-container-contents-feedback][data-state="pending"]')).toBeNull();
+    expect(document.querySelector<HTMLElement>('[data-container-item-actions]')?.hidden).toBe(true);
 });
-
-it("paginates a large container without creating thousands of empty places", () => {
-  const children = Array.from({ length: 41 }, (_, index) => item(`child-${index}`, { containerInstanceId: "bag" }));
-  const panel = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer: vi.fn() });
-  panel.update(inventory([bag("bag", 10000), ...children]));
-  panel.show(1);
-
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(40);
-  expect(document.querySelector('[data-container-remove="child-40"]')).toBeNull();
-  expect(button("[data-container-page-prev]").disabled).toBe(true);
-  button("[data-container-page-next]").click();
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(40);
-  expect(button('[data-container-remove="child-40"]')).toBeTruthy();
-  expect(document.querySelector('[data-container-remove="child-0"]')).toBeNull();
-  expect(button("[data-container-page-prev]").disabled).toBe(false);
-  panel.update(inventory([bag()]));
-  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(8);
-  expect(document.querySelector("[data-container-pagination]")?.hasAttribute("hidden")).toBe(true);
-  panel.destroy();
+it("contains phone pointers, renders safe text, closes the popover by Escape and restores focus", () => {
+    const trigger = document.createElement("button");
+    document.body.append(trigger);
+    trigger.focus();
+    const value = panel();
+    value.update(inventory([bag(), item("wood", { name: "<b>Drewno</b>", iconUrl: "/missing.png", containerInstanceId: "pack" })]));
+    value.show(0);
+    inspect("wood");
+    const popover = document.querySelector<HTMLElement>("[data-container-item-actions]")!;
+    expect(popover.closest(".game-panel")).toBeNull();
+    expect(popover.querySelector("b")).toBeNull();
+    expect(popover.textContent).toContain("<b>Drewno</b>");
+    const listener = vi.fn();
+    document.body.addEventListener("pointerup", listener);
+    document.body.addEventListener("touchend", listener);
+    popover.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    popover.dispatchEvent(new Event("touchend", { bubbles: true }));
+    expect(listener).not.toHaveBeenCalled();
+    popover.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(popover.hidden).toBe(true);
+    expect(document.activeElement).toBe(button('[data-container-item="wood"]'));
+    document.querySelector('[data-container-contents]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(document.activeElement).toBe(trigger);
+    document.body.removeEventListener("pointerup", listener);
+    document.body.removeEventListener("touchend", listener);
 });
-
-it("renders item text safely, falls back on failed images and restores focus when closed", () => {
-  const trigger = document.createElement("button");
-  document.body.appendChild(trigger);
-  trigger.focus();
-  const panel = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer: vi.fn() });
-  panel.update(inventory([bag(), item("wood", { name: "<b>Materiał</b>", iconUrl: "/missing.png", containerInstanceId: "bag" })]));
-  panel.show(1);
-
-  const wood = button('[data-container-remove="wood"]');
-  expect(wood.textContent).toContain("<b>Materiał</b>");
-  expect(wood.querySelector("b")).toBeNull();
-  wood.querySelector("img")!.dispatchEvent(new Event("error"));
-  expect(wood.querySelector("img")).toBeNull();
-  expect(wood.querySelector("svg")).not.toBeNull();
-  document.querySelector("[data-container-contents]")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  expect(document.activeElement).toBe(trigger);
-  expect(document.querySelector("[data-container-contents]")?.classList.contains("is-hidden")).toBe(true);
-  panel.destroy();
+it("paginates large ordinary containers and keeps their change action", () => {
+    const onChangeContainer = vi.fn(), value = panel({ onChangeContainer });
+    value.update(inventory([bag(), bag("bag", 10000), ...Array.from({ length: 41 }, (_, index) => item(`child-${index}`, { containerInstanceId: "bag" }))]));
+    value.show(1);
+    expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(40);
+    button("[data-container-page-next]").click();
+    expect(button('[data-container-item="child-40"]')).toBeTruthy();
+    expect(document.querySelector('[data-container-item="child-0"]')).toBeNull();
+    button("[data-change-container]").click();
+    expect(onChangeContainer).toHaveBeenCalledWith(1);
 });
-
-it("ignores a late acknowledgement after destruction", async () => {
-  let resolve!: (value: { ok: true; inventory: InventorySnapshot }) => void;
-  const onMoveItem = vi.fn(() => new Promise<{ ok: true; inventory: InventorySnapshot }>((done) => { resolve = done; }));
-  const onInventoryChanged = vi.fn();
-  const panel = new ContainerContentsPanel({ onMoveItem, onInventoryChanged, onChangeContainer: vi.fn() });
-  panel.update(inventory([bag(), item("wood")]));
-  panel.show(1);
-  button('[data-container-put="wood"]').click();
-  panel.destroy();
-  resolve({ ok: true, inventory: inventory([bag(), item("wood", { containerInstanceId: "bag" })]) });
-  await Promise.resolve();
-  await Promise.resolve();
-
-  expect(onInventoryChanged).not.toHaveBeenCalled();
-  expect(document.querySelector("[data-container-contents]")).toBeNull();
-});
-
-it("equips an item from a bag through a separate action without moving it",async()=>{
- const sword=item("sword",{name:"Miecz",category:"weapon",containerInstanceId:"bag",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[]}});
- const move=vi.fn(),updated=vi.fn(),equipped={...sword,equippedSlot:"mainHand" as const};
- delete equipped.containerInstanceId;
- const equip=vi.fn().mockResolvedValue({ok:true,inventory:inventory([bag(),equipped])});
- const panel=new ContainerContentsPanel({onMoveItem:move,onEquipItem:equip,onInventoryChanged:updated,onChangeContainer:vi.fn()});panel.update(inventory([bag(),sword]));panel.show(1);
- const action=button('[data-container-equip="sword"]');expect(action.closest('[data-container-remove]')).toBeNull();action.click();
- await vi.waitFor(()=>expect(updated).toHaveBeenCalled());expect(equip).toHaveBeenCalledWith(sword);expect(move).not.toHaveBeenCalled();expect(document.querySelector('[data-container-capacity]')?.textContent).toContain("0 / 8");expect(document.querySelector('[data-container-put="sword"]')).toBeNull();panel.destroy();
+it("ignores pending responses after changing character or destruction", async () => {
+    let finish!: (result: InventoryUpdateResult) => void;
+    const changed = vi.fn(), value = panel({ onMoveItem: () => new Promise(resolve => { finish = resolve; }), onInventoryChanged: changed });
+    const character = (playerId: string): CharacterSnapshot => ({ playerId, nickname: playerId, level: 1, hp: 100, maxHp: 100, maxAp: 5, initiative: 10, severelyInjured: false, injuries: [] });
+    const initial = inventory([bag(), bag("bag", 8), item("wood", { containerInstanceId: "pack" })]);
+    value.update(initial, character("one"));
+    value.show(0);
+    inspect("wood");
+    move();
+    value.update(inventory([bag()]), character("two"));
+    finish({ ok: true, inventory: initial });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(changed).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-container-item="wood"]')).toBeNull();
+    value.destroy();
 });

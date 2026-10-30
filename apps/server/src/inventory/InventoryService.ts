@@ -20,6 +20,7 @@ import {
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 import { ensurePermanentBackpack } from "./permanentBackpack";
+import { autoStoreOwnedItems, getStorageDestinations } from "./autoStorage";
 
 export interface InventoryReward {
   itemId: string;
@@ -95,7 +96,7 @@ export class InventoryService {
 
   async ensurePermanentBackpack(characterId:string):Promise<void> {
     const client=await this.pool.connect();
-    try {await client.query("BEGIN");await ensurePermanentBackpack(client,characterId);await client.query("COMMIT");}
+    try {await client.query("BEGIN");await ensurePermanentBackpack(client,characterId);await autoStoreOwnedItems(client,characterId);await client.query("COMMIT");}
     catch(error){await client.query("ROLLBACK");throw error;}
     finally{client.release();}
   }
@@ -155,6 +156,7 @@ export class InventoryService {
         "UPDATE characters SET hp = $2, severely_injured = $3, injuries = $4::jsonb, updated_at = NOW() WHERE id = $1",
         [characterId, outcome.hp, outcome.severelyInjured, JSON.stringify(outcome.injuries)]
       );
+      await autoStoreOwnedItems(client,characterId);
       const snapshot = await this.getSnapshotForOwner("character", characterId, client);
       assertCurrent();
       await client.query("COMMIT");
@@ -210,7 +212,7 @@ export class InventoryService {
         if (row.category_id !== CONTAINER_ITEM_CATEGORY) {
           throw new Error("ITEM_NOT_CONTAINER");
         }
-        if (row.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
+        if (row.container_instance_id !== null && !(await getStorageDestinations(client,characterId)).some(parent=>parent.id===row.container_instance_id))throw new Error("CONTAINER_ITEM_STORED");
       }
 
       await client.query(
@@ -222,11 +224,12 @@ export class InventoryService {
       if (itemInstanceId !== null) {
         await client.query(
           `UPDATE item_instances
-           SET container_slot = $2, updated_at = NOW()
+           SET container_slot = $2, container_instance_id=NULL, updated_at = NOW()
            WHERE id = $1 AND character_id = $3`,
           [itemInstanceId, slotIndex, characterId]
         );
       }
+      await autoStoreOwnedItems(client,characterId);
       const snapshot = await this.getSnapshotForOwner("character", characterId, client);
       await client.query("COMMIT");
       return snapshot;
@@ -308,6 +311,7 @@ export class InventoryService {
           [itemInstanceId, targetContainerInstanceId, characterId]
         );
       }
+      await autoStoreOwnedItems(client,characterId);
       const snapshot = await this.getSnapshotForOwner("character", characterId, client);
       await client.query("COMMIT");
       return snapshot;
@@ -353,6 +357,7 @@ export class InventoryService {
 
     try {
       await client.query("BEGIN");
+      if(ownerKind==="character")await ensurePermanentBackpack(client,ownerId);
       for (const reward of rewards) {
         this.validateReward(reward);
         const definition = await this.requirePublishedDefinition(client, reward.itemId);
@@ -364,6 +369,7 @@ export class InventoryService {
           reward.quantity
         );
       }
+      if(ownerKind==="character")await autoStoreOwnedItems(client,ownerId);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -489,6 +495,7 @@ export class InventoryService {
 
     const ownerColumn = this.ownerColumn(ownerKind);
     let remaining = quantity;
+    const storageIds=ownerKind==="character"?(await getStorageDestinations(client,ownerId)).map(item=>item.id):[];
     while (remaining > 0) {
       const existingResult = await client.query<StackRow>(
         `SELECT id, quantity
@@ -503,10 +510,11 @@ export class InventoryService {
            AND affixes = '[]'::jsonb
            AND sockets = '[]'::jsonb
            AND bound_to_player_id IS NULL
-         ORDER BY created_at ASC, id ASC
+           ${ownerKind==="character"?"AND equipment_slot IS NULL AND NOT permanent_container AND (container_instance_id IS NULL OR container_instance_id=ANY($5::uuid[]))":""}
+         ORDER BY ${ownerKind==="character"?"array_position($5::uuid[],container_instance_id) ASC NULLS LAST,":""} created_at ASC, id ASC
          LIMIT 1
          FOR UPDATE`,
-        [ownerId, definition.id, definition.max_stack, definition.quality]
+        [ownerId, definition.id, definition.max_stack, definition.quality,...(ownerKind==="character"?[storageIds]:[])]
       );
 
       const existing = existingResult.rows[0];

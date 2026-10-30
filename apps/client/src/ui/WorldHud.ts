@@ -1,4 +1,4 @@
-import { getEquippedWeaponFamily, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_CAPACITY, PERMANENT_BACKPACK_SLOT_INDEX, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
+import { getEquippedWeaponFamily, getPendingInventoryItems, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_CAPACITY, PERMANENT_BACKPACK_SLOT_INDEX, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
 import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { experienceProgressMarkup } from "./ExperienceProgress";
@@ -30,8 +30,10 @@ export class WorldHud {
   private readonly containerSlots: HTMLButtonElement[] = [];
   private readonly content: HTMLElement;
   private readonly toggleButton: HTMLButtonElement;
+  private readonly togglePending:HTMLElement;
   private readonly compactViewport: MediaQueryList | null;
   private collapsed = false;
+  private pendingCount=0;
   private readonly onViewportChange = (): void => {
     if (!this.compactViewport?.matches) this.collapsed = false;
     this.updateVisibility();
@@ -44,6 +46,7 @@ export class WorldHud {
       <button type="button" class="world-hud__toggle" data-hud-toggle aria-controls="world-hud-content" aria-expanded="true" aria-label="Zwiń panel gry" hidden>
         <svg class="world-hud__toggle-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m6 14 6-6 6 6"/></svg>
         <svg class="world-hud__toggle-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 13h2m-2 3h2m4-3h3m-3 3h3"/></svg>
+        <span class="world-hud__pending-count" data-hud-pending hidden aria-hidden="true"></span>
       </button>
       <div class="world-hud__content" id="world-hud-content" data-hud-content>
       <div class="world-hud__identity">
@@ -79,6 +82,7 @@ export class WorldHud {
     this.healingButton.addEventListener("click",()=>{if(!this.healingButton.hidden)handlers.onHealing?.();});
     this.content = this.require("[data-hud-content]");
     this.toggleButton = this.require<HTMLButtonElement>("[data-hud-toggle]");
+    this.togglePending=this.require("[data-hud-pending]");
     this.compactViewport = typeof window.matchMedia === "function"
       ? window.matchMedia("(max-width: 600px), (max-height: 500px) and (orientation: landscape)")
       : null;
@@ -139,6 +143,7 @@ export class WorldHud {
   }
 
   updateInventory(inventory: InventorySnapshot): void {
+    this.pendingCount=getPendingInventoryItems(inventory).length;this.togglePending.textContent=String(this.pendingCount);this.togglePending.hidden=this.pendingCount===0;this.updateVisibility();
     this.containerSlots.forEach((button, slotIndex) => {
       const instanceId = inventory.containerSlots?.[slotIndex];
       const permanentSlot=slotIndex===PERMANENT_BACKPACK_SLOT_INDEX;
@@ -150,6 +155,7 @@ export class WorldHud {
       label.className = "world-hud__container-name";
       label.textContent = item?.name ?? "Pusty";
       button.title = permanentSlot ? item ? `${item.name} · ${PERMANENT_BACKPACK_CAPACITY} miejsc · na stałe · ${itemQualityText(item)}` : "Ładowanie plecaka" : `Pojemnik ${slotIndex + 1}: ${item?.name ?? "pusty"}${item ? ` · ${itemQualityText(item)}` : ""}`;
+      if(permanentSlot&&this.pendingCount)button.title+=` · Oczekujące: ${this.pendingCount}`;
       button.setAttribute("aria-label", `${button.title}. ${permanentSlot ? item ? "Otwórz plecak" : "Odśwież plecak" : "Wybierz pojemnik"}`);
       button.classList.toggle("is-permanent",permanentSlot&&!!item);
       button.classList.toggle("is-equipped", Boolean(item));
@@ -157,6 +163,7 @@ export class WorldHud {
       button.replaceChildren(containerIcon(item));
       if (item) button.prepend(number);
       if (item) button.append(label);
+      if(permanentSlot&&this.pendingCount){const count=document.createElement("span");count.className="world-hud__pending-count";count.dataset.pendingInventory="";count.textContent=String(this.pendingCount);count.setAttribute("aria-hidden","true");button.append(count);}
     });
   }
 
@@ -191,7 +198,7 @@ export class WorldHud {
     this.content.hidden = collapsed;
     this.root.classList.toggle("is-collapsed", collapsed);
     this.toggleButton.setAttribute("aria-expanded", `${!collapsed}`);
-    const label = collapsed ? "Rozwiń panel gry" : "Zwiń panel gry";
+    const label = `${collapsed ? "Rozwiń panel gry" : "Zwiń panel gry"}${this.pendingCount?` · Oczekujące: ${this.pendingCount}`:""}`;
     this.toggleButton.setAttribute("aria-label", label);
     this.toggleButton.title = label;
   }

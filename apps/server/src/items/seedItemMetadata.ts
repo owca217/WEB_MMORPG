@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { seedStarterItems } from "./seedStarterItems";
 import { ensurePermanentBackpack, ensurePermanentBackpackDefinition } from "../inventory/permanentBackpack";
+import { autoStoreOwnedItems } from "../inventory/autoStorage";
 import {
   ENGINE_STATS,
   SYSTEM_CATEGORIES,
@@ -28,6 +29,7 @@ export async function seedItemMetadata(pool: Pool): Promise<void> {
       await client.query("BEGIN");
       transactionOpen=true;
       await ensurePermanentBackpack(client,character.id);
+      await autoStoreOwnedItems(client,character.id);
       await client.query("COMMIT");
       transactionOpen=false;
     }

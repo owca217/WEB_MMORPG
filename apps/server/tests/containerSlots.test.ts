@@ -73,15 +73,17 @@ describeDatabase("persistent container slots", () => {
     expect(snapshot.containerSlots).toEqual([backpack, null, null, null]);
     expect(snapshot.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ instanceId: backpack, permanentContainer: true, containerCapacity: 16 }),
-      expect.objectContaining({ itemId: "wolf-pelt", quantity: 2 })
+      expect.objectContaining({ itemId: "wolf-pelt", quantity: 2, containerInstanceId:backpack })
     ]));
     expect(snapshot.items).toHaveLength(2);
   });
 
   it("persists assignments, replaces a slot, moves an instance, and clears it", async () => {
     const [first, second] = await addContainers(2);
-    expect((await inventory.setContainerSlot(characterId, 1, first!)).containerSlots)
-      .toEqual([backpack, first, null, null]);
+    expect((await inventory.getSnapshot(characterId)).items.find(item=>item.instanceId===first)).toMatchObject({containerInstanceId:backpack});
+    const assigned=await inventory.setContainerSlot(characterId, 1, first!);
+    expect(assigned.containerSlots).toEqual([backpack, first, null, null]);
+    expect(assigned.items.find(item=>item.instanceId===first)).not.toHaveProperty("containerInstanceId");
     expect((await new InventoryService(pool).getSnapshot(characterId)).containerSlots)
       .toEqual([backpack, first, null, null]);
     expect((await inventory.setContainerSlot(characterId, 1, second!)).containerSlots)
@@ -91,16 +93,18 @@ describeDatabase("persistent container slots", () => {
     const cleared = await inventory.setContainerSlot(characterId, 3, null);
     expect(cleared.containerSlots).toEqual([backpack, null, null, null]);
     expect(cleared.items).toHaveLength(3);
+    expect(cleared.items.find(item=>item.instanceId===second)).toMatchObject({containerInstanceId:backpack});
   });
 
-  it("rejects foreign, non-container, nested, and missing instances before replacing an occupant", async () => {
+  it("rejects foreign, non-container, foreign-parent and missing instances before replacing an occupant", async () => {
     const [original, nested] = await addContainers(2);
     const [foreign] = await addContainers(1, otherCharacterId);
     const ordinary = await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 1 }]);
     const pelt = ordinary.items.find((item) => item.itemId === "wolf-pelt")!;
-    await pool.query("UPDATE item_instances SET container_instance_id = $2 WHERE id = $1", [nested, original]);
+    const foreignBackpack=(await inventory.getSnapshot(otherCharacterId)).items.find(item=>item.permanentContainer)!.instanceId;
+    await pool.query("UPDATE item_instances SET container_instance_id = $2 WHERE id = $1", [nested, foreignBackpack]);
     expect((await inventory.getSnapshot(characterId)).items.find((item) => item.instanceId === nested))
-      .toMatchObject({ containerInstanceId: original });
+      .toMatchObject({ containerInstanceId: foreignBackpack });
     await inventory.setContainerSlot(characterId, 1, original!);
     for (const [id, error] of [
       [foreign!, "CONTAINER_ITEM_NOT_OWNED"],
@@ -199,9 +203,9 @@ describeDatabase("persistent container slots", () => {
   it("enforces slot bounds, ownership, parent exclusion, and occupied-slot uniqueness in the database", async () => {
     const [first, second] = await addContainers(2);
     await inventory.setContainerSlot(characterId, 1, first!);
-    await expect(pool.query("UPDATE item_instances SET container_slot = 1 WHERE id = $1", [second]))
+    await expect(pool.query("UPDATE item_instances SET container_slot = 1, container_instance_id = NULL WHERE id = $1", [second]))
       .rejects.toMatchObject({ code: "23505" });
-    await expect(pool.query("UPDATE item_instances SET container_slot = 4 WHERE id = $1", [second]))
+    await expect(pool.query("UPDATE item_instances SET container_slot = 4, container_instance_id = NULL WHERE id = $1", [second]))
       .rejects.toMatchObject({ code: "23514" });
     await expect(pool.query("UPDATE item_instances SET character_id = NULL WHERE id = $1", [first]))
       .rejects.toMatchObject({ code: "23514" });

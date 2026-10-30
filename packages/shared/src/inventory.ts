@@ -56,6 +56,13 @@ export interface InventorySnapshot {
   equipmentSlots?: EquipmentSlots;
 }
 
+/** Owned overflow is durable and remains accessible until a container has room. */
+export function getPendingInventoryItems(snapshot: InventorySnapshot): InventoryItem[] {
+  const assigned = new Set(snapshot.containerSlots?.filter(id => id !== null));
+  return snapshot.items.filter(item => !item.containerInstanceId && !item.equippedSlot
+    && !item.permanentContainer && !assigned.has(item.instanceId));
+}
+
 export type InventoryUpdateResult =
   | { ok: true; inventory: InventorySnapshot }
   | { ok: false; code: string; message: string };

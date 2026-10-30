@@ -1420,4 +1420,5 @@ button {
 .container-equipment-row { display:grid; gap:5px; min-width:0; }
 .container-equipment-row > .container-contents__item { width:100%; }
 .container-equipment-action { font-size:12px; }
+.world-hud__pending-count { position:absolute; top:2px; right:2px; min-width:15px; padding:2px 4px; border-radius:9px; background:#a64a2e; color:#fff2d3; font-size:10px; line-height:1.2; text-align:center; }
 @media(max-width:520px) { .equipment-slots { grid-template-columns:1fr; } .character-tabs { gap:4px; padding:0 10px 10px; } .character-tabs [role="tab"] { font-size:13px; } }

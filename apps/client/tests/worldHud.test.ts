@@ -12,14 +12,18 @@ afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 it("opens the permanent backpack from the left HUD slot with the bundled icon and retains three ordinary empty slots",()=>{
   vi.stubEnv("BASE_URL","/WEB_MMORPG/");
+  vi.stubGlobal("matchMedia",()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
   const onContainerSlot=vi.fn(),hud=new WorldHud({onContainerSlot,onCharacter:vi.fn(),onAdmin:vi.fn()});
   const backpack:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak podróżnika",category:"container",description:"",quantity:1,rarity:"COMMON",quality:"NORMAL",upgradeLevel:0,permanentContainer:true,containerCapacity:16,iconUrl:"/wrong-root-url.png"};
-  hud.updateInventory({items:[backpack],containerSlots:["permanent",null,null,null]});
+  const waiting:InventoryItem={instanceId:"overflow",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0};
+  hud.updateInventory({items:[backpack,waiting],containerSlots:["permanent",null,null,null]});
   const left=document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!;
   expect(left.getAttribute("aria-label")).toContain("Otwórz plecak");
   expect(left.title).toContain("16 miejsc");expect(left.title).toContain("na stałe");
   expect(left.querySelector("img")?.getAttribute("src")).toBe("/WEB_MMORPG/assets/items/permanent-backpack.png");
   expect(left.querySelector<HTMLElement>("[data-item-quality]")?.dataset.itemQuality).toBe("NORMAL");
+  expect(left.querySelector("[data-pending-inventory]")?.textContent).toBe("1");expect(left.title).toContain("Oczekujące: 1");
+  document.querySelector<HTMLButtonElement>("[data-hud-toggle]")!.click();expect(document.querySelector<HTMLElement>("[data-hud-pending]")?.hidden).toBe(false);expect(document.querySelector("[data-hud-toggle]")?.getAttribute("aria-label")).toContain("Oczekujące: 1");
   left.click();expect(onContainerSlot).toHaveBeenCalledWith(0);
   left.querySelector("img")!.dispatchEvent(new Event("error"));
   expect(left.querySelector("svg")).not.toBeNull();expect(left.querySelector("[data-item-quality]")).not.toBeNull();

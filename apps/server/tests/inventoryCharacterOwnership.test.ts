@@ -72,14 +72,16 @@ describeDatabase("persistent character inventory ownership", () => {
 
   it("writes new item instances to character_id and leaves legacy player_id empty", async () => {
     const inventory = new InventoryService(pool);
-    await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 2 }]);
+    const granted=await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 2 }]);
+    const backpack=granted.items.find(item=>item.permanentContainer)!.instanceId;
 
     const rows = await pool.query<{
       character_id: string | null;
       player_id: string | null;
       quantity: number;
+      container_instance_id: string | null;
     }>(
-      `SELECT character_id, player_id, quantity
+      `SELECT character_id, player_id, quantity, container_instance_id
        FROM item_instances
        WHERE character_id = $1 AND NOT permanent_container`,
       [characterId]
@@ -89,7 +91,8 @@ describeDatabase("persistent character inventory ownership", () => {
     expect(rows.rows[0]).toEqual({
       character_id: characterId,
       player_id: null,
-      quantity: 2
+      quantity: 2,
+      container_instance_id:backpack
     });
   });
 
@@ -114,6 +117,7 @@ describeDatabase("persistent character inventory ownership", () => {
 
     await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 1 }]);
     const before = (await inventory.getSnapshot(characterId)).items.find(item => item.itemId === "wolf-pelt")!;
+    expect(before.containerInstanceId).toBeDefined();
 
     const details = await catalog.getItem("wolf-pelt");
     await catalog.updateDraft(
@@ -130,6 +134,7 @@ describeDatabase("persistent character inventory ownership", () => {
     const after = (await inventory.getSnapshot(characterId)).items.find(item => item.itemId === "wolf-pelt")!;
     expect(after.instanceId).toBe(before.instanceId);
     expect(after.quantity).toBe(1);
+    expect(after.containerInstanceId).toBe(before.containerInstanceId);
     expect(after).toMatchObject({
       name: "Persistent Wolf Pelt v2",
       rarity: "UNCOMMON"

@@ -1,10 +1,12 @@
 import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_INDEX, type ContainerSlotIndex, type InventorySnapshot, type SetContainerSlotResult } from "@web-mmorpg/shared";
 import { containerIcon } from "./ContainerIcon";
 import { itemQualityText } from "./ItemQualityFrame";
+import { getAssignedContainers } from "./PermanentBackpack";
 
 interface ContainerPickerHandlers {
   onSetContainerSlot: (slotIndex: ContainerSlotIndex, itemInstanceId: string | null) => Promise<SetContainerSlotResult>;
   onInventoryChanged: (inventory: InventorySnapshot) => void;
+  onRefresh?:()=>void;
 }
 
 export class ContainerPicker {
@@ -18,6 +20,8 @@ export class ContainerPicker {
   private pending = false;
   private destroyed = false;
   private returnFocus: HTMLElement | null = null;
+  private requestVersion=0;
+  private dataVersion=0;
 
   constructor(private readonly handlers: ContainerPickerHandlers) {
     this.root = document.createElement("div");
@@ -36,6 +40,7 @@ export class ContainerPicker {
       <button type="button" class="container-picker__clear" data-container-clear>Zdejmij pojemnik</button>
     `;
     document.body.appendChild(this.root);
+    for(const type of ["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend","click"])this.root.addEventListener(type,event=>event.stopPropagation());
     this.title = this.require("[data-container-picker-title]");
     this.list = this.require("[data-container-list]");
     this.clearButton = this.require<HTMLButtonElement>("[data-container-clear]");
@@ -48,6 +53,8 @@ export class ContainerPicker {
   }
 
   update(snapshot: InventorySnapshot): void {
+    if(this.destroyed)return;
+    this.dataVersion++;
     this.snapshot = snapshot;
     if(this.permanentSlot())this.hide();
     this.render();
@@ -65,6 +72,7 @@ export class ContainerPicker {
   }
 
   hide(): void {
+    this.requestVersion++;this.pending=false;
     this.root.classList.add("is-hidden");
     if (this.returnFocus?.isConnected) this.returnFocus.focus();
   }
@@ -80,7 +88,8 @@ export class ContainerPicker {
     this.clearButton.disabled = this.pending || this.permanentSlot() || !this.snapshot.containerSlots?.[this.slotIndex];
     this.root.setAttribute("aria-busy", `${this.pending}`);
     this.list.replaceChildren();
-    const containers = this.snapshot.items.filter((item) => item.category === CONTAINER_ITEM_CATEGORY && !item.containerInstanceId && !item.permanentContainer);
+    const accessibleParents=new Set(getAssignedContainers(this.snapshot).map(item=>item.instanceId));
+    const containers = this.snapshot.items.filter((item) => item.category === CONTAINER_ITEM_CATEGORY && (!item.containerInstanceId||accessibleParents.has(item.containerInstanceId)) && !item.permanentContainer);
     if (containers.length === 0) {
       const empty = document.createElement("p");
       empty.className = "game-panel__empty";
@@ -100,7 +109,8 @@ export class ContainerPicker {
       const name = document.createElement("strong");
       name.textContent = item.name;
       const description = document.createElement("span");
-      description.textContent = `${itemQualityText(item)}${item.description ? ` · ${item.description}` : ""}`;
+      const parent=this.snapshot.items.find(candidate=>candidate.instanceId===item.containerInstanceId);
+      description.textContent = `${itemQualityText(item)}${parent?` · W pojemniku: ${parent.name}`:""}${item.description ? ` · ${item.description}` : ""}`;
       const action = document.createElement("span");
       action.className = "container-picker__action";
       action.textContent = selected ? "Założony tutaj" : equippedIndex >= 0 ? `Przenieś ze slotu ${equippedIndex + 1}` : "Załóż tutaj";
@@ -113,14 +123,17 @@ export class ContainerPicker {
 
   private async setSlot(itemInstanceId: string | null): Promise<void> {
     if (this.pending || this.destroyed || this.permanentSlot() || this.snapshot.items.some(item=>item.instanceId===itemInstanceId&&item.permanentContainer)) return;
+    if(itemInstanceId!==null){const item=this.snapshot.items.find(candidate=>candidate.instanceId===itemInstanceId),parents=new Set(getAssignedContainers(this.snapshot).map(candidate=>candidate.instanceId));if(!item||item.category!==CONTAINER_ITEM_CATEGORY||(item.containerInstanceId&&!parents.has(item.containerInstanceId)))return;}
+    const version=++this.requestVersion,dataVersion=this.dataVersion;
     this.pending = true;
     this.feedback.textContent = "Zapisywanie…";
     this.feedback.dataset.state = "pending";
     this.render();
     try {
       const result = await this.handlers.onSetContainerSlot(this.slotIndex, itemInstanceId);
-      if (this.destroyed) return;
+      if (this.destroyed||version!==this.requestVersion) return;
       if (result.ok) {
+        if(dataVersion!==this.dataVersion){this.feedback.textContent="Zmieniono pojemnik.";this.feedback.dataset.state="success";this.hide();this.handlers.onRefresh?.();return;}
         this.snapshot = result.inventory;
         this.handlers.onInventoryChanged(result.inventory);
         this.hide();
@@ -129,12 +142,11 @@ export class ContainerPicker {
         this.feedback.dataset.state = "error";
       }
     } catch {
-      if (this.destroyed) return;
+      if (this.destroyed||version!==this.requestVersion) return;
       this.feedback.textContent = "Nie udało się zapisać pojemnika. Spróbuj ponownie.";
       this.feedback.dataset.state = "error";
     } finally {
-      this.pending = false;
-      if (!this.destroyed) this.render();
+      if (!this.destroyed&&version===this.requestVersion){this.pending=false;this.render();}
     }
   }
 

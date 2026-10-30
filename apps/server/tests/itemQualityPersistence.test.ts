@@ -83,7 +83,7 @@ describeDatabase("cosmetic item quality persistence",()=>{
   });
 
   it("snapshots quality at grant and merges only matching qualities for ordinary rewards and loot",async()=>{
-    const normal=(await inventory.addItems(alice,[{itemId:"field-bandage",quantity:2}])).items[0]!;
+    const normal=(await inventory.addItems(alice,[{itemId:"field-bandage",quantity:2}])).items.find(item=>item.itemId==="field-bandage")!;
     expect(normal.quality).toBe("NORMAL");
     await publishQuality("field-bandage","GOOD");
     await inventory.addItems(alice,[{itemId:"field-bandage",quantity:3}]);
@@ -106,7 +106,8 @@ describeDatabase("cosmetic item quality persistence",()=>{
     const final=await merchant.purchase(alice,request());
     expect(final.shop.gold).toBe(80);
     expect(final.inventory.items.filter(item=>item.itemId==="field-bandage").map(item=>({quality:item.quality,quantity:item.quantity}))).toEqual(expect.arrayContaining([{quality:"NORMAL",quantity:1},{quality:"MASTERWORK",quantity:2},{quality:"BASIC",quantity:1}]));
-    expect(final.inventory.items).toHaveLength(3);
+    expect(final.inventory.items.filter(item=>item.itemId==="field-bandage")).toHaveLength(3);
+    expect(final.inventory.items.find(item=>item.permanentContainer)).toMatchObject({containerCapacity:16});
   });
 
   it("preserves quality on whole and split trades, displays it and never merges different-quality stacks",async()=>{
@@ -121,7 +122,7 @@ describeDatabase("cosmetic item quality persistence",()=>{
     state=await trade.setOffer(alice,state.id,state.revision,[{instanceId:stack.instanceId,quantity:4},{instanceId:whole.instanceId,quantity:1}]);
     expect(state.participants[0].offer).toEqual(expect.arrayContaining([expect.objectContaining({instanceId:stack.instanceId,quality:"MASTERWORK"}),expect.objectContaining({instanceId:whole.instanceId,quality:"BASIC"})]));
     await trade.confirm(alice,state.id,state.revision);await trade.confirm(bob,state.id,state.revision);
-    expect((await inventory.getSnapshot(alice)).items).toEqual([expect.objectContaining({instanceId:stack.instanceId,quality:"MASTERWORK",quantity:6})]);
+    expect((await inventory.getSnapshot(alice)).items.filter(item=>!item.permanentContainer)).toEqual([expect.objectContaining({instanceId:stack.instanceId,quality:"MASTERWORK",quantity:6,containerInstanceId:expect.any(String)})]);
     const received=(await inventory.getSnapshot(bob)).items;
     expect(received.find(item=>item.instanceId===whole.instanceId)).toMatchObject({quality:"BASIC"});
     expect(received.filter(item=>item.itemId==="field-bandage")).toEqual(expect.arrayContaining([expect.objectContaining({quality:"NORMAL",quantity:3}),expect.objectContaining({quality:"MASTERWORK",quantity:4})]));
@@ -130,11 +131,11 @@ describeDatabase("cosmetic item quality persistence",()=>{
   });
 
   it("upgrades existing definitions and instances to normal quality and enforces durable enum constraints",async()=>{
-    const instance=(await inventory.addItems(alice,[{itemId:"field-bandage",quantity:2}])).items[0]!;
+    const instance=(await inventory.addItems(alice,[{itemId:"field-bandage",quantity:2}])).items.find(item=>item.itemId==="field-bandage")!;
     await pool.query("ALTER TABLE item_instances DROP COLUMN IF EXISTS quality; ALTER TABLE item_versions DROP COLUMN IF EXISTS quality; DROP TYPE IF EXISTS item_quality; DELETE FROM schema_migrations WHERE migration_name='012_item_quality'");
     await runMigrations(pool);await runMigrations(pool);
     expect((await catalog.getItem("field-bandage")).item.quality).toBe("NORMAL");
-    expect((await inventory.getSnapshot(alice)).items[0]).toMatchObject({instanceId:instance.instanceId,quality:"NORMAL",quantity:2});
+    expect((await inventory.getSnapshot(alice)).items.find(item=>item.instanceId===instance.instanceId)).toMatchObject({instanceId:instance.instanceId,quality:"NORMAL",quantity:2});
     await expect(pool.query("UPDATE item_instances SET quality='INVALID' WHERE id=$1",[instance.instanceId])).rejects.toMatchObject({code:"22P02"});
     await expect(pool.query("UPDATE item_versions SET quality=NULL")).rejects.toMatchObject({code:"23502"});
   });

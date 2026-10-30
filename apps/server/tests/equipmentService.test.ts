@@ -37,11 +37,14 @@ describeDb("persistent real equipment",()=>{
     expect(swapped.items.find(item=>item.instanceId===shield.instanceId)?.equippedSlot).toBeUndefined();
     await expect(set("offHand",shield.instanceId)).rejects.toThrow("EQUIPMENT_TWO_HANDED");
     expect((await new InventoryService(pool).getSnapshot(alice)).equipmentSlots?.mainHand).toBe(bow.instanceId);
-    expect(swapped.items).toHaveLength(3);
+    expect(swapped.items).toHaveLength(4);
+    const backpack=swapped.items.find(item=>item.permanentContainer)!;
+    for(const id of [sword.instanceId,shield.instanceId])expect(swapped.items.find(item=>item.instanceId===id)?.containerInstanceId).toBe(backpack.instanceId);
   });
 
-  it("equips from a bag, prohibits storing equipped items, and unequips to top-level inventory",async()=>{
+  it("equips from a bag, prohibits storing equipped items, and automatically stores unequipped gear",async()=>{
     const bag=await grant("rag-bag"),sword=await grant("training-sword");
+    await inventory.setContainerSlot(alice,1,bag.instanceId);
     await inventory.moveItemToContainer(alice,sword.instanceId,bag.instanceId);
     const equipped=await set("mainHand",sword.instanceId);
     expect(equipped.items.find(item=>item.instanceId===sword.instanceId)).toMatchObject({equippedSlot:"mainHand"});
@@ -49,7 +52,7 @@ describeDb("persistent real equipment",()=>{
     await expect(inventory.moveItemToContainer(alice,sword.instanceId,bag.instanceId)).rejects.toThrow("EQUIPMENT_ITEM_EQUIPPED");
     const removed=await set("mainHand",null);
     expect(removed.items.find(item=>item.instanceId===sword.instanceId)?.equippedSlot).toBeUndefined();
-    expect(removed.items.find(item=>item.instanceId===sword.instanceId)?.containerInstanceId).toBeUndefined();
+    expect(removed.items.find(item=>item.instanceId===sword.instanceId)?.containerInstanceId).toBe(removed.items.find(item=>item.permanentContainer)!.instanceId);
   });
 
   it("rejects other owners, wrong slots, level requirements, broken gear and unsupported requirements",async()=>{

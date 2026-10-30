@@ -43,6 +43,23 @@ it("commits once on valid hover before release, survives a replaced source and s
  document.body.removeEventListener("pointerup",world);document.body.removeEventListener("mouseup",world);document.body.removeEventListener("click",world);
 });
 
+it("assigns a full pending container or an empty stored bag on release instead of nesting it in an occupied HUD bag",()=>{
+ controller.destroy();
+ const assign=vi.fn();
+ snapshot.items=snapshot.items.map(entry=>entry.instanceId==="wood"?item("wood",{category:"container",containerCapacity:8}):entry);
+ snapshot.items.push(item("child",{containerInstanceId:"wood"}));
+ target.dataset.containerSlotTarget="2";delete target.dataset.containerDropTarget;
+ controller=new InventoryDragController(root,{snapshot:()=>snapshot,source:id=>snapshot.items.find(entry=>entry.instanceId===id),enabled:()=>true,onStart:vi.fn(),onDrop:drop,onAssignContainer:assign,onStateChange:state,onMessage:vi.fn()});
+ pointer("pointerdown",source);pointer("pointermove",document,20,20);expect(assign).not.toHaveBeenCalled();expect(target.classList.contains("inventory-drop-target--valid")).toBe(true);
+ pointer("pointerup",document.body,20,20);expect(assign).toHaveBeenCalledExactlyOnceWith("wood",2);expect(drop).not.toHaveBeenCalled();
+ snapshot.items=snapshot.items.filter(entry=>entry.instanceId!=="child").map(entry=>entry.instanceId==="wood"?{...entry,containerInstanceId:"pack"}:entry);
+ target.dataset.containerSlotTarget="1";target.dataset.containerDropTarget="side";
+ pointer("pointerdown",source);pointer("pointermove",document,30,30);expect(assign).toHaveBeenCalledTimes(1);expect(drop).not.toHaveBeenCalled();
+ pointer("pointerup",document.body,30,30);expect(assign).toHaveBeenLastCalledWith("wood",1);
+ target.dataset.containerSlotTarget="0";delete target.dataset.containerDropTarget;
+ pointer("pointerdown",source);pointer("pointermove",document,40,40);pointer("pointerup",document.body,40,40);expect(assign).toHaveBeenCalledTimes(2);
+});
+
 it("marks full/current/unassigned targets invalid and uses current capacity before a hover transfer",()=>{
  snapshot.items.push(...Array.from({length:8},(_,index)=>item(`full-${index}`,{containerInstanceId:"side"})));pointer("pointerdown",source);pointer("pointermove",document,9,0);expect(drop).not.toHaveBeenCalled();expect(target.classList.contains("inventory-drop-target--invalid")).toBe(true);
  const ghost=document.querySelector<HTMLElement>("[data-inventory-drag-ghost]")!;expect(ghost.dataset.itemQuality).toBe("GOOD");expect(ghost.textContent).toBe("3");

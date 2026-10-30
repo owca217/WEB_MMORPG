@@ -178,6 +178,7 @@ describe("ItemCatalogView", () => {
     return {
       getMetadata: vi.fn(async () => metadata),
       listItems: vi.fn(async () => page(items)),
+      grantItem: vi.fn(async () => ({ characterId: "hero", inventory: { items: [], containerSlots: [null, null, null, null] } })),
       getItem: vi.fn(),
       duplicateItem: vi.fn(async () => ({ ...catalogItem(), itemId: "iron-sword-copy" })),
       archiveItem: vi.fn(async () => undefined),
@@ -299,5 +300,82 @@ describe("ItemCatalogView", () => {
     });
     await errorView.show();
     expect(errorHost.textContent).toContain("Serwer niedostępny");
+  });
+
+  it("enables granting only published ordinary items with a current character", async () => {
+    const host = document.createElement("div");
+    const view = new ItemCatalogView(host, createApi([
+      catalogItem({ status: "PUBLISHED" }),
+      catalogItem({ itemId: "draft" }),
+      catalogItem({ itemId: "archived", status: "ARCHIVED" }),
+      catalogItem({ itemId: "permanent-backpack", status: "PUBLISHED" })
+    ]), { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn(), getCharacterId: () => "hero", onInventoryGranted: vi.fn() });
+    await view.show();
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>("[data-action='grant']")];
+    expect(buttons.map(button => button.disabled)).toEqual([false, true, true, true]);
+    const input = host.querySelector<HTMLInputElement>("[data-grant-quantity]")!;
+    expect([input.value, input.min, input.max, input.step]).toEqual(["1", "1", "100", "1"]);
+  });
+
+  it("sends one pending grant, validates quantity and delivers the inventory result", async () => {
+    const host = document.createElement("div");
+    const api = createApi([catalogItem({ status: "PUBLISHED" })]);
+    let finish!: (result: unknown) => void;
+    (api.grantItem as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const onInventoryGranted = vi.fn();
+    const view = new ItemCatalogView(host, api, { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn(), getCharacterId: () => "hero", onInventoryGranted });
+    await view.show();
+    const quantity = host.querySelector<HTMLInputElement>("[data-grant-quantity]")!;
+    const button = host.querySelector<HTMLButtonElement>("[data-action='grant']")!;
+    quantity.value = "101";
+    button.click();
+    expect(api.grantItem).not.toHaveBeenCalled();
+    quantity.value = "3";
+    button.click();
+    button.click();
+    expect(button.disabled).toBe(true);
+    expect(api.grantItem).toHaveBeenCalledTimes(1);
+    expect(api.grantItem).toHaveBeenCalledWith("iron-sword", { characterId: "hero", quantity: 3, requestId: expect.any(String) });
+    const result = { characterId: "hero", inventory: { items: [], containerSlots: [null, null, null, null] } };
+    finish(result);
+    await flush();
+    expect(onInventoryGranted).toHaveBeenCalledWith(result);
+    expect(host.textContent).toContain("Dodano");
+    expect(button.disabled).toBe(false);
+  });
+
+  it("shows network errors and reuses the request UUID on retry", async () => {
+    const host = document.createElement("div");
+    const api = createApi([catalogItem({ status: "PUBLISHED" })]);
+    (api.grantItem as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const view = new ItemCatalogView(host, api, { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn(), getCharacterId: () => "hero", onInventoryGranted: vi.fn() });
+    await view.show();
+    const button = host.querySelector<HTMLButtonElement>("[data-action='grant']")!;
+    button.click();
+    await flush();
+    expect(host.textContent).toContain("Failed to fetch");
+    const firstInput = (api.grantItem as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+    button.click();
+    await flush();
+    expect((api.grantItem as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toEqual(firstInput);
+  });
+
+  it.each(["destroy", "character switch"])("ignores a grant result after %s", async mode => {
+    const host = document.createElement("div");
+    const api = createApi([catalogItem({ status: "PUBLISHED" })]);
+    let finish!: (result: unknown) => void;
+    let characterId: string | undefined = "hero";
+    (api.grantItem as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const onInventoryGranted = vi.fn();
+    const view = new ItemCatalogView(host, api, { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn(), getCharacterId: () => characterId, onInventoryGranted });
+    await view.show();
+    host.querySelector<HTMLButtonElement>("[data-action='grant']")!.click();
+    if (mode === "destroy") { view.destroy(); host.textContent = "Replacement"; }
+    else characterId = "another-hero";
+    const contentBefore = host.textContent;
+    finish({ characterId: "hero", inventory: { items: [], containerSlots: [null, null, null, null] } });
+    await flush();
+    expect(onInventoryGranted).not.toHaveBeenCalled();
+    expect(host.textContent).toBe(contentBefore);
   });
 });

@@ -1,8 +1,12 @@
-import type { ItemDraftInput } from "@web-mmorpg/shared";
+import type { InventoryItem, InventorySnapshot, ItemDraftInput } from "@web-mmorpg/shared";
+import { PERMANENT_BACKPACK_ITEM_ID } from "@web-mmorpg/shared";
+import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountAdminService } from "../src/admin/AccountAdminService";
+import { ItemGrantService } from "../src/admin/ItemGrantService";
+import { InventoryService } from "../src/inventory/InventoryService";
 import type { IconStorage, IconUploadInput } from "../src/admin/IconStorage";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
 import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
@@ -70,6 +74,8 @@ describeDatabase("ADMIN item REST API", () => {
   let adminToken: string;
   let playerToken: string;
   let adminAccountId: string;
+  let characterId: string;
+  let foreignCharacterId: string;
 
   beforeAll(async () => {
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
@@ -107,6 +113,9 @@ describeDatabase("ADMIN item REST API", () => {
 
     await auth.register("ApiPlayer", PASSWORD);
     playerToken = (await auth.login("ApiPlayer", PASSWORD)).token;
+    characterId = (await lifecycle.createCharacter(adminAccountId, { nickname: "AdminHero", appearance: {} })).id;
+    const playerAccount = await accounts.findByNormalizedUsername("apiplayer");
+    foreignCharacterId = (await lifecycle.createCharacter(playerAccount!.id, { nickname: "PlayerHero", appearance: {} })).id;
 
     app = express();
     app.use(express.json());
@@ -118,6 +127,7 @@ describeDatabase("ADMIN item REST API", () => {
         metadata,
         catalog,
         audit,
+        itemGrants: new ItemGrantService(pool, new InventoryService(pool), audit),
         iconStorage: icons
       })
     );
@@ -125,6 +135,127 @@ describeDatabase("ADMIN item REST API", () => {
 
   afterAll(async () => {
     await pool.end();
+  });
+
+  describe("item grants", () => {
+    const grantPath = "/api/admin/items/api-iron-sword/grant";
+    const grant = (quantity: unknown = 1, overrides: Record<string, unknown> = {}) =>
+      request(app).post(grantPath).set("Authorization", `Bearer ${adminToken}`)
+        .send({ characterId, quantity, requestId: randomUUID(), ...overrides });
+
+    it("requires an ADMIN session, own active character and strictly bounded input", async () => {
+      await request(app).post(grantPath).send({}).expect(401);
+      await request(app).post(grantPath).set("Authorization", `Bearer ${playerToken}`).send({}).expect(403);
+      await grant(1, { characterId: foreignCharacterId }).expect(404);
+      for (const quantity of [0, 101, 1.5, "2", null]) await grant(quantity).expect(400);
+      await grant(1, { requestId: "invalid" }).expect(400);
+      await grant(1, { characterId: "invalid" }).expect(400);
+      await pool.query("UPDATE characters SET deletion_requested_at=NOW(), deletion_effective_at=NOW()+INTERVAL '1 day' WHERE id=$1", [characterId]);
+      await grant().expect(409);
+      expect((await pool.query("SELECT 1 FROM admin_audit_log WHERE action='ITEM_GRANTED'")).rowCount).toBe(0);
+    });
+
+    it("accepts only the current published definition and rejects the permanent backpack", async () => {
+      await grant().expect(404);
+      await catalog.createDraft(sword(), adminAccountId);
+      await grant().expect(400);
+      await catalog.publish("api-iron-sword", 1, adminAccountId);
+      await catalog.archive("api-iron-sword", adminAccountId);
+      await grant().expect(400);
+      await request(app).post(`/api/admin/items/${PERMANENT_BACKPACK_ITEM_ID}/grant`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ characterId, quantity: 1, requestId: randomUUID() }).expect(400);
+    });
+
+    it("grants quality-aware stacks, stores overflow durably, audits once and replays concurrent retries", async () => {
+      await catalog.createDraft(sword({ stackable: true, maxStack: 10, quality: "MASTERWORK" }), adminAccountId);
+      await catalog.publish("api-iron-sword", 1, adminAccountId);
+      const requestId = randomUUID();
+      const [first, replay] = await Promise.all([grant(17, { requestId }), grant(17, { requestId })]);
+      expect(first.status).toBe(200);
+      expect(replay.status).toBe(200);
+      expect(first.body.characterId).toBe(characterId);
+      const granted = first.body.inventory.items.filter((item: { itemId: string }) => item.itemId === "api-iron-sword");
+      expect(granted.map((item: { quantity: number }) => item.quantity).sort((a: number, b: number) => a-b)).toEqual([7, 10]);
+      expect(granted.every((item: { quality: string; containerInstanceId?: string }) => item.quality === "MASTERWORK" && item.containerInstanceId)).toBe(true);
+      expect(replay.body.inventory).toEqual(first.body.inventory);
+      await grant(18, { requestId }).expect(409);
+      const audits = await pool.query("SELECT actor_account_id,summary FROM admin_audit_log WHERE action='ITEM_GRANTED'");
+      expect(audits.rows).toEqual([{ actor_account_id: adminAccountId, summary: { requestId, characterId, itemId: "api-iron-sword", quantity: 17 } }]);
+
+      await catalog.createDraft(sword({ itemId: "grant-filler" }), adminAccountId);
+      await catalog.publish("grant-filler", 1, adminAccountId);
+      const overflow = await request(app).post("/api/admin/items/grant-filler/grant")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ characterId, quantity: 20, requestId: randomUUID() }).expect(200);
+      const filler = overflow.body.inventory.items.filter((item: { itemId: string }) => item.itemId === "grant-filler");
+      expect(filler).toHaveLength(20);
+      expect(filler.filter((item: { containerInstanceId?: string }) => !item.containerInstanceId)).toHaveLength(6);
+    });
+
+    it("rolls back both items and receipt if audit persistence fails, then permits a safe retry", async () => {
+      await catalog.createDraft(sword(), adminAccountId);
+      await catalog.publish("api-iron-sword", 1, adminAccountId);
+      const append = vi.spyOn(audit, "appendWithClient").mockRejectedValueOnce(new Error("audit unavailable"));
+      const logging = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const requestId = randomUUID();
+      try {
+        await grant(2, { requestId }).expect(500);
+        expect((await pool.query("SELECT 1 FROM item_instances instance JOIN items item ON item.id=instance.item_id WHERE item.item_id='api-iron-sword'")).rowCount).toBe(0);
+        expect((await pool.query("SELECT 1 FROM admin_audit_log WHERE action='ITEM_GRANTED'")).rowCount).toBe(0);
+        const retry = await grant(2, { requestId }).expect(200);
+        expect(retry.body.inventory.items.filter((item: { itemId: string }) => item.itemId === "api-iron-sword")).toHaveLength(2);
+      } finally {
+        append.mockRestore();
+        logging.mockRestore();
+      }
+    });
+
+    it("grants legacy backpacks and equips full pending bags without losing contents or quality", async () => {
+      const bagDraft = sword({ itemId: "expedition-backpack", categoryId: "backpack", quality: "MASTERWORK",
+        stats: [{ statCode: "EXTRA_SLOTS", modifierType: "flat", value: 60 }] });
+      delete bagDraft.subcategoryId;
+      await catalog.createDraft(bagDraft, adminAccountId);
+      await catalog.publish("expedition-backpack", 1, adminAccountId);
+      await catalog.createDraft(sword({ quality: "GOOD" }), adminAccountId);
+      await catalog.publish("api-iron-sword", 1, adminAccountId);
+      const grantBag = () => request(app).post("/api/admin/items/expedition-backpack/grant")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ characterId, quantity: 1, requestId: randomUUID() });
+      const firstGrant = await grantBag().expect(200);
+      const firstInventory = firstGrant.body.inventory as InventorySnapshot;
+      const bag = firstInventory.items.find(item => item.itemId === "expedition-backpack")!;
+      expect(bag).toMatchObject({ category: "container", containerCapacity: 60, quality: "MASTERWORK" });
+      const permanent = firstInventory.items.find(item => item.permanentContainer)!;
+      const swords = ((await grant(77).expect(200)).body.inventory as InventorySnapshot).items
+        .filter(item => item.itemId === "api-iron-sword");
+      const loose = swords.filter(item => !item.containerInstanceId);
+      const originalChildren = loose.slice(0, 60).map(item => item.instanceId);
+      // Reproduce a persisted, full legacy bag awaiting assignment with the permanent bag full too.
+      await pool.query("UPDATE item_instances SET container_instance_id=NULL WHERE id=$1", [bag.instanceId]);
+      await pool.query("UPDATE item_instances SET container_instance_id=$1 WHERE id=ANY($2::uuid[])", [bag.instanceId, originalChildren]);
+      await pool.query("UPDATE item_instances SET container_instance_id=$1 WHERE id=$2", [permanent.instanceId, loose[60]!.instanceId]);
+      const inventory = new InventoryService(pool);
+      const assigned = await inventory.setContainerSlot(characterId, 1, bag.instanceId);
+      expect(assigned.containerSlots?.[1]).toBe(bag.instanceId);
+      expect(assigned.items.find(item => item.instanceId === bag.instanceId)).toMatchObject({ category: "container", containerCapacity: 60, quality: "MASTERWORK" });
+      expect(assigned.items.filter(item => item.containerInstanceId === bag.instanceId).map(item => item.instanceId).sort()).toEqual([...originalChildren].sort());
+
+      const secondInventory = (await grantBag().expect(200)).body.inventory as InventorySnapshot;
+      const secondBag = secondInventory.items.find(item => item.itemId === "expedition-backpack" && item.instanceId !== bag.instanceId)!;
+      expect(secondBag.containerInstanceId).toBeUndefined();
+      const secondAssigned = await inventory.setContainerSlot(characterId, 2, secondBag.instanceId);
+      expect(secondAssigned.containerSlots?.[2]).toBe(secondBag.instanceId);
+      expect(secondAssigned.items.find(item => item.instanceId === loose[61]!.instanceId)?.containerInstanceId).toBe(secondBag.instanceId);
+      const movedChild = originalChildren[0]!;
+      const moved = await inventory.moveItemToContainer(characterId, movedChild, secondBag.instanceId);
+      expect(moved.items.find(item => item.instanceId === movedChild)).toMatchObject({ containerInstanceId: secondBag.instanceId, quality: "GOOD" });
+      const final = (await grant().expect(200)).body.inventory as InventorySnapshot;
+      expect(final.items.filter(item => item.containerInstanceId === bag.instanceId)).toHaveLength(60);
+      expect(final.items.filter(item => item.itemId === "api-iron-sword")).toHaveLength(78);
+      expect(final.items.filter(item => item.itemId === "api-iron-sword").every((item: InventoryItem) => item.quality === "GOOD")).toBe(true);
+      expect((await catalog.getItem("expedition-backpack")).item).toMatchObject({ categoryId: "backpack", specialData: {} });
+    });
   });
 
   it("enforces bearer authentication and ADMIN role server-side", async () => {

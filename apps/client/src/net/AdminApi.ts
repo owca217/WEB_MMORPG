@@ -3,6 +3,8 @@ import type {
   AdminAccountQuery,
   AdminAccountSummary,
   AdminApiError,
+  AdminItemGrantInput,
+  AdminItemGrantResult,
   ItemCatalogPage,
   ItemCatalogQuery,
   ItemCategoryDefinition,
@@ -96,6 +98,13 @@ export class AdminApi {
 
   getItem(itemId: string): Promise<ItemDetails> {
     return this.request<ItemDetails>(`/items/${encodeURIComponent(itemId)}`);
+  }
+
+  grantItem(itemId: string, input: AdminItemGrantInput): Promise<AdminItemGrantResult> {
+    return this.request<AdminItemGrantResult>(`/items/${encodeURIComponent(itemId)}/grant`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
   }
 
   createItem(draft: ItemDraftInput): Promise<ItemVersion> {

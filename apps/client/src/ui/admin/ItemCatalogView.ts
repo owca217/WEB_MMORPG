@@ -1,8 +1,11 @@
 import type {
   ItemCatalogQuery,
+  AdminItemGrantInput,
+  AdminItemGrantResult,
   ItemCreatorMetadata,
   ItemDefinition
 } from "@web-mmorpg/shared";
+import { PERMANENT_BACKPACK_ITEM_ID } from "@web-mmorpg/shared";
 import { AdminApi, AdminApiRequestError } from "../../net/AdminApi";
 import { itemQualityText } from "../ItemQualityFrame";
 
@@ -10,10 +13,16 @@ export interface ItemCatalogHandlers {
   onPreview(itemId: string): void;
   onEdit(itemId: string): void;
   onHistory(itemId: string): void;
+  getCharacterId?(): string | undefined;
+  onInventoryGranted?(result: AdminItemGrantResult): void;
 }
 
 export class ItemCatalogView {
   private metadata: ItemCreatorMetadata | null = null;
+  private destroyed = false;
+  private loadRevision = 0;
+  private grantPending = false;
+  private retryGrant: { itemId: string; input: AdminItemGrantInput } | null = null;
   private readonly clickHandler = (event: Event) => void this.handleClick(event);
   private readonly submitHandler = (event: Event) => void this.handleSubmit(event);
 
@@ -32,6 +41,7 @@ export class ItemCatalogView {
 
     try {
       this.metadata = await this.api.getMetadata();
+      if (this.destroyed) return;
       this.renderFilters();
       await this.loadItems(this.readFilters());
     } catch (error) {
@@ -40,6 +50,8 @@ export class ItemCatalogView {
   }
 
   destroy(): void {
+    this.destroyed = true;
+    this.loadRevision += 1;
     this.host.removeEventListener("click", this.clickHandler);
     this.host.removeEventListener("submit", this.submitHandler);
     this.host.replaceChildren();
@@ -71,7 +83,7 @@ export class ItemCatalogView {
           </select>
           <button type="submit">Filtruj</button>
         </form>
-        <div class="admin-catalog__state" data-state></div>
+        <div class="admin-catalog__state" data-state role="status" aria-live="polite"></div>
         <div class="admin-catalog__list" data-list></div>
       </section>
     `;
@@ -91,11 +103,14 @@ export class ItemCatalogView {
   }
 
   private async loadItems(query: ItemCatalogQuery): Promise<void> {
+    if (this.destroyed) return;
+    const revision = ++this.loadRevision;
     this.setState("Ładowanie przedmiotów...");
     this.require<HTMLElement>("[data-list]").replaceChildren();
 
     try {
       const page = await this.api.listItems(query);
+      if (this.destroyed || revision !== this.loadRevision) return;
       const list = this.require<HTMLElement>("[data-list]");
       list.replaceChildren();
       if (page.items.length === 0) {
@@ -106,6 +121,7 @@ export class ItemCatalogView {
       this.setState(`${page.total} przedmiotów`);
       for (const item of page.items) list.append(this.renderItem(item));
     } catch (error) {
+      if (revision !== this.loadRevision) return;
       this.renderError(error);
     }
   }
@@ -125,6 +141,29 @@ export class ItemCatalogView {
 
     const actions = document.createElement("div");
     actions.className = "admin-catalog-item__actions";
+    const eligible = item.status === "PUBLISHED" && item.itemId !== PERMANENT_BACKPACK_ITEM_ID;
+    const quantityLabel = document.createElement("label");
+    quantityLabel.className = "admin-catalog-item__grant-quantity";
+    quantityLabel.textContent = "Ilość ";
+    const quantity = document.createElement("input");
+    quantity.type = "number";
+    quantity.min = "1";
+    quantity.max = "100";
+    quantity.step = "1";
+    quantity.value = "1";
+    quantity.dataset.grantQuantity = "";
+    quantity.setAttribute("aria-label", `Ilość: ${item.name}`);
+    quantity.disabled = !eligible || !this.handlers.getCharacterId?.() || this.grantPending;
+    quantityLabel.append(quantity);
+    const grant = document.createElement("button");
+    grant.type = "button";
+    grant.dataset.action = "grant";
+    grant.dataset.itemId = item.itemId;
+    grant.dataset.grantEligible = String(eligible);
+    grant.textContent = "Dodaj do ekwipunku";
+    grant.disabled = quantity.disabled;
+    if (!eligible) grant.title = "Dostępne dla opublikowanych przedmiotów poza stałym plecakiem.";
+    actions.append(quantityLabel, grant);
     for (const [action, label] of [
       ["preview", "Podgląd"],
       ["edit", "Edytuj"],
@@ -150,6 +189,11 @@ export class ItemCatalogView {
     const itemId = button.dataset.itemId;
     const action = button.dataset.action;
     if (!itemId || !action) return;
+
+    if (action === "grant") {
+      await this.grantItem(button, itemId);
+      return;
+    }
 
     if (action === "preview") {
       this.handlers.onPreview(itemId);
@@ -195,6 +239,50 @@ export class ItemCatalogView {
     await this.loadItems(this.readFilters());
   }
 
+  private async grantItem(button: HTMLButtonElement, itemId: string): Promise<void> {
+    const characterId = this.handlers.getCharacterId?.();
+    if (this.destroyed || this.grantPending || button.disabled || button.dataset.grantEligible !== "true" || !characterId) return;
+    const raw = button.closest(".admin-catalog-item")?.querySelector<HTMLInputElement>("[data-grant-quantity]")?.value ?? "";
+    const quantity = Number(raw);
+    if (!raw.trim() || !Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
+      this.setState("Ilość musi być liczbą całkowitą od 1 do 100.", true);
+      return;
+    }
+    const previous = this.retryGrant;
+    const input: AdminItemGrantInput = previous?.itemId === itemId && previous.input.characterId === characterId && previous.input.quantity === quantity
+      ? previous.input
+      : { characterId, quantity, requestId: crypto.randomUUID() };
+    this.retryGrant = { itemId, input };
+    this.grantPending = true;
+    this.refreshGrantControls();
+    this.setState("Dodawanie do ekwipunku...");
+    const stillCurrent = () => !this.destroyed && this.handlers.getCharacterId?.() === characterId;
+    try {
+      const result = await this.api.grantItem(itemId, input);
+      if (!stillCurrent()) return;
+      this.retryGrant = null;
+      if (result.characterId !== characterId) throw new Error("Otrzymano ekwipunek innej postaci.");
+      this.handlers.onInventoryGranted?.(result);
+      this.setState(`Dodano ${quantity} × ${itemId} do ekwipunku.`);
+    } catch (error) {
+      if (!stillCurrent()) return;
+      if (error instanceof AdminApiRequestError && error.status < 500) this.retryGrant = null;
+      this.renderError(error);
+    } finally {
+      this.grantPending = false;
+      if (stillCurrent()) this.refreshGrantControls();
+    }
+  }
+
+  private refreshGrantControls(): void {
+    for (const button of this.host.querySelectorAll<HTMLButtonElement>("[data-action='grant']")) {
+      const disabled = this.grantPending || !this.handlers.getCharacterId?.() || button.dataset.grantEligible !== "true";
+      button.disabled = disabled;
+      const quantity = button.closest(".admin-catalog-item")?.querySelector<HTMLInputElement>("[data-grant-quantity]");
+      if (quantity) quantity.disabled = disabled;
+    }
+  }
+
   private readFilters(): ItemCatalogQuery {
     const query: ItemCatalogQuery = { page: 1, pageSize: 20 };
     const setText = (key: "search" | "itemId" | "categoryId" | "subcategoryId") => {
@@ -226,6 +314,7 @@ export class ItemCatalogView {
   }
 
   private renderError(error: unknown): void {
+    if (this.destroyed) return;
     const message = error instanceof AdminApiRequestError || error instanceof Error
       ? error.message
       : "Nie udało się załadować katalogu.";
@@ -233,6 +322,7 @@ export class ItemCatalogView {
   }
 
   private setState(message: string, isError = false): void {
+    if (this.destroyed) return;
     const state = this.require<HTMLElement>("[data-state]");
     state.textContent = message;
     state.classList.toggle("is-error", isError);

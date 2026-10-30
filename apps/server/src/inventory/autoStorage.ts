@@ -1,13 +1,14 @@
-import { PERMANENT_BACKPACK_CAPACITY } from "@web-mmorpg/shared";
 import type { PoolClient } from "pg";
+import { LEGACY_CAPACITY_COLUMN, resolveContainerCapacity, type ContainerCapacitySource } from "./containerCapacity";
 
-interface DestinationRow {id:string;permanent_container:boolean;container_slot:number;container_capacity:number|null;category_id:string;special_data:Record<string,unknown>;}
+interface DestinationRow extends ContainerCapacitySource {id:string;container_slot:number;}
 export interface StorageDestination {id:string;capacity:number;}
 
 /** Caller holds the owning character lock before reading or changing storage. */
 export async function getStorageDestinations(client:PoolClient,characterId:string):Promise<StorageDestination[]> {
  const result=await client.query<DestinationRow>(
-  `SELECT instance.id,instance.permanent_container,instance.container_slot,instance.container_capacity,version.category_id,version.special_data
+  `SELECT instance.id,instance.permanent_container,instance.container_slot,instance.container_capacity,version.category_id,version.special_data,
+     ${LEGACY_CAPACITY_COLUMN}
    FROM item_instances instance JOIN items item ON item.id=instance.item_id
    JOIN item_versions version ON version.item_id=item.id AND version.version_no=item.active_version_no AND version.state='PUBLISHED'
    WHERE instance.character_id=$1 AND instance.container_slot IS NOT NULL
@@ -15,8 +16,8 @@ export async function getStorageDestinations(client:PoolClient,characterId:strin
    ORDER BY item.id,instance.id FOR SHARE OF item,version`,[characterId]
  );
  return result.rows.sort((a,b)=>Number(b.permanent_container)-Number(a.permanent_container)||a.container_slot-b.container_slot).flatMap(row=>{
-  const capacity=row.permanent_container?PERMANENT_BACKPACK_CAPACITY:row.special_data?.capacity??row.container_capacity;
-  return (row.permanent_container||row.category_id==="container")&&typeof capacity==="number"&&Number.isSafeInteger(capacity)&&capacity>0&&capacity<=10_000?[{id:row.id,capacity}]:[];
+  const capacity=resolveContainerCapacity(row);
+  return capacity===undefined?[]:[{id:row.id,capacity}];
  });
 }
 

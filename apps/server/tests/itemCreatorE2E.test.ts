@@ -6,6 +6,7 @@ import { AccountAdminService } from "../src/admin/AccountAdminService";
 import type { IconStorage, IconUploadInput } from "../src/admin/IconStorage";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
 import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { ItemGrantService } from "../src/admin/ItemGrantService";
 import { AuthService } from "../src/auth/AuthService";
 import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
 import { createPool } from "../src/db/createPool";
@@ -124,6 +125,7 @@ describeDatabase("item creator end-to-end acceptance", () => {
         metadata,
         catalog,
         audit,
+        itemGrants: new ItemGrantService(pool, new InventoryService(pool), audit),
         iconStorage: icons
       })
     );

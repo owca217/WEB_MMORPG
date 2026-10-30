@@ -124,6 +124,18 @@ it("equips through a gear drop target only after the character meets its require
     await vi.waitFor(()=>expect(onEquipItem).toHaveBeenCalledExactlyOnceWith(sword));expect(onMoveItem).not.toHaveBeenCalled();
     expect(document.querySelector('[data-container-item="sword"]')).toBeNull();
 });
+it("assigns a container from pending to a free HUD slot and preserves its contents",async()=>{
+    const full=bag("pending-bag",8),child=item("inside",{containerInstanceId:full.instanceId});
+    const initial:InventorySnapshot={items:[bag(),full,child],containerSlots:["pack",null,null,null]};
+    const updated:InventorySnapshot={...initial,containerSlots:["pack",null,full.instanceId,null]};
+    const onSetContainerSlot=vi.fn().mockResolvedValue({ok:true,inventory:updated}),onMoveItem=vi.fn(),onInventoryChanged=vi.fn();
+    const value=panel({onSetContainerSlot,onMoveItem,onInventoryChanged});value.update(initial);value.show(0);button("[data-container-pending]").click();
+    const target=document.createElement("button");target.dataset.containerSlotTarget="2";document.body.append(target);
+    button('[data-container-item="pending-bag"]').dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true}));
+    target.focus();target.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));
+    await vi.waitFor(()=>expect(onInventoryChanged).toHaveBeenCalledWith(updated));
+    expect(onSetContainerSlot).toHaveBeenCalledExactlyOnceWith(2,full.instanceId);expect(onMoveItem).not.toHaveBeenCalled();expect(button("[data-container-pending]").hidden).toBe(true);
+});
 it("dismisses stale selection and refreshes rather than applying an ACK after newer state", async () => {
     let finish!: (result: InventoryUpdateResult) => void;
     const onMoveItem = vi.fn(() => new Promise<InventoryUpdateResult>(resolve => { finish = resolve; })), onInventoryChanged = vi.fn(), onRefresh = vi.fn();

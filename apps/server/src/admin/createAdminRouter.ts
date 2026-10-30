@@ -1,5 +1,6 @@
 import type {
   AdminAccountQuery,
+  AdminItemGrantInput,
   ItemCatalogQuery,
   ItemDraftInput,
   UpdateAccountAccessInput
@@ -17,6 +18,7 @@ import {
 } from "../items/itemValidation";
 import { AccountAdminError, type AccountAdminService } from "./AccountAdminService";
 import { AdminAuthError, requireAdminSession, type AdminSession } from "./AdminAuth";
+import { ItemGrantError, type ItemGrantService } from "./ItemGrantService";
 import {
   IconUploadValidationError,
   MAX_ITEM_ICON_BYTES,
@@ -31,6 +33,7 @@ export interface AdminRouterDependencies {
   catalog: ItemCatalogService;
   audit: AdminAuditRepository;
   iconStorage: IconStorage;
+  itemGrants: ItemGrantService;
 }
 
 interface DatabaseError {
@@ -90,6 +93,10 @@ export function createAdminRouter(deps: AdminRouterDependencies): Router {
 
   router.get("/items/:itemId", async (req, res) => {
     res.json(await deps.catalog.getItem(req.params.itemId));
+  });
+
+  router.post("/items/:itemId/grant", async (req, res) => {
+    res.json(await deps.itemGrants.grant(session(res), req.params.itemId, req.body as AdminItemGrantInput));
   });
 
   router.put("/items/:itemId/draft", async (req, res) => {
@@ -382,6 +389,10 @@ function parsePositiveInteger(value: string, code: string): number {
 }
 
 function sendAdminError(error: unknown, res: Response): void {
+  if (error instanceof ItemGrantError) {
+    res.status(error.status).json({ code: error.code, message: error.message });
+    return;
+  }
   if (error instanceof AdminAuthError) {
     res.status(error.status).json({ code: error.code, message: error.message });
     return;

@@ -19,6 +19,7 @@ it("opens the permanent backpack from the left HUD slot with the bundled icon an
   hud.updateInventory({items:[backpack,waiting],containerSlots:["permanent",null,null,null]});
   const left=document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!;
   expect(left.dataset.containerDropTarget).toBe("permanent");
+  expect(left.hasAttribute("data-container-slot-target")).toBe(false);
   expect(left.getAttribute("aria-label")).toContain("Otwórz plecak");
   expect(left.title).toContain("16 miejsc");expect(left.title).toContain("na stałe");
   expect(left.querySelector("img")?.getAttribute("src")).toBe("/WEB_MMORPG/assets/items/permanent-backpack.png");
@@ -30,6 +31,7 @@ it("opens the permanent backpack from the left HUD slot with the bundled icon an
   expect(left.querySelector("svg")).not.toBeNull();expect(left.querySelector("[data-item-quality]")).not.toBeNull();
   for(const slot of document.querySelectorAll<HTMLButtonElement>('[data-container-slot]:not([data-container-slot="0"])')) {
     expect(slot.hasAttribute("data-container-drop-target")).toBe(false);
+    expect(slot.dataset.containerSlotTarget).toBe(slot.dataset.containerSlot);
     expect(slot.classList.contains("is-empty")).toBe(true);expect(slot.querySelector("img")).toBeNull();expect(slot.querySelector("[data-item-quality]")).toBeNull();
   }
   hud.destroy();

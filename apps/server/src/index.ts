@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AccountAdminService } from "./admin/AccountAdminService";
+import { ItemGrantService } from "./admin/ItemGrantService";
 import { createAdminRouter } from "./admin/createAdminRouter";
 import { createIconStorage } from "./admin/createIconStorage";
 import { AdminAuditRepository } from "./audit/AdminAuditRepository";
@@ -14,6 +15,7 @@ import { createAuthRouter } from "./http/createAuthRouter";
 import { createItemIconRouter } from "./http/createItemIconRouter";
 import { createHttpApp } from "./http/createHttpApp";
 import { ItemCatalogService } from "./items/ItemCatalogService";
+import { InventoryService } from "./inventory/InventoryService";
 import { ItemMetadataRepository } from "./items/ItemMetadataRepository";
 import { seedItemMetadata } from "./items/seedItemMetadata";
 import { AccountRepository } from "./persistence/AccountRepository";
@@ -61,6 +63,7 @@ async function startServer(): Promise<void> {
       metadata,
       catalog,
       audit,
+      itemGrants: new ItemGrantService(pool, new InventoryService(pool), audit),
       iconStorage
     }),
     clientDistDirectory: resolve(

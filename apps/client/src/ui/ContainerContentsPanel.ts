@@ -8,6 +8,7 @@ import "./ContainerContentsPanel.css";
 const PLACES_PER_PAGE = 40;
 interface ContainerContentsPanelHandlers {
     onMoveItem: (itemInstanceId: string, targetContainerInstanceId: string) => Promise<InventoryUpdateResult>;
+    onSetContainerSlot?: (slotIndex: ContainerSlotIndex, itemInstanceId: string) => Promise<InventoryUpdateResult>;
     onInventoryChanged: (inventory: InventorySnapshot) => void;
     onChangeContainer: (slotIndex: ContainerSlotIndex) => void;
     onEquipItem?: (item: InventoryItem) => Promise<InventoryUpdateResult>;
@@ -62,7 +63,7 @@ export class ContainerContentsPanel {
         this.root.setAttribute("aria-labelledby", "container-contents-title");
         this.root.innerHTML = `<div class="game-panel__header"><h2 id="container-contents-title" data-container-contents-title>Pojemnik</h2><div class="container-contents__header-actions"><button type="button" data-container-pending aria-pressed="false" hidden>Oczekujące</button><button type="button" data-close aria-label="Zamknij zawartość pojemnika">×</button></div></div>
       <p class="container-contents__capacity" data-container-capacity></p><p class="game-panel__empty" data-container-contents-empty hidden></p>
-      <p class="container-contents__drag-hint" id="container-drag-hint">Najedź przedmiotem na plecak lub upuść go w pasującym slocie uzbrojenia.</p>
+      <p class="container-contents__drag-hint" id="container-drag-hint">Przeciągnij do pojemnika lub upuść w odpowiednim slocie.</p>
       <div class="container-contents__grid" data-container-grid role="list" aria-label="Miejsca w pojemniku"></div>
       <nav class="container-contents__pagination" data-container-pagination aria-label="Strony pojemnika" hidden><button type="button" data-container-page-prev aria-label="Poprzednia strona pojemnika">‹</button><span data-container-page-label aria-live="polite"></span><button type="button" data-container-page-next aria-label="Następna strona pojemnika">›</button></nav>
       <p class="container-contents__feedback" data-container-contents-feedback role="status" aria-live="polite"></p><button type="button" class="container-contents__change" data-change-container>Zmień pojemnik</button>
@@ -88,6 +89,9 @@ export class ContainerContentsPanel {
             enabled:()=>!this.pending&&!this.destroyed&&!this.root.classList.contains("is-hidden"),
             onStart:()=>{this.feedback.textContent="";delete this.feedback.dataset.state;this.closeSelection(false);},
             onDrop:(id,target)=>{void this.perform(()=>this.handlers.onMoveItem(id,target),"Przeniesiono przedmiot.");},
+            ...(this.handlers.onSetContainerSlot ? {onAssignContainer:(id:string,slot:ContainerSlotIndex)=>{
+                void this.perform(()=>this.handlers.onSetContainerSlot!(slot,id),"Założono pojemnik.");
+            }} : {}),
             canEquip:(item,slot)=>!!this.character && !!this.handlers.onEquipItem && item.equipment?.slot===slot && !equipmentDisabledReason(item,this.character,this.snapshot),
             onEquipDrop:id=>{
                 const item=this.visibleItems().find(entry=>entry.instanceId===id);
@@ -209,6 +213,8 @@ export class ContainerContentsPanel {
         this.changeButton.disabled = this.pending || this.changeButton.hidden;
         this.root.setAttribute("aria-busy", String(this.pending));
         this.grid.replaceChildren();
+        if (container && !this.pendingView) this.grid.dataset.containerDropTarget = container.instanceId;
+        else delete this.grid.dataset.containerDropTarget;
         this.grid.hidden = !this.pendingView && !container;
         const start = this.page * PLACES_PER_PAGE, end = Math.min(start + PLACES_PER_PAGE, capacity);
         for (let index = start; index < end; index++) {
@@ -318,7 +324,7 @@ export class ContainerContentsPanel {
         if (item.category === "medical" || item.category === "consumable" || item.consumableEffects)
             this.popover.append(node("p", "Do użycia w walce."));
         if (item.category === CONTAINER_ITEM_CATEGORY)
-            this.popover.append(node("p", "Ten pojemnik możesz założyć w jednym z trzech slotów panelu gry."));
+            this.popover.append(node("p", "Aby założyć ten pojemnik, upuść go na slot 2–4 w panelu gry."));
         const equip=this.equipmentAction(item);if(equip)this.popover.append(equip);
         if(this.feedback.textContent){const status=node("p",this.feedback.textContent,"container-contents__details-status");status.setAttribute("role","status");if(this.feedback.dataset.state)status.dataset.state=this.feedback.dataset.state;this.popover.append(status);}
         const anchor = [...this.grid.querySelectorAll<HTMLElement>("[data-container-item]")].find(element => element.dataset.containerItem === item.instanceId), rect = anchor?.getBoundingClientRect(), width = Math.min(360, Math.max(0, window.innerWidth - 24));

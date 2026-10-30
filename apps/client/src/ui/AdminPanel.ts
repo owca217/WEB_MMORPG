@@ -1,10 +1,17 @@
 import { AdminApi, AdminApiRequestError } from "../net/AdminApi";
+import type { AdminItemGrantResult } from "@web-mmorpg/shared";
 import { AccountManagerView } from "./admin/AccountManagerView";
 import { CategoryManagerView } from "./admin/CategoryManagerView";
 import { ItemCatalogView } from "./admin/ItemCatalogView";
 import { ItemCreatorView } from "./admin/ItemCreatorView";
 import { ItemHistoryView } from "./admin/ItemHistoryView";
 import { itemQualityText } from "./ItemQualityFrame";
+
+export type AdminInventoryGrantResult = AdminItemGrantResult;
+export interface AdminPanelOptions {
+  getCharacterId: () => string | undefined;
+  onInventoryGranted: (result: AdminInventoryGrantResult) => void;
+}
 
 export class AdminPanel {
   private readonly root: HTMLDivElement;
@@ -15,7 +22,7 @@ export class AdminPanel {
   private categoryManagerView: CategoryManagerView | null = null;
   private accountManagerView: AccountManagerView | null = null;
 
-  constructor(private readonly api: AdminApi) {
+  constructor(private readonly api: AdminApi, private readonly options?: AdminPanelOptions) {
     this.root = document.createElement("div");
     this.root.className = "game-panel admin-panel is-hidden";
     this.root.innerHTML = `
@@ -58,7 +65,8 @@ export class AdminPanel {
     this.catalogView = new ItemCatalogView(this.content, this.api, {
       onPreview: (itemId) => void this.showPreview(itemId),
       onEdit: (itemId) => this.showCreator(itemId),
-      onHistory: (itemId) => void this.showHistory(itemId)
+      onHistory: (itemId) => void this.showHistory(itemId),
+      ...this.options
     });
     await this.catalogView.show();
   }

@@ -108,6 +108,7 @@ export class WorldHud {
       button.type = "button";
       button.className = "world-hud__container-slot";
       button.dataset.containerSlot = `${slotIndex}`;
+      if (slotIndex !== PERMANENT_BACKPACK_SLOT_INDEX) button.dataset.containerSlotTarget = `${slotIndex}`;
       button.setAttribute("aria-haspopup", "dialog");
       button.addEventListener("click", () => handlers.onContainerSlot?.(slotIndex as ContainerSlotIndex));
       slots.appendChild(button);

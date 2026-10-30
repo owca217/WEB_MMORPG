@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
   CONTAINER_ITEM_CATEGORY,
   CONTAINER_SLOT_COUNT,
-  PERMANENT_BACKPACK_CAPACITY,
   PERMANENT_BACKPACK_ICON_PATH,
   PERMANENT_BACKPACK_ITEM_ID,
   PERMANENT_BACKPACK_NAME,
@@ -21,6 +20,7 @@ import {
 import type { Pool, PoolClient } from "pg";
 import { ensurePermanentBackpack } from "./permanentBackpack";
 import { autoStoreOwnedItems, getStorageDestinations } from "./autoStorage";
+import { isInventoryContainer, LEGACY_CAPACITY_COLUMN, resolveContainerCapacity, type ContainerCapacitySource } from "./containerCapacity";
 
 export interface InventoryReward {
   itemId: string;
@@ -39,7 +39,7 @@ interface StackRow {
   quantity: number;
 }
 
-interface InventoryRow {
+interface InventoryRow extends ContainerCapacitySource {
   instance_id: string;
   item_definition_id: string;
   item_id: string;
@@ -76,7 +76,7 @@ const CONSUMABLE_EFFECT_COLUMNS = `
    WHERE stat.version_id = version.id AND stat.stat_code = 'AP_RESTORE'
      AND stat.modifier_type = 'flat') AS restore_ap`;
 
-interface ContainerAssignmentRow {
+interface ContainerAssignmentRow extends ContainerCapacitySource {
   permanent_container: boolean;
   category_id: string;
   container_instance_id: string | null;
@@ -107,6 +107,16 @@ export class InventoryService {
   ): Promise<InventorySnapshot> {
     await this.addItemsForOwner("character", characterId, rewards);
     return this.getSnapshot(characterId);
+  }
+
+  /** Caller owns the transaction; provisioning locks the character before catalog rows. */
+  async addItemsWithClient(
+    characterId: string,
+    rewards: readonly InventoryReward[],
+    client: PoolClient
+  ): Promise<InventorySnapshot> {
+    await this.addRewardsWithClient(client, "character", characterId, rewards);
+    return this.getSnapshot(characterId, client);
   }
 
   async getSnapshot(characterId: string,client?:PoolClient): Promise<InventorySnapshot> {
@@ -193,7 +203,9 @@ export class InventoryService {
 
       if (itemInstanceId !== null) {
         const candidate = await client.query<ContainerAssignmentRow>(
-          `SELECT version.category_id, instance.container_instance_id, instance.equipment_slot, instance.permanent_container
+          `SELECT version.category_id, version.special_data, instance.container_capacity,
+             instance.container_instance_id, instance.equipment_slot, instance.permanent_container,
+             ${LEGACY_CAPACITY_COLUMN}
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
            JOIN item_versions version
@@ -209,7 +221,7 @@ export class InventoryService {
         if (!row) throw new Error("CONTAINER_ITEM_NOT_OWNED");
         if(row.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
         if(row.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
-        if (row.category_id !== CONTAINER_ITEM_CATEGORY) {
+        if (!isInventoryContainer(row)) {
           throw new Error("ITEM_NOT_CONTAINER");
         }
         if (row.container_instance_id !== null && !(await getStorageDestinations(client,characterId)).some(parent=>parent.id===row.container_instance_id))throw new Error("CONTAINER_ITEM_STORED");
@@ -262,7 +274,7 @@ export class InventoryService {
       const readOwned = async (id: string, missingCode: string): Promise<ContainerStorageRow> => {
         const result = await client.query<ContainerStorageRow>(
           `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity, instance.equipment_slot, instance.permanent_container,
-             version.category_id, version.special_data
+             version.category_id, version.special_data, ${LEGACY_CAPACITY_COLUMN}
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
            JOIN item_versions version
@@ -284,7 +296,7 @@ export class InventoryService {
       if (targetContainerInstanceId !== null) {
         if(source.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
         const target = await readOwned(targetContainerInstanceId, "CONTAINER_ITEM_NOT_OWNED");
-        if (!target.permanent_container && target.category_id !== CONTAINER_ITEM_CATEGORY) throw new Error("ITEM_NOT_CONTAINER");
+        if (!isInventoryContainer(target)) throw new Error("ITEM_NOT_CONTAINER");
         if (target.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
         const capacity = this.getContainerCapacity(target);
         if (capacity === undefined) throw new Error("CONTAINER_CAPACITY_INVALID");
@@ -357,19 +369,7 @@ export class InventoryService {
 
     try {
       await client.query("BEGIN");
-      if(ownerKind==="character")await ensurePermanentBackpack(client,ownerId);
-      for (const reward of rewards) {
-        this.validateReward(reward);
-        const definition = await this.requirePublishedDefinition(client, reward.itemId);
-        await this.addReward(
-          client,
-          ownerKind,
-          ownerId,
-          definition,
-          reward.quantity
-        );
-      }
-      if(ownerKind==="character")await autoStoreOwnedItems(client,ownerId);
+      await this.addRewardsWithClient(client, ownerKind, ownerId, rewards);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -377,6 +377,27 @@ export class InventoryService {
     } finally {
       client.release();
     }
+  }
+
+  private async addRewardsWithClient(
+    client: PoolClient,
+    ownerKind: OwnerKind,
+    ownerId: string,
+    rewards: readonly InventoryReward[]
+  ): Promise<void> {
+    if(ownerKind==="character")await ensurePermanentBackpack(client,ownerId);
+    for (const reward of rewards) {
+      this.validateReward(reward);
+      const definition = await this.requirePublishedDefinition(client, reward.itemId);
+      await this.addReward(
+        client,
+        ownerKind,
+        ownerId,
+        definition,
+        reward.quantity
+      );
+    }
+    if(ownerKind==="character")await autoStoreOwnedItems(client,ownerId);
   }
 
   private async getSnapshotForOwner(
@@ -412,6 +433,7 @@ export class InventoryService {
         instance.container_capacity,
         instance.permanent_container,
         version.special_data,
+        ${LEGACY_CAPACITY_COLUMN},
         ${CONSUMABLE_EFFECT_COLUMNS}
        FROM item_instances instance
        JOIN items item ON item.id = instance.item_id
@@ -431,7 +453,7 @@ export class InventoryService {
         if(isEquipmentSlot(row.equipment_slot))equipmentSlots[row.equipment_slot]=row.instance_id;
         if (row.container_slot !== null &&
           row.container_slot >= 0 && row.container_slot < CONTAINER_SLOT_COUNT &&
-          (row.permanent_container || row.category_id === CONTAINER_ITEM_CATEGORY) &&
+          isInventoryContainer(row) &&
           row.container_instance_id === null) {
           containerSlots[row.container_slot] = row.instance_id;
         }
@@ -561,15 +583,8 @@ export class InventoryService {
     );
   }
 
-  private getContainerCapacity(row: Pick<InventoryRow, "special_data" | "container_capacity" | "category_id" | "permanent_container">): number | undefined {
-    if(row.permanent_container)return PERMANENT_BACKPACK_CAPACITY;
-    const capacity = row.special_data?.capacity ?? row.container_capacity;
-    return (
-      (row.category_id === CONTAINER_ITEM_CATEGORY || row.category_id === "backpack") &&
-      typeof capacity === "number" && Number.isSafeInteger(capacity) && capacity > 0 && capacity <= 10000
-        ? capacity
-        : undefined
-    );
+  private getContainerCapacity(row: ContainerCapacitySource): number | undefined {
+    return resolveContainerCapacity(row);
   }
 
   private mapInventoryRow(row: InventoryRow): InventoryItem {
@@ -585,7 +600,7 @@ export class InventoryService {
       itemDefinitionId: row.item_definition_id,
       name: row.permanent_container?PERMANENT_BACKPACK_NAME:row.name,
       quantity: row.quantity,
-      category: row.permanent_container?CONTAINER_ITEM_CATEGORY:row.category_id,
+      category: isInventoryContainer(row)?CONTAINER_ITEM_CATEGORY:row.category_id,
       description: row.description,
       ...(row.permanent_container ? {iconUrl:`/${PERMANENT_BACKPACK_ICON_PATH}`,permanentContainer:true} : row.icon_url ? { iconUrl: row.icon_url } : {}),
       rarity: row.rarity,

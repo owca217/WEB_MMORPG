@@ -9,6 +9,8 @@ import { AccountAdminService } from "../src/admin/AccountAdminService";
 import type { IconStorage } from "../src/admin/IconStorage";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
 import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { ItemGrantService } from "../src/admin/ItemGrantService";
+import { InventoryService } from "../src/inventory/InventoryService";
 import { AuthService } from "../src/auth/AuthService";
 import { bootstrapInitialAdmin } from "../src/auth/bootstrapInitialAdmin";
 import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
@@ -94,6 +96,7 @@ describeDatabase("final persistent account authentication E2E", () => {
         metadata,
         catalog,
         audit,
+        itemGrants: new ItemGrantService(pool, new InventoryService(pool), audit),
         iconStorage: new NoopIconStorage()
       })
     );

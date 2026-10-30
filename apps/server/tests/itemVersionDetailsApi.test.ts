@@ -6,6 +6,8 @@ import { AccountAdminService } from "../src/admin/AccountAdminService";
 import type { IconStorage } from "../src/admin/IconStorage";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
 import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { ItemGrantService } from "../src/admin/ItemGrantService";
+import { InventoryService } from "../src/inventory/InventoryService";
 import { AuthService } from "../src/auth/AuthService";
 import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
 import { createPool } from "../src/db/createPool";
@@ -91,7 +93,7 @@ describeDatabase("ADMIN historical item version endpoint", () => {
     app.use(express.json());
     app.use(
       "/api/admin",
-      createAdminRouter({ authService: auth, accountAdmin, metadata, catalog, audit, iconStorage: icons })
+      createAdminRouter({ authService: auth, accountAdmin, metadata, catalog, audit, iconStorage: icons, itemGrants: new ItemGrantService(pool, new InventoryService(pool), audit) })
     );
   });
 

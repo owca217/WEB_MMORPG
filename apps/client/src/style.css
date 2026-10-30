@@ -889,6 +889,31 @@ button {
   font-size: 13px;
 }
 
+.admin-catalog-item__grant-quantity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.admin-catalog-item__grant-quantity input {
+  width: 64px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  color: #f4ead8;
+  background: #191d19;
+  border: 1px solid #6f644f;
+  border-radius: 7px;
+  font: inherit;
+}
+
+.admin-catalog-item__actions button:disabled,
+.admin-catalog-item__grant-quantity input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .admin-panel__content {
   min-height: 260px;
 }
@@ -1435,6 +1460,16 @@ button {
 .container-equipment-row > .container-contents__item { width:100%; }
 .container-equipment-action { font-size:12px; }
 .world-hud__pending-count { position:absolute; top:2px; right:2px; min-width:15px; padding:2px 4px; border-radius:9px; background:#a64a2e; color:#fff2d3; font-size:10px; line-height:1.2; text-align:center; }
+body:has([data-inventory-drag-ghost]) .world-hud {
+  z-index:1250;
+  pointer-events:none;
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+}
+body:has([data-inventory-drag-ghost]) .world-hud__content,
+body:has([data-inventory-drag-ghost]) .world-hud__toggle { visibility:hidden; }
+body:has([data-inventory-drag-ghost]) .world-hud__container-slots { visibility:visible; pointer-events:auto; }
 @media(max-width:520px) { .equipment-slots { grid-template-columns:1fr; } .character-tabs { gap:4px; padding:0 10px 10px; } .character-tabs [role="tab"] { font-size:13px; } }
 .equipment-slot[data-equipment-drop-target]:focus-visible { outline:2px solid #f1cf83; outline-offset:2px; }
 

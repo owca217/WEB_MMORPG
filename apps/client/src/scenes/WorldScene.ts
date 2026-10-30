@@ -201,6 +201,7 @@ export class WorldScene extends Phaser.Scene {
     });
     this.containerContents = new ContainerContentsPanel({
       onMoveItem: (itemInstanceId, targetContainerInstanceId) => gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId),
+      onSetContainerSlot: (slotIndex, itemInstanceId) => gameSocket.setContainerSlot(slotIndex, itemInstanceId),
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
       onRefresh:()=>gameSocket.requestPlayerState(),
       onTypingChange:()=>this.updateKeyboardCapture(),
@@ -238,7 +239,14 @@ export class WorldScene extends Phaser.Scene {
     );
     if (session?.accountRole === "ADMIN") {
       this.adminPanel = new AdminPanel(
-        new AdminApi(serverUrl, () => sessionStateStore.getToken())
+        new AdminApi(serverUrl, () => sessionStateStore.getToken()),
+        {
+          getCharacterId: () => playerStateStore.get()?.character.playerId === this.playerId ? this.playerId : undefined,
+          onInventoryGranted: result => {
+            if (playerStateStore.get()?.character.playerId === result.characterId && this.playerId === result.characterId)
+              gameSocket.requestPlayerState();
+          }
+        }
       );
     }
 

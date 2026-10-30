@@ -5,6 +5,8 @@ import type { IconStorage } from "../src/admin/IconStorage";
 import { AccountAdminError, AccountAdminService } from "../src/admin/AccountAdminService";
 import { createAdminRouter } from "../src/admin/createAdminRouter";
 import { AdminAuditRepository } from "../src/audit/AdminAuditRepository";
+import { ItemGrantService } from "../src/admin/ItemGrantService";
+import { InventoryService } from "../src/inventory/InventoryService";
 import { AuthService } from "../src/auth/AuthService";
 import { CharacterLifecycleService } from "../src/character/CharacterLifecycleService";
 import { createPool } from "../src/db/createPool";
@@ -66,6 +68,7 @@ describeDatabase("persistent ADMIN account access", () => {
         metadata,
         catalog,
         audit,
+        itemGrants: new ItemGrantService(pool, new InventoryService(pool), audit),
         iconStorage: new NoopIconStorage()
       })
     );

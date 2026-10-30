@@ -60,22 +60,22 @@ describe("GameSocket authentication lifecycle", () => {
     await game.authenticate("replacement");reply({ok:true,requestId:"heal-1",targetId:"ally",restoredHp:20,cooldownMs:10000});
     expect(await healing).toMatchObject({ok:false,code:"SESSION_REPLACED"});
   });
-  it("sends weapon styles and rejects acknowledgements from a replaced or foreign character",async()=>{
+  it("sends equipment requests and rejects acknowledgements from a replaced or foreign character",async()=>{
     const pending=deferred<(value:unknown)=>void>();
     const game=await startServer((_token,ack,socket)=>{
-      socket.removeAllListeners("setWeaponLoadout");
-      socket.on("setWeaponLoadout",(payload,reply)=>{expect(payload).toEqual({melee:"axe",ranged:"crossbow"});pending.resolve(reply);});
+      socket.removeAllListeners("setEquipmentSlot");
+      socket.on("setEquipmentSlot",(payload,reply)=>{expect(payload).toEqual({slot:"mainHand",itemInstanceId:"axe-1"});pending.resolve(reply);});
       ack(authenticated);
     });
     await game.authenticate("weapons");
-    const result=game.setWeaponLoadout({melee:"axe",ranged:"crossbow"}),reply=await pending.promise;
+    const result=game.setEquipmentSlot({slot:"mainHand",itemInstanceId:"axe-1"}),reply=await pending.promise;
     await game.authenticate("replacement");reply({ok:true,character:{playerId:"character-1"}});
     expect(await result).toMatchObject({ok:false,code:"SESSION_REPLACED"});
     server!.sockets.sockets.forEach(socket=>{
-      socket.removeAllListeners("setWeaponLoadout");
-      socket.on("setWeaponLoadout",(_payload,ack)=>ack({ok:true,character:{playerId:"another-character"}}));
+      socket.removeAllListeners("setEquipmentSlot");
+      socket.on("setEquipmentSlot",(_payload,ack)=>ack({ok:true,character:{playerId:"another-character"}}));
     });
-    expect(await game.setWeaponLoadout({melee:"axe",ranged:"crossbow"})).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+    expect(await game.setEquipmentSlot({slot:"mainHand",itemInstanceId:"axe-1"})).toMatchObject({ok:false,code:"SESSION_REPLACED"});
   });
   it("sends the chosen encounter mode and guards auto-mode ACKs against session replacement",async()=>{
     const requested=deferred<unknown>(),pending=deferred<(value:unknown)=>void>();

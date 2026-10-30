@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { isWeaponLoadout } from "@web-mmorpg/shared";
+import { allocateWeaponExperience, getCharacterEquipment, isEquipmentSlot } from "@web-mmorpg/shared";
 import type {
   ClientToServerEvents,
   LocationId,
@@ -17,6 +17,7 @@ import { ChatService } from "../chat/ChatService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
 import { InventoryService } from "../inventory/InventoryService";
+import { EquipmentService } from "../equipment/EquipmentService";
 import { LootService } from "../loot/LootService";
 import { WorldService } from "../world/WorldService";
 import { EncounterRespawnService } from "../world/EncounterRespawnService";
@@ -93,6 +94,7 @@ const MERCHANT_ERRORS: Readonly<Record<string,string>> = {
   NPC_OUT_OF_RANGE: "Podejdź bliżej do kupca.",
   BATTLE_IN_PROGRESS: "Sklep jest niedostępny podczas walki.",
   MERCHANT_ACTION_PENDING: "Poczekaj na zakończenie zakupu.",
+  EQUIPMENT_ACTION_PENDING: "Poczekaj na zakończenie zmiany uzbrojenia.",
   MERCHANT_REQUEST_UNCERTAIN: "Zakup mógł zostać zapisany. Ponów sprawdzenie tego samego zakupu bez dodatkowej opłaty.",
   SOCIAL_ACTION_PENDING: "Poczekaj na zakończenie wymiany.",
   MERCHANT_RATE_LIMITED: "Zbyt wiele żądań sklepu. Poczekaj chwilę.",
@@ -110,12 +112,29 @@ function merchantFailure(error: unknown): {ok:false;code:string;message:string} 
   return {ok:false,code,message:MERCHANT_ERRORS[code]??"Nie udało się wykonać zakupu. Spróbuj ponownie."};
 }
 
+const EQUIPMENT_ERRORS:Record<string,string>={
+  INVALID_EQUIPMENT_SLOT:"Wybierz poprawne miejsce uzbrojenia.",
+  INVALID_ITEM_INSTANCE_ID:"Wybierz przedmiot ze swojego ekwipunku.",
+  EQUIPMENT_ITEM_NOT_OWNED:"Nie posiadasz tego przedmiotu.",
+  EQUIPMENT_SLOT_MISMATCH:"Ten przedmiot nie pasuje do wybranego miejsca.",
+  EQUIPMENT_LEVEL_REQUIRED:"Masz za niski poziom na ten przedmiot.",
+  EQUIPMENT_ITEM_BROKEN:"Zniszczonego przedmiotu nie można założyć.",
+  EQUIPMENT_REQUIREMENTS_NOT_MET:"Nie spełniasz wymagań przedmiotu.",
+  EQUIPMENT_TWO_HANDED:"Broń dwuręczna zajmuje również miejsce tarczy.",
+  EQUIPMENT_ITEM_BOUND:"Przedmiot jest przypisany do innej postaci.",
+  EQUIPMENT_ITEM_NOT_EMPTY:"Najpierw opróżnij ten przedmiot.",
+  EQUIPMENT_ITEM_EQUIPPED:"Najpierw zdejmij ten przedmiot.",
+  ITEM_EQUIPPED:"Najpierw zdejmij ten przedmiot.",
+  SESSION_REPLACED:"Połączenie zmieniło się. Otwórz uzbrojenie ponownie."
+};
+
 export function createGameServer(
   httpServer: HttpServer,
   options: GameServerOptions
 ) {
   const world = new WorldService();
   const inventory = new InventoryService(options.pool);
+  const equipment = new EquipmentService(options.pool,inventory);
   const merchant = new MerchantService(options.pool);
   const loot = new LootService();
   const battles = new BattleService();
@@ -127,7 +146,8 @@ export function createGameServer(
   const pendingBattleItemUses = new Map<PlayerId, Promise<void>>();
   const pendingMerchantOperations = new Map<PlayerId, Promise<void>>();
   const pendingBattleRewards = new Map<PlayerId, Promise<void>>();
-  const pendingWeaponSelections = new Map<PlayerId,Promise<void>>();
+  const pendingEquipmentOperations = new Map<PlayerId,Promise<void>>();
+  const equipmentRevisions = new Map<PlayerId,number>();
   const ownerStateOperations=new Map<PlayerId,OwnerStateOperations>();
   const pendingPartyStarts=new Map<PlayerId,symbol>();
   const battleSettlements=new Map<string,Promise<void>>();
@@ -195,12 +215,11 @@ export function createGameServer(
   const healing=new HealingService({
     getCharacter:id=>characters.getSnapshot(id),
     isOnline:id=>{const owner=characterOwners.get(id);return Boolean(owner && io.sockets.sockets.get(owner)?.connected);},
-    isBusy:id=>pendingPartyStarts.has(id)||pendingWeaponSelections.has(id)||pendingMerchantOperations.has(id)||pendingBattleRewards.has(id)||pendingBattleItemUses.has(id)||social.isBusy(id),
+    isBusy:id=>pendingPartyStarts.has(id)||pendingEquipmentOperations.has(id)||pendingMerchantOperations.has(id)||pendingBattleRewards.has(id)||pendingBattleItemUses.has(id)||social.isBusy(id),
     isInBattle:id=>battles.hasBattle(id),
     getPartyMemberIds:id=>social.parties.getParty(id)?.members.map(member=>member.id)??[],
     getPosition:id=>{const player=world.getPlayer(id),locationId=world.getPlayerLocationId(id);return player && locationId ? {locationId,x:player.x,y:player.y} : undefined;},
     restoreHp:(id,amount)=>characters.restoreHp(id,amount),
-    trainStaff:id=>{characters.trainWeapon(id,"staff",1);},
     persist:id=>ownerStateOperations.get(id)?.persist()??Promise.reject(new Error("HEAL_TARGET_UNAVAILABLE")),
     push:id=>ownerStateOperations.get(id)?.push()??Promise.resolve()
   });
@@ -253,6 +272,8 @@ export function createGameServer(
             const progressed=characters.awardExperience(id,base+partyBonusExperience);
             experienceGained=(progressed.experience??0)-(before.experience??0);
             levelsGained=progressed.level-before.level;
+            const training=allocateWeaponExperience(experienceGained,applied.usedWeaponFamilies?.[id]??[]);
+            for(const [family,amount] of Object.entries(training))if(amount)characters.trainWeapon(id,family as import("@web-mmorpg/shared").WeaponFamily,amount);
           }
           if(!applied.victory || (outcome?.hp??before.hp)<=0) {
             characters.recoverAfterDefeat(id);world.resetPlayerToSpawn(id);
@@ -310,20 +331,8 @@ export function createGameServer(
     const ids=applied.participantIds??battles.getParticipantIds(actorId);
     const claim=ids.map(id=>battleRewardTokens.get(id)).find(Boolean)??applied.snapshot.id;
     if(applied.finished && battleSettlements.has(claim)){await battleSettlements.get(claim);return;}
-    const awards=applied.trainingAwards??{[actorId]:{...(applied.weaponTraining?{weaponTraining:applied.weaponTraining}:{}),...(applied.shieldTraining?{shieldTraining:applied.shieldTraining}:{})}};
-    const trained:PlayerId[]=[];
-    for(const [id,award] of Object.entries(awards)) {
-      if(!characters.getSnapshot(id))continue;
-      if(award.weaponTraining)characters.trainWeapon(id,award.weaponTraining.family,award.weaponTraining.amount);
-      if(award.shieldTraining)characters.trainWeapon(id,"shield",award.shieldTraining);
-      if(award.weaponTraining || award.shieldTraining)trained.push(id);
-    }
     broadcastBattle(ids);
     if(applied.finished){await settleBattle(ids,applied);return;}
-    await Promise.all(trained.map(async id=>{
-      const owner=ownerStateOperations.get(id);if(!owner)return;
-      try{await owner.persist();void owner.push().catch(()=>undefined);}catch{owner.error("WEAPON_SAVE_FAILED","Nie udało się zapisać treningu broni.");}
-    }));
     scheduleActive(ids);
   };
 
@@ -350,10 +359,13 @@ export function createGameServer(
 
     const emitPlayerState = async (targetCharacterId: PlayerId): Promise<void> => {
       const version=characterVersion;
+      const gearRevision=equipmentRevisions.get(targetCharacterId)??0;
       const [items,gold]=await Promise.all([inventory.getSnapshot(targetCharacterId),merchant.getGold(targetCharacterId)]);
       if(!ownsCharacter(targetCharacterId,version))return;
-      const character = characters.getSnapshot(targetCharacterId);
-      if (!character) return;
+      if(pendingEquipmentOperations.has(targetCharacterId) || gearRevision!==(equipmentRevisions.get(targetCharacterId)??0))return;
+      const currentCharacter = characters.getSnapshot(targetCharacterId);
+      if (!currentCharacter) return;
+      const character=characters.setEquipment(targetCharacterId,getCharacterEquipment(items,currentCharacter.level));
       socket.emit("playerState", {
         character,
         inventory: items,
@@ -412,12 +424,12 @@ export function createGameServer(
       const pendingItemUse = releasedCharacterId ? pendingBattleItemUses.get(releasedCharacterId) : undefined;
       const pendingPurchase = releasedCharacterId ? pendingMerchantOperations.get(releasedCharacterId) : undefined;
       const pendingReward = releasedCharacterId ? pendingBattleRewards.get(releasedCharacterId) : undefined;
-      const pendingWeapon = releasedCharacterId ? pendingWeaponSelections.get(releasedCharacterId) : undefined;
+      const pendingEquipment = releasedCharacterId ? pendingEquipmentOperations.get(releasedCharacterId) : undefined;
       const pendingHeal = releasedCharacterId ? healing.pendingFor(releasedCharacterId) : undefined;
       const socialCleanup = releasedCharacterId && characterOwners.get(releasedCharacterId)===socket.id
         ? social.removeDisconnected(releasedCharacterId) : Promise.resolve();
       const save = releasedCharacterId
-        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,pendingWeapon,pendingHeal,socialCleanup]).then(async()=>{
+        ? Promise.allSettled([pendingItemUse,pendingPurchase,pendingReward,pendingEquipment,pendingHeal,socialCleanup]).then(async()=>{
           if(characterOwners.get(releasedCharacterId)!==socket.id)return;
           // Item COMMIT installs a staged shared state; wait before removing any actor.
           while(true) {
@@ -460,6 +472,7 @@ export function createGameServer(
         if (characterOwners.get(releasedCharacterId) !== socket.id) return;
         if(ownerStateOperations.get(releasedCharacterId)?.owner===socket.id)ownerStateOperations.delete(releasedCharacterId);
         characterOwners.delete(releasedCharacterId);
+        equipmentRevisions.delete(releasedCharacterId);
         partyExperienceContexts.delete(releasedCharacterId);
         battleRewardTokens.delete(releasedCharacterId);
         battles.removeBattleForPlayer(releasedCharacterId);
@@ -545,7 +558,10 @@ export function createGameServer(
             return;
           }
 
-          if (!socket.connected) return;
+          const ownedItems=await inventory.getSnapshot(persisted.id);
+          const finalSession=await options.authService.validateToken(sessionToken);
+          if(!socket.connected)return;
+          if(!finalSession || finalSession.account.id!==validated.account.id){ack({ok:false,code:"INVALID_SESSION",message:"The gameplay session is invalid or expired."});return;}
 
           accountId = validated.account.id;
           characterId = persisted.id;
@@ -562,6 +578,7 @@ export function createGameServer(
           });
 
           characters.hydrate({
+            equipment:getCharacterEquipment(ownedItems,persisted.level),
             playerId: persisted.id,
             nickname: persisted.nickname,
             appearance: persisted.appearance,
@@ -649,39 +666,48 @@ export function createGameServer(
       ack(result);
     });
 
-    socket.on("setWeaponLoadout",async(payload,ack)=>{
+    // Older clients receive an explicit answer; free style choices no longer mutate a character.
+    socket.on("setWeaponLoadout",(_payload,ack)=>{
+      if(typeof ack!=="function")return;
+      if(!characterId || !ownsCharacter(characterId,characterVersion)){ack({ok:false,code:"AUTHENTICATION_REQUIRED",message:"Zaloguj się, aby wybrać uzbrojenie."});return;}
+      ack({ok:false,code:"WEAPON_STYLES_REMOVED",message:"Style walki zostały zastąpione uzbrojeniem. Zaktualizuj klienta i załóż przedmiot."});
+    });
+
+    socket.on("setEquipmentSlot",(payload,ack)=>{
       if(typeof ack!=="function")return;
       const id=characterId,version=characterVersion;
-      const failure=(code:string,message:string)=>ack({ok:false,code,message});
-      if(!id || !ownsCharacter(id,version)){failure("AUTHENTICATION_REQUIRED","Zaloguj się, aby wybrać styl broni.");return;}
-      if(!isWeaponLoadout(payload)){failure("INVALID_WEAPON_LOADOUT","Wybierz poprawny styl wręcz i dystansowy.");return;}
-      if(battles.hasBattle(id)){failure("BATTLE_IN_PROGRESS","Styl broni można zmienić poza walką.");return;}
-      if(pendingPartyStarts.has(id) || pendingWeaponSelections.has(id) || pendingBattleRewards.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id) || healing.pendingFor(id)) {
-        failure("WEAPON_ACTION_PENDING","Poczekaj na zakończenie poprzedniej czynności.");return;
+      const fail=(code:string,message:string)=>ack({ok:false,code,message});
+      if(!id || !ownsCharacter(id,version)){fail("AUTHENTICATION_REQUIRED","Zaloguj się, aby zmienić uzbrojenie.");return;}
+      if(!payload || !isEquipmentSlot(payload.slot) || (payload.itemInstanceId!==null && typeof payload.itemInstanceId!=="string")){fail("INVALID_EQUIPMENT_SLOT","Wybierz poprawny przedmiot i miejsce uzbrojenia.");return;}
+      if(battles.hasBattle(id)){fail("BATTLE_IN_PROGRESS","Uzbrojenie można zmieniać poza walką.");return;}
+      if(pendingPartyStarts.has(id) || pendingEquipmentOperations.has(id) || pendingBattleRewards.has(id) || pendingBattleItemUses.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id) || healing.pendingFor(id)){
+        fail("EQUIPMENT_ACTION_PENDING","Poczekaj na zakończenie poprzedniej czynności.");return;
       }
-      const previous=characters.getSnapshot(id)?.weaponTraining?.loadout;
-      let finish!:()=>void;
-      const pending=new Promise<void>(resolve=>{finish=resolve;});
-      pendingWeaponSelections.set(id,pending);
-      try {
-        characters.setWeaponLoadout(id,payload);
-        await persistGameplayState(id);
-        if(!ownsCharacter(id,version)){failure("SESSION_REPLACED","Połączenie zmieniło się. Otwórz panel ponownie.");return;}
-        finish();
-        if(pendingWeaponSelections.get(id)===pending)pendingWeaponSelections.delete(id);
-        ack({ok:true,character:characters.getSnapshot(id)!});
-        void emitPlayerState(id).catch(error=>reject(error,"PLAYER_STATE_FAILED","Nie udało się odświeżyć panelu postaci."));
-      }catch(error) {
-        if(previous && ownsCharacter(id,version)) {
-          characters.setWeaponLoadout(id,{...previous,support:previous.support??"none",defense:previous.defense??"none"});
-          // A movement snapshot may already be queued with the unconfirmed selection.
-          await persistGameplayState(id).catch(()=>undefined);
-        }
-        failure("WEAPON_SAVE_FAILED","Nie udało się zapisać stylu broni. Spróbuj ponownie.");
-      }finally {
-        finish();
-        if(pendingWeaponSelections.get(id)===pending)pendingWeaponSelections.delete(id);
-      }
+      let release!:()=>void;const mutation=new Promise<void>(resolve=>{release=resolve;});
+      pendingEquipmentOperations.set(id,mutation);
+      equipmentRevisions.set(id,(equipmentRevisions.get(id)??0)+1);
+      const finish=()=>{release();if(pendingEquipmentOperations.get(id)===mutation)pendingEquipmentOperations.delete(id);};
+      void(async()=>{
+        try {
+          await pendingCharacterSaves.get(id);
+          const assertCurrent=()=>{if(!ownsCharacter(id,version))throw new Error("SESSION_REPLACED");};
+          assertCurrent();
+          const items=await equipment.setSlot(id,payload,assertCurrent);
+          // A disconnect after COMMIT still saves the committed equipment's HP clamp.
+          if(characterOwners.get(id)===socket.id){
+            const character=characters.getSnapshot(id);
+            if(character)characters.setEquipment(id,getCharacterEquipment(items,character.level));
+            await persistGameplayState(id).catch(()=>reject(new Error("CHARACTER_SAVE_FAILED"),"CHARACTER_SAVE_FAILED","Nie udało się zapisać parametrów postaci."));
+          }
+          finish();
+          if(!ownsCharacter(id,version)){fail("SESSION_REPLACED","Połączenie zmieniło się. Otwórz uzbrojenie ponownie.");return;}
+          ack({ok:true,character:characters.getSnapshot(id)!,inventory:items});
+          void emitPlayerState(id).catch(()=>undefined);
+        }catch(error){
+          const code=error instanceof Error?error.message:"EQUIPMENT_FAILED";
+          fail(code,EQUIPMENT_ERRORS[code]??"Nie udało się zmienić uzbrojenia.");
+        }finally{finish();}
+      })();
     });
 
     socket.on("requestWorldState", () => {
@@ -713,6 +739,7 @@ export function createGameServer(
       if(!id || !ownsCharacter(id,version)){ack(socialFailure(new Error("AUTHENTICATION_REQUIRED")));return;}
       const now=Date.now();while(socialActionTimes[0]!==undefined && now-socialActionTimes[0]>=10000)socialActionTimes.shift();
       if(pendingPartyStarts.has(id) || (payload && typeof payload==="object" && "playerId" in payload && typeof payload.playerId==="string" && pendingPartyStarts.has(payload.playerId))){ack(socialFailure(new Error("SOCIAL_ACTION_PENDING")));return;}
+      if(pendingEquipmentOperations.has(id) || (payload && typeof payload==="object" && "playerId" in payload && typeof payload.playerId==="string" && pendingEquipmentOperations.has(payload.playerId))){ack({ok:false,code:"EQUIPMENT_ACTION_PENDING",message:MERCHANT_ERRORS.EQUIPMENT_ACTION_PENDING!});return;}
       if(pendingMerchantOperations.has(id)){ack({ok:false,code:"MERCHANT_ACTION_PENDING",message:MERCHANT_ERRORS.MERCHANT_ACTION_PENDING!});return;}
       if(socialActionTimes.length>=20){ack(socialFailure(new Error("SOCIAL_RATE_LIMITED")));return;}
       socialActionTimes.push(now);
@@ -722,14 +749,9 @@ export function createGameServer(
         let updatedInventory:import("@web-mmorpg/shared").InventorySnapshot|undefined;
         if(payload.type==="confirmTrade" && trade?.status==="completed") {
           for(const participant of trade.participants) {
-            const owner=characterOwners.get(participant.player.id);
-            const target=owner ? io.sockets.sockets.get(owner) : undefined;
-            const character=characters.getSnapshot(participant.player.id);
-            if(!target?.connected || !character)continue;
-            const items=await inventory.getSnapshot(participant.player.id);
-            if(participant.player.id===id)updatedInventory=items;
-            const gold=await merchant.getGold(participant.player.id);
-            if(characterOwners.get(participant.player.id)===owner)target.emit("playerState",{character,inventory:items,gold});
+            const participantId=participant.player.id;
+            if(participantId===id)updatedInventory=await inventory.getSnapshot(participantId);
+            await ownerStateOperations.get(participantId)?.push();
           }
         }
         const snapshot=await social.getSnapshot(id);
@@ -827,6 +849,7 @@ export function createGameServer(
       try {
         checkMerchantRate();assertMerchant(id,version,payload?.npcId);
         if(pendingPartyStarts.has(id))throw new Error("BATTLE_ACTION_PENDING");
+        if(pendingEquipmentOperations.has(id))throw new Error("EQUIPMENT_ACTION_PENDING");
         if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
         const shop=await merchant.getShop(id);
         assertMerchant(id,version,payload.npcId);
@@ -840,6 +863,7 @@ export function createGameServer(
       try {
         checkMerchantRate();assertMerchant(id,version,payload?.npcId);
         if(pendingPartyStarts.has(id))throw new Error("BATTLE_ACTION_PENDING");
+        if(pendingEquipmentOperations.has(id))throw new Error("EQUIPMENT_ACTION_PENDING");
         if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
       }catch(error){ack(merchantFailure(error));return;}
       const operation=(async()=>{
@@ -1000,7 +1024,7 @@ export function createGameServer(
       if(!id || !zone || !ownsCharacter(id,version))return;
       const reservation=Symbol("party-start"),reserved:PlayerId[]=[];
       let encounterLease:string|undefined,leaseTransferred=false;
-      const busy=(target:PlayerId)=>battles.hasBattle(target)||pendingPartyStarts.has(target)||pendingBattleItemUses.has(target)||pendingBattleRewards.has(target)||pendingWeaponSelections.has(target)||pendingMerchantOperations.has(target)||Boolean(healing.pendingFor(target))||social.isBusy(target);
+      const busy=(target:PlayerId)=>battles.hasBattle(target)||pendingPartyStarts.has(target)||pendingBattleItemUses.has(target)||pendingBattleRewards.has(target)||pendingEquipmentOperations.has(target)||pendingMerchantOperations.has(target)||Boolean(healing.pendingFor(target))||social.isBusy(target);
       try {
         await respawns.ready;
         if(!ownsCharacter(id,version) || world.getPlayerLocationId(id)!==zone)return;
@@ -1008,7 +1032,7 @@ export function createGameServer(
         const encounterId=payload?.encounterId,mode=payload?.mode??"manual";
         if(mode!=="manual" && mode!=="auto")throw new Error("INVALID_BATTLE_MODE");
         if(typeof encounterId!=="string")throw new Error("ENCOUNTER_NOT_FOUND");
-        if(pendingWeaponSelections.has(id))throw new Error("WEAPON_ACTION_PENDING");
+        if(pendingEquipmentOperations.has(id))throw new Error("EQUIPMENT_ACTION_PENDING");
         if(pendingMerchantOperations.has(id))throw new Error("MERCHANT_ACTION_PENDING");
         if(busy(id))throw new Error("BATTLE_ACTION_PENDING");
         world.startEncounter(id,encounterId);
@@ -1027,7 +1051,7 @@ export function createGameServer(
         const members=reserved.filter(target=>{
           const character=characters.getSnapshot(target),owner=ownerStateOperations.get(target);
           return pendingPartyStarts.get(target)===reservation && owner?.isCurrent() && character && character.hp>0 && world.getPlayerLocationId(target)===zone
-            && !battles.hasBattle(target) && !pendingBattleRewards.has(target) && !pendingBattleItemUses.has(target) && !pendingWeaponSelections.has(target) && !pendingMerchantOperations.has(target) && !healing.pendingFor(target) && !social.isBusy(target)
+            && !battles.hasBattle(target) && !pendingBattleRewards.has(target) && !pendingBattleItemUses.has(target) && !pendingEquipmentOperations.has(target) && !pendingMerchantOperations.has(target) && !healing.pendingFor(target) && !social.isBusy(target)
             && (target===id || (party?.id===currentParty?.id && currentParty?.members.some(member=>member.id===target)));
         });
         if(!members.includes(id))throw new Error("BATTLE_ACTION_PENDING");
@@ -1124,6 +1148,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
+    services: { world, inventory, equipment, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
   };
 }

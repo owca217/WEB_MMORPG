@@ -5,7 +5,7 @@ import type {
   HexCoord,
   PlayerId
 } from "@web-mmorpg/shared";
-import { mitigatedBattleDamage, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
+import { isBattleAttackEnabled, mitigatedBattleDamage, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
 import { findPath, hexDistance, hexKey } from "./hex";
 import { hasLineOfSight } from "./lineOfSight";
 import {
@@ -232,7 +232,7 @@ function applyValidatedCommand(
 ): BattleResult {
   if (command.type === "healSelf" || command.type === "healAlly") {
     const power = actor.combatStats?.healingPower ?? 0;
-    if (!Number.isFinite(power) || power <= 0) return reject("HEAL_NO_STAFF", "Wybierz kostur leczący przed walką.");
+    if (!Number.isFinite(power) || power <= 0) return reject("HEAL_NO_STAFF", "Załóż kostur leczący przed walką.");
     if (actor.healingUsedThisTurn) return reject("HEAL_ALREADY_USED", "Kostur został już użyty w tej turze.");
     const target = command.type === "healSelf" ? actor : state.combatants[command.targetId];
     if (!target || target.hp <= 0 || target.side !== actor.side) return reject("INVALID_HEAL_TARGET", "Wybierz żywego sojusznika.");
@@ -266,6 +266,7 @@ function applyValidatedCommand(
   }
 
   if (command.type === "meleeAttack" || command.type === "rangedAttack") {
+    if(!isBattleAttackEnabled(actor,command.type))return reject("WEAPON_ATTACK_UNAVAILABLE","Założona broń nie pozwala na ten atak.");
     const target = targetCombatant(state, command.targetId);
     if (!target || target.hp <= 0) return reject("INVALID_TARGET", "Target is not available.");
     if (target.side === actor.side) return reject("INVALID_TARGET", "Cannot attack an ally.");

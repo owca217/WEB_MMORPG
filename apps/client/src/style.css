@@ -781,10 +781,6 @@ button {
   background: #131b16;
 }
 .weapon-proficiency__bar span { display: block; height: 100%; background: #b2aa69; }
-.weapon-style { display: grid; gap: 10px; margin: 16px 0 0; padding: 12px; border: 1px solid #716449; border-radius: 8px; }
-.weapon-style label { display: grid; gap: 5px; }
-.weapon-style select { box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px; color: #f4ead8; background: #242b21; border: 1px solid #8d8059; border-radius: 7px; font: inherit; }
-.weapon-style button { width: 100%; }
 
 .dialogue-panel {
   position: fixed;
@@ -1404,3 +1400,24 @@ button {
     animation: none;
   }
 }
+
+.character-tabs { display:flex; gap:6px; padding:0 16px 12px; }
+.character-tabs [role="tab"] { flex:1; min-height:44px; padding:9px 6px; border:1px solid #766948; border-radius:7px; color:#eee4cb; background:#252a21; cursor:pointer; }
+.character-tabs [aria-selected="true"] { background:#6b633d; border-color:#b6a365; }
+.character-sheet [role="tabpanel"][hidden] { display:none; }
+.equipment-slots { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.equipment-slot,.equipment-candidate { display:flex; flex-direction:column; gap:8px; padding:10px; border:1px solid #655e46; border-radius:7px; background:#151d18; min-width:0; }
+.equipment-slot > strong { color:#c9b983; }
+.equipment-item { display:flex; gap:9px; align-items:center; min-width:0; }
+.equipment-item > div { display:grid; gap:5px; min-width:0; overflow-wrap:anywhere; }
+.equipment-item small,.equipment-slot__empty { color:#c3c4aa; line-height:1.35; }
+.equipment-icon { display:grid; place-items:center; flex:0 0 38px; width:38px; height:38px; color:#a8aa8b; background:#070a07; border:1px solid #545b41; border-radius:6px; font-size:24px; overflow:hidden; }
+.equipment-icon img { width:100%; height:100%; object-fit:contain; }
+.equipment-candidates { display:grid; gap:8px; }
+.equipment-slot button,.equipment-candidate button,.container-equipment-action { min-height:44px; padding:8px 12px; border:1px solid #938051; border-radius:6px; color:#f0e9ce; background:#555d37; cursor:pointer; }
+.equipment-slot button:disabled,.equipment-candidate button:disabled,.container-equipment-action:disabled { opacity:.55; cursor:default; }
+.equipment-requirement { color:#e0b48b; }
+.container-equipment-row { display:grid; gap:5px; min-width:0; }
+.container-equipment-row > .container-contents__item { width:100%; }
+.container-equipment-action { font-size:12px; }
+@media(max-width:520px) { .equipment-slots { grid-template-columns:1fr; } .character-tabs { gap:4px; padding:0 10px 10px; } .character-tabs [role="tab"] { font-size:13px; } }

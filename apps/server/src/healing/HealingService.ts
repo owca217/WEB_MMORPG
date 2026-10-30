@@ -1,5 +1,5 @@
 import {
-  getCharacterStatistics, getWeaponCombatStatistics, normalizeWeaponTraining,
+  getCharacterStatistics, getEquipmentCombatStatistics, getEquippedWeaponFamily,
   WORLD_HEAL_COOLDOWN_MS, WORLD_HEAL_RANGE,
   type CharacterSnapshot, type HealingFailure, type HealingRequest, type HealingResult, type HealingTargetsResult
 } from "@web-mmorpg/shared";
@@ -12,14 +12,13 @@ export interface HealingServiceDependencies {
   getPartyMemberIds(id: string): readonly string[];
   getPosition(id: string): { locationId: string; x: number; y: number } | undefined;
   restoreHp(id: string, amount: number): number;
-  trainStaff(id: string): void;
   persist(id: string): Promise<void>;
   push(id: string): Promise<void>;
 }
 
 const MESSAGES:Readonly<Record<string,string>>={
   INVALID_HEAL_REQUEST:"Nieprawidłowy cel lub identyfikator leczenia.",
-  HEALING_STAFF_REQUIRED:"Wybierz kostur leczący w panelu postaci.",
+  HEALING_STAFF_REQUIRED:"Załóż kostur leczący w zakładce Uzbrojenie.",
   PLAYER_OFFLINE:"Postać nie jest połączona z grą.",
   HEAL_CASTER_DOWN:"Nieprzytomna postać nie może leczyć.",
   HEAL_TARGET_DOWN:"Kostur nie wskrzesza pokonanej postaci.",
@@ -76,7 +75,7 @@ export class HealingService {
     if(previous) {
       if(previous.request.targetId!==payload.targetId)return Promise.resolve(failure("HEAL_REQUEST_CONFLICT"));
       if(previous.pending || !previous.retryNeeded)return previous.promise;
-      // A failed persistence retry repeats saves, never HP restoration or training.
+      // A failed persistence retry repeats saves, never HP restoration.
       if(!this.deps.isOnline(previous.request.targetId))return Promise.resolve(failure("HEAL_SAVE_UNCERTAIN"));
       if(this.unavailable(casterId) || this.unavailable(previous.request.targetId))return Promise.resolve(failure("HEAL_ACTION_PENDING"));
       return this.begin(previous,false);
@@ -120,7 +119,6 @@ export class HealingService {
         if(!Number.isFinite(restoredHp) || restoredHp<=0)return failure("HEAL_NO_EFFECT");
         receipt.success={ok:true,...receipt.request,restoredHp,cooldownMs:WORLD_HEAL_COOLDOWN_MS};
         this.cooldowns.set(receipt.casterId,this.now()+WORLD_HEAL_COOLDOWN_MS);
-        this.deps.trainStaff(receipt.casterId);
       }
       const saved=await Promise.allSettled(ids.map(id=>Promise.resolve().then(()=>this.deps.persist(id))));
       if(saved.some(result=>result.status==="rejected"))throw new Error("HEAL_SAVE_FAILED");
@@ -136,7 +134,7 @@ export class HealingService {
     const character=this.deps.getCharacter(id);
     if(!character || !this.deps.isOnline(id))return failure("PLAYER_OFFLINE");
     if(character.hp<=0)return failure("HEAL_CASTER_DOWN");
-    if(normalizeWeaponTraining(character.weaponTraining).loadout.support!=="staff")return failure("HEALING_STAFF_REQUIRED");
+    if(getEquippedWeaponFamily(character.equipment)!=="staff")return failure("HEALING_STAFF_REQUIRED");
     if(this.unavailable(id))return failure("HEAL_ACTION_PENDING");
     if(this.deps.isInBattle(id))return failure("HEAL_BATTLE_IN_PROGRESS");
     return undefined;
@@ -158,7 +156,7 @@ export class HealingService {
   }
 
   private power(character:CharacterSnapshot):number {
-    return getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining).healingPower??0;
+    return getEquipmentCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining,character.equipment).healingPower??0;
   }
   private unavailable(id:string):boolean {return this.pending.has(id)||this.deps.isBusy(id);}
   private cooldown(id:string):number {return Math.max(0,(this.cooldowns.get(id)??0)-this.now());}

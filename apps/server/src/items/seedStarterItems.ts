@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
+import { BASIC_EQUIPMENT_ITEMS } from "./basicEquipment";
 
 interface StarterItemSeed {
   itemUuid: string;
@@ -11,6 +13,7 @@ interface StarterItemSeed {
   stackable: boolean;
   maxStack: number;
   weight: number;
+  minimumLevel?:number;
   specialData?: Readonly<Record<string, unknown>>;
   stats?: readonly {
     id: string;
@@ -135,7 +138,14 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
 ];
 
 export async function seedStarterItems(client: PoolClient): Promise<void> {
-  for (const seed of STARTER_ITEMS) {
+  const equipment:StarterItemSeed[]=BASIC_EQUIPMENT_ITEMS.map((item)=>({
+    itemUuid:randomUUID(),versionUuid:randomUUID(),itemId:item.itemId,name:item.name,
+    categoryId:item.categoryId,subcategoryId:item.subcategoryId,description:`Podstawowy przedmiot: ${item.name.toLowerCase()}.`,
+    stackable:false,maxStack:1,weight:1,minimumLevel:1,
+    specialData:item.weaponFamily?{weaponFamily:item.weaponFamily}:{armorSlot:item.subcategoryId},
+    stats:item.stats.map((stat)=>({...stat,id:randomUUID()}))
+  }));
+  for (const seed of [...STARTER_ITEMS,...equipment]) {
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO items (id, item_id, status, active_version_no)
        VALUES ($1, $2, 'PUBLISHED', 1)
@@ -169,7 +179,7 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         sell_value, sellable, tradable, droppable, stackable, max_stack,
         weight, soulbound, unique_item, special_data, created_by
       ) VALUES (
-        $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, 'COMMON', 1, 0,
+        $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, 'COMMON', 1, $12,
         0, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, $10::jsonb, $11
       )`,
       [
@@ -183,7 +193,8 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         seed.maxStack,
         seed.weight,
         JSON.stringify(seed.specialData ?? {}),
-        seedActor
+        seedActor,
+        seed.minimumLevel??0
       ]
     );
 

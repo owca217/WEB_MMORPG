@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { EventEmitter } from "node:events";
-import type { InventorySnapshot, PlayerStateSnapshot } from "@web-mmorpg/shared";
+import { emptyCharacterEquipment, emptyEquipmentSlots, type InventoryItem, type InventorySnapshot, type InventoryUpdateResult, type PlayerStateSnapshot } from "@web-mmorpg/shared";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({ default: {
@@ -42,26 +42,65 @@ it("switches location bounds, discards old movement and snaps prediction at the 
   events.emit("shutdown");
 });
 
-it("applies an acknowledged weapon style while retaining newer character state, inventory and gold",async()=>{
+it("applies equipment from the authoritative acknowledgement and preserves gold",async()=>{
   let finish!:(value:any)=>void;
-  vi.spyOn(gameSocket,"setWeaponLoadout").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  vi.spyOn(gameSocket,"setEquipmentSlot").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
   const scene=new WorldScene(),events=new EventEmitter();
   Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
   scene.init({playerId:"hero"});scene.create();
   const character={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
-  transport.emit("playerState",{character,inventory:{items:[]},gold:100});
-  document.querySelector<HTMLButtonElement>("[data-character]")!.click();
-  const melee=document.querySelector<HTMLSelectElement>("[data-weapon-melee]")!;
-  melee.value="axe";melee.dispatchEvent(new Event("change",{bubbles:true}));
-  document.querySelector<HTMLButtonElement>("[data-save-weapon-style]")!.click();
-  const inventory:InventorySnapshot={items:[{instanceId:"new-bag",itemId:"rag-bag",itemDefinitionId:"rag",name:"Worek",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0}]};
-  transport.emit("playerState",{character:{...character,level:2,experience:150,hp:77,maxHp:130,severelyInjured:true,injuries:["bleeding"]},inventory,gold:70});
-  finish({ok:true,character:{...character,weaponTraining:{experience:{sword:0,axe:25250,hammer:0,dagger:0,spear:0,bow:0,crossbow:0},loadout:{melee:"axe",ranged:"bow"}}}});
-  await vi.waitFor(()=>expect(playerStateStore.get()?.character.weaponTraining?.loadout.melee).toBe("axe"));
-  expect(playerStateStore.get()?.inventory.items[0]?.instanceId).toBe("new-bag");
-  expect(playerStateStore.get()?.gold).toBe(70);
-  expect(playerStateStore.get()?.character).toMatchObject({level:2,experience:150,hp:77,maxHp:130,severelyInjured:true,injuries:["bleeding"],statistics:{meleeDamage:28,rangedDamage:16,strength:12}});
-  expect(document.querySelector('[data-stat="hp"]')?.textContent).toBe("77/130");
+  const item={instanceId:"axe",itemId:"axe",itemDefinitionId:"axe-def",name:"Topór",category:"weapon",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,equipment:{slot:"mainHand",weaponFamily:"axe",twoHanded:false,minimumLevel:1,modifiers:[]}};
+  transport.emit("playerState",{character,inventory:{items:[item]},gold:100});
+  document.querySelector<HTMLButtonElement>("[data-character]")!.click();document.querySelector<HTMLButtonElement>('[data-character-tab="equipment"]')!.click();document.querySelector<HTMLButtonElement>('[data-equipment-equip="axe"]')!.click();
+  const equipment={mainHand:{...item,equippedSlot:"mainHand"},offHand:null,helmet:null,chest:null,gloves:null,pants:null,boots:null,cloak:null};
+  finish({ok:true,character:{...character,equipment,statistics:{strength:10,dexterity:10,vitality:10,maxHp:100,maxAp:5,initiative:10,meleeDamage:39,rangedDamage:0,armor:4}},inventory:{items:[equipment.mainHand]}});
+  await vi.waitFor(()=>expect(playerStateStore.get()?.character.statistics?.meleeDamage).toBe(39));
+  expect(playerStateStore.get()?.gold).toBe(100);expect(playerStateStore.get()?.inventory.items[0]?.equippedSlot).toBe("mainHand");
+  expect(document.querySelector('[data-equipment-slot="mainHand"]')?.textContent).toContain("Topór");events.emit("shutdown");
+});
+
+it("keeps newer player state when an older equipment acknowledgement arrives and refreshes authority",async()=>{
+ let finish!:(value:any)=>void;vi.spyOn(gameSocket,"setEquipmentSlot").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));const refresh=vi.spyOn(gameSocket,"requestPlayerState");
+ const scene=new WorldScene(),events=new EventEmitter();Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});scene.init({playerId:"hero"});scene.create();
+ const character={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};const item={instanceId:"axe",itemId:"axe",itemDefinitionId:"axe-def",name:"Topór",category:"weapon",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,equipment:{slot:"mainHand",weaponFamily:"axe",twoHanded:false,minimumLevel:1,modifiers:[]}};
+ transport.emit("playerState",{character,inventory:{items:[item]},gold:100});document.querySelector<HTMLButtonElement>("[data-character]")!.click();document.querySelector<HTMLButtonElement>('[data-character-tab="equipment"]')!.click();document.querySelector<HTMLButtonElement>('[data-equipment-equip="axe"]')!.click();
+ const newer={character:{...character,level:2,hp:77,maxHp:130},inventory:{items:[item]},gold:70};transport.emit("playerState",newer);const previousCalls=refresh.mock.calls.length;finish({ok:true,character,inventory:{items:[]}});
+ await vi.waitFor(()=>expect(refresh.mock.calls.length).toBe(previousCalls+1));expect(playerStateStore.get()).toMatchObject({character:{level:2,hp:77},gold:70});expect(playerStateStore.get()?.inventory.items).toHaveLength(1);events.emit("shutdown");
+});
+
+it("discards a delayed bag acknowledgement from before a gear change and applies a compatible bag update",async()=>{
+  let finishMove!:(value:InventoryUpdateResult)=>void;
+  vi.spyOn(gameSocket,"moveItemToContainer").mockImplementation(()=>new Promise(resolve=>{finishMove=resolve;}));
+  const refresh=vi.spyOn(gameSocket,"requestPlayerState");
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const weapon=(instanceId:string):InventoryItem=>({instanceId,itemId:instanceId,itemDefinitionId:instanceId,name:instanceId,category:"weapon",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[]}});
+  const oldWeapon={...weapon("old-sword"),equippedSlot:"mainHand" as const},newWeapon=weapon("new-sword");
+  const bag:InventoryItem={instanceId:"bag",itemId:"bag",itemDefinitionId:"bag",name:"Worek",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,containerCapacity:8};
+  const wood:InventoryItem={instanceId:"wood",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0};
+  const state:PlayerStateSnapshot={character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:{...emptyCharacterEquipment(),mainHand:oldWeapon}},inventory:{items:[bag,wood,oldWeapon,newWeapon],containerSlots:["bag",null,null,null],equipmentSlots:{...emptyEquipmentSlots(),mainHand:oldWeapon.instanceId}},gold:100};
+  transport.emit("playerState",state);
+  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-put="wood"]')!.click();
+  const equippedNew={...newWeapon,equippedSlot:"mainHand" as const},unequippedOld=weapon("old-sword");
+  const fresh:PlayerStateSnapshot={...state,character:{...state.character,hp:77,equipment:{...emptyCharacterEquipment(),mainHand:equippedNew}},inventory:{...state.inventory,items:[bag,wood,unequippedOld,equippedNew],equipmentSlots:{...emptyEquipmentSlots(),mainHand:newWeapon.instanceId}}};
+  transport.emit("playerState",fresh);
+  const previousCalls=refresh.mock.calls.length;
+  finishMove({ok:true,inventory:{...state.inventory,items:[bag,{...wood,containerInstanceId:"bag"},oldWeapon,newWeapon]}});
+  await vi.waitFor(()=>expect(refresh.mock.calls.length).toBe(previousCalls+1));
+  expect(playerStateStore.get()).toEqual(fresh);
+  expect(document.querySelector('[data-container-put="new-sword"]')).toBeNull();
+  expect(document.querySelector('[data-container-put="old-sword"]')).not.toBeNull();
+  expect(document.querySelector('[data-container-remove="wood"]')).toBeNull();
+
+  const valid:InventorySnapshot={...fresh.inventory,items:[bag,{...wood,containerInstanceId:"bag"},unequippedOld,equippedNew]};
+  vi.mocked(gameSocket.moveItemToContainer).mockResolvedValue({ok:true,inventory:valid});
+  document.querySelector<HTMLButtonElement>('[data-container-put="wood"]')!.click();
+  await vi.waitFor(()=>expect(playerStateStore.get()?.inventory).toEqual(valid));
+  expect(refresh.mock.calls.length).toBe(previousCalls+1);
+  expect(playerStateStore.get()?.character.equipment?.mainHand?.instanceId).toBe("new-sword");
+  expect(document.querySelector('[data-container-remove="wood"]')).not.toBeNull();
   events.emit("shutdown");
 });
 
@@ -234,7 +273,7 @@ it("opens the HUD container slot and applies the acknowledged inventory to the H
   };
   const state: PlayerStateSnapshot = {
     character: { playerId: "hero", nickname: "Owczy", level: 1, experience: 0, hp: 100, maxHp: 100,
-      maxAp: 4, initiative: 10, severelyInjured: false, injuries: [] },
+      maxAp: 4, initiative: 10, severelyInjured: false, injuries: [], equipment: emptyCharacterEquipment() },
     inventory
   };
   let request: unknown;

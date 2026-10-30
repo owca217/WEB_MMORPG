@@ -14,6 +14,13 @@ function state(enemies: Array<{id:string;hp:number;position:HexCoord}>, options:
 }
 
 describe("automatic player battle tactics",()=>{
+  it("shoots an equipped bow at adjacent enemies and never substitutes a disabled melee attack",()=>{
+    const initial=state([{id:"wolf",hp:10,position:{q:1,r:0}}]);
+    initial.combatants.hero!.combatStats={meleeDamage:999,rangedDamage:15,armor:0,meleeEnabled:false,rangedEnabled:true};
+    const command=chooseAutoBattleCommand(initial,"player");
+    expect(command).toEqual({type:"rangedAttack",combatantId:"hero",targetId:"wolf"});
+    expect(applyBattleCommand(initial,"player",command).ok).toBe(true);
+  });
   it("finishes a wounded adjacent enemy before spreading damage and avoids paying ranged AP for overkill",()=>{
     const initial=state([{id:"strong",hp:100,position:{q:0,r:1}},{id:"weak",hp:15,position:{q:1,r:0}}]);
     const unchanged=structuredClone(initial);

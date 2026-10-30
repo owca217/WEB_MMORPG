@@ -2,6 +2,8 @@ export interface CombatStatistics {
   meleeDamage: number;
   rangedDamage: number;
   armor: number;
+  meleeEnabled?: boolean;
+  rangedEnabled?: boolean;
   healingPower?: number;
   blockPercent?: number;
 }

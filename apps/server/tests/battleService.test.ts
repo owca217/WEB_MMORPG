@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { BattleService } from "../src/battle/BattleService";
 import { findPath, hexDistance, hexKey, hexNeighbors } from "../src/battle/hex";
 import { hasLineOfSight } from "../src/battle/lineOfSight";
+import { combatEquipment } from "./combatEquipmentFixtures";
 
 function leveledCharacter(level: number): CharacterSnapshot {
   const statistics = getCharacterStatistics(level);
@@ -19,14 +20,14 @@ function chooseHeroCommand(snapshot: BattleSnapshot): BattleCommand {
   const enemies = snapshot.combatants.filter((combatant) => !combatant.ownerPlayerId && combatant.hp > 0)
     .sort((a, b) => a.hp - b.hp || a.id.localeCompare(b.id));
   const adjacent = enemies.find((enemy) => hexDistance(hero.position, enemy.position) === 1);
-  if (adjacent && hero.ap >= 2) {
+  if (adjacent && hero.ap >= 2 && hero.combatStats?.meleeEnabled!==false) {
     return { type: "meleeAttack", combatantId: hero.id, targetId: adjacent.id };
   }
 
   const blockers = new Set(snapshot.blockedCells.map(hexKey));
   const shot = enemies.find((enemy) => hexDistance(hero.position, enemy.position) <= 6 &&
     hasLineOfSight(hero.position, enemy.position, blockers));
-  if (shot && hero.ap >= (hero.injuries.includes("brokenArm") ? 4 : 3)) {
+  if (shot && hero.ap >= (hero.injuries.includes("brokenArm") ? 4 : 3) && hero.combatStats?.rangedEnabled!==false) {
     return { type: "rangedAttack", combatantId: hero.id, targetId: shot.id };
   }
 
@@ -45,9 +46,10 @@ function chooseHeroCommand(snapshot: BattleSnapshot): BattleCommand {
   return { type: "endTurn", combatantId: hero.id };
 }
 
-function simulateBattle(level: number) {
+function simulateBattle(level: number, family:"sword"|"bow"="sword") {
   const service = new BattleService();
-  let snapshot = service.startBattle(leveledCharacter(level), "encounter:wolf");
+  const modifiers=family==="bow"?[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat" as const,value:12}]:[];
+  let snapshot = service.startBattle({...leveledCharacter(level),equipment:combatEquipment(family,false,modifiers)}, "encounter:wolf");
   const actions = { meleeAttack: 0, rangedAttack: 0, move: 0, endTurn: 0, healSelf: 0, healAlly: 0 };
   for (let guard = 0; guard < 2_000; guard += 1) {
     const command = chooseHeroCommand(snapshot);
@@ -104,7 +106,7 @@ describe("BattleService character state and NPC turns", () => {
     const wolf = initial.combatants.find((combatant) => !combatant.ownerPlayerId)!;
 
     expect(hero).toMatchObject({ level: 5, hp: 37, injuries: ["concussion"],
-      combatStats: { meleeDamage: 28, rangedDamage: 19, armor: 8 } });
+      combatStats: { meleeDamage: 28, rangedDamage: 0, armor: 8,meleeEnabled:true,rangedEnabled:false } });
     expect(wolf.initiative).toBeLessThan(hero!.initiative - 2);
   });
 
@@ -142,20 +144,26 @@ describe("BattleService character state and NPC turns", () => {
     }
   );
 
-  it("keeps higher-level battles longer and winnable using melee, ranged attacks and paths", () => {
+  it("keeps higher-level sword battles longer and winnable with legal attacks and paths", () => {
     const levels = [1, 5, 10, 25, 40, 100];
-    const outcomes = levels.map(simulateBattle);
+    const outcomes = levels.map(level=>simulateBattle(level));
     for (const outcome of outcomes) {
       expect(outcome.victory).toBe(true);
       expect(outcome.playerOutcome!.hp).toBeGreaterThan(0);
       expect(outcome.actions.meleeAttack).toBeGreaterThan(0);
-      expect(outcome.actions.rangedAttack).toBeGreaterThan(0);
+      expect(outcome.actions.rangedAttack).toBe(0);
       expect(outcome.actions.move).toBeGreaterThan(0);
     }
     expect(outcomes[0]!.round).toBeGreaterThanOrEqual(4);
     for (let index = 1; index < outcomes.length; index += 1) {
       expect(outcomes[index]!.round).toBeGreaterThan(outcomes[index - 1]!.round);
     }
+  });
+
+  it("plays a bow encounter to victory using ranged attacks even when the wolf approaches",()=>{
+    const outcome=simulateBattle(1,"bow");
+    expect(outcome.victory).toBe(true);expect(outcome.playerOutcome!.hp).toBeGreaterThan(0);
+    expect(outcome.actions.rangedAttack).toBeGreaterThan(0);expect(outcome.actions.meleeAttack).toBe(0);
   });
 
   it.each([{ level: 1, reward: 40 }, { level: 10, reward: 350 }, { level: 25, reward: 1200 }])(

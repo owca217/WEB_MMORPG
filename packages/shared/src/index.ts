@@ -13,6 +13,8 @@ export * from "./social";
 export * from "./merchant";
 export * from "./characterProgression";
 export * from "./weapons";
+export * from "./equipment";
+export * from "./equipmentCombat";
 export * from "./healing";
 export * from "./characterSkins";
 export * from "./items";

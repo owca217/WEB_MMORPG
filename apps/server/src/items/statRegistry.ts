@@ -578,6 +578,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
     categoryId: "weapon",
     name: "Kostury",
     allowedStatCodes: [
+      "PHYSICAL_DAMAGE",
       "MAGIC_DAMAGE",
       "SPELL_POWER",
       "CAST_SPEED",

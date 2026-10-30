@@ -14,7 +14,7 @@ describe("CharacterService", () => {
     expect(characters.getSnapshot("p1")?.appearance).toEqual({ gender: "female", skinId: "female-guard", detail: { color: "blue" } });
   });
 
-  it("creates stable MVP 2 base stats", () => {
+  it("creates stable base stats with only unarmed melee enabled", () => {
     const characters = new CharacterService();
 
     expect(characters.createPlayer("p1", "Owczy")).toMatchObject({
@@ -22,7 +22,7 @@ describe("CharacterService", () => {
       nickname: "Owczy",
       level: 1,
       experience: 0,
-      statistics: { strength: 10, dexterity: 10, vitality: 10, meleeDamage: 20, rangedDamage: 15, armor: 0 },
+      statistics: { strength: 10, dexterity: 10, vitality: 10, meleeDamage: 20, rangedDamage: 0, armor: 0, meleeEnabled: true, rangedEnabled: false },
       hp: 100,
       maxHp: 100,
       maxAp: 5,
@@ -46,7 +46,7 @@ describe("CharacterService", () => {
     const leveled = characters.awardExperience("p1", 201);
     expect(leveled).toMatchObject({
       level: 3, experience: 300, hp: 100, maxHp: 160, maxAp: 5, initiative: 11,
-      statistics: { strength: 14, dexterity: 12, vitality: 16, maxHp: 160, maxAp: 5, initiative: 11, meleeDamage: 24, rangedDamage: 17, armor: 4 },
+      statistics: { strength: 14, dexterity: 12, vitality: 16, maxHp: 160, maxAp: 5, initiative: 11, meleeDamage: 24, rangedDamage: 0, armor: 4, meleeEnabled: true, rangedEnabled: false },
       appearance: { gender: "female", skinId: "female-guard" },
       severelyInjured: true, injuries: ["legTrauma"]
     });

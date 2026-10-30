@@ -1,5 +1,5 @@
-import type { ContainerSlotIndex, EncounterSnapshot, InventorySnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
-import { findNearestWalkablePosition, findWorldPath, getCharacterStatistics, getWeaponCombatStatistics, normalizeWeaponTraining, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import { EQUIPMENT_SLOTS, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
@@ -67,6 +67,9 @@ export class WorldScene extends Phaser.Scene {
   private containerContents: ContainerContentsPanel | undefined;
   private healingPanel:HealingPanel|undefined;
   private characterPanel: CharacterPanel | undefined;
+  private playerStateRevision=0;
+  private equipmentRequestVersion=0;
+  private equipmentPending=false;
   private dialoguePanel: DialoguePanel | undefined;
   private merchantPanel: MerchantPanel | undefined;
   private merchantRequestVersion = 0;
@@ -101,6 +104,7 @@ export class WorldScene extends Phaser.Scene {
     this.encounters=[];this.selectedEncounterId=null;
     this.npcs=[];this.selectedNpcId=null;this.pendingDialogueNpcId=null;
     this.pendingNpcAction=null;
+    this.playerStateRevision=0;this.equipmentRequestVersion++;this.equipmentPending=false;
   }
 
   preload(): void {
@@ -196,27 +200,17 @@ export class WorldScene extends Phaser.Scene {
     this.containerContents = new ContainerContentsPanel({
       onMoveItem: (itemInstanceId, targetContainerInstanceId) => gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId),
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
+      onEquipItem: async item=>{
+        const result=await this.setEquipmentSlot({slot:item.equipment!.slot,itemInstanceId:item.instanceId});
+        return result.ok?{ok:true,inventory:playerStateStore.get()?.inventory??result.inventory}:result;
+      },
       onChangeContainer: (slotIndex) => this.containerPicker?.show(slotIndex)
     });
     this.healingPanel=new HealingPanel({requestTargets:()=>gameSocket.requestHealingTargets(),cast:request=>gameSocket.castHealing(request)});
-    const characterPanel = new CharacterPanel({
-      onSetWeaponLoadout: loadout => gameSocket.setWeaponLoadout(loadout),
-      onChanged: character => {
-        const state = playerStateStore.get();
-        if (this.characterPanel !== characterPanel || character.playerId !== this.playerId || state?.character.playerId !== this.playerId) return;
-        const weaponTraining = normalizeWeaponTraining(character.weaponTraining);
-        const updated = { ...state, character: {
-          ...state.character,
-          weaponTraining,
-          statistics: getWeaponCombatStatistics(getCharacterStatistics(state.character.level), weaponTraining)
-        } };
-        playerStateStore.set(updated);
-        this.hud?.update(updated);
-        this.characterPanel.update(updated.character);
-      },
-      onTypingChange: () => this.updateKeyboardCapture()
+    this.characterPanel = new CharacterPanel({
+      onSetEquipmentSlot: request=>this.setEquipmentSlot(request),
+      onTypingChange:()=>this.updateKeyboardCapture()
     });
-    this.characterPanel = characterPanel;
     this.dialoguePanel = new DialoguePanel({
       onHeal: (npcId) => gameSocket.healAtNpc(npcId)
     });
@@ -225,10 +219,10 @@ export class WorldScene extends Phaser.Scene {
       onPurchased: result => {
         const state=playerStateStore.get();
         if(state?.character.playerId!==this.playerId)return;
-        const updated={...state,gold:result.shop.gold,inventory:result.inventory??state.inventory};
+        const updated={...state,gold:result.shop.gold};
         playerStateStore.set(updated);
         this.hud?.update(updated);
-        this.applyInventoryUpdate(updated.inventory);
+        this.applyInventoryUpdate(result.inventory??updated.inventory);
       },
       onTypingChange:()=>this.updateKeyboardCapture()
     });
@@ -285,16 +279,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.cleanups.push(
       gameSocket.onWorldState((snapshot) => this.renderWorld(snapshot)),
-      gameSocket.onPlayerState((state) => {
-        if(state.character.playerId!==this.playerId)return;
-        playerStateStore.set(state);
-        this.hud?.update(state);
-        this.containerPicker?.update(state.inventory);
-        this.containerContents?.update(state.inventory);
-        this.characterPanel?.update(state.character);
-        if(normalizeWeaponTraining(state.character.weaponTraining).loadout.support!=="staff")this.healingPanel?.hide();
-        if(state.gold!==undefined)this.merchantPanel?.updateGold(state.gold);
-      }),
+      gameSocket.onPlayerState(state=>this.applyPlayerState(state)),
       gameSocket.onNpcInteraction((payload) => this.showNpcDialogue(payload)),
       gameSocket.onConnectionState((state) => {
         this.hud?.setConnectionState(state);
@@ -495,12 +480,53 @@ export class WorldScene extends Phaser.Scene {
     else this.showToast(result.message);
   }
 
+  private applyPlayerState(state:PlayerStateSnapshot):void {
+    if(state.character.playerId!==this.playerId)return;
+    this.playerStateRevision++;
+    playerStateStore.set(state);this.hud?.update(state);
+    this.containerPicker?.update(state.inventory);
+    this.containerContents?.update(state.inventory,state.character);
+    this.characterPanel?.update(state.character,state.inventory);
+    if(state.character.equipment?.mainHand?.equipment?.weaponFamily!=="staff")this.healingPanel?.hide();
+    if(state.gold!==undefined)this.merchantPanel?.updateGold(state.gold);
+  }
+
+  private async setEquipmentSlot(request:EquipmentUpdateRequest):Promise<EquipmentUpdateResult> {
+    if(this.equipmentPending)return {ok:false,code:"EQUIPMENT_ACTION_PENDING",message:"Poczekaj na zakończenie zmiany uzbrojenia."};
+    const version=this.equipmentRequestVersion,revision=this.playerStateRevision,playerId=this.playerId;
+    this.equipmentPending=true;
+    try {
+      const result=await gameSocket.setEquipmentSlot(request);
+      const state=playerStateStore.get();
+      if(version!==this.equipmentRequestVersion || playerId!==this.playerId || state?.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz panel ponownie."};
+      if(result.ok) {
+        if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character,inventory:result.inventory});
+        else gameSocket.requestPlayerState();
+      }
+      return result;
+    }finally{if(version===this.equipmentRequestVersion)this.equipmentPending=false;}
+  }
+
   private applyInventoryUpdate(inventory: InventorySnapshot): void {
     const state = playerStateStore.get();
-    if (state?.character.playerId === this.playerId) playerStateStore.set({ ...state, inventory });
+    if (state?.character.playerId === this.playerId) {
+      const equipment=state.character.equipment;
+      const stale=equipment && EQUIPMENT_SLOTS.some(slot=>{
+        const expected=equipment[slot]?.instanceId??null;
+        const assigned=inventory.items.filter(item=>item.equippedSlot===slot);
+        return assigned.length>1 || (assigned[0]?.instanceId??null)!==expected
+          || (inventory.equipmentSlots!==undefined && (inventory.equipmentSlots[slot]??null)!==expected);
+      });
+      if(stale) {
+        // Inventory-only replies can arrive after a newer equipment playerState.
+        inventory=state.inventory;
+        gameSocket.requestPlayerState();
+      } else playerStateStore.set({ ...state, inventory });
+    }
     this.hud?.updateInventory(inventory);
     this.containerPicker?.update(inventory);
-    this.containerContents?.update(inventory);
+    this.containerContents?.update(inventory,state?.character.playerId===this.playerId?state.character:undefined);
+    if(state?.character.playerId===this.playerId)this.characterPanel?.update(state.character,inventory);
   }
 
   private async logout(serverUrl: string): Promise<void> {
@@ -580,6 +606,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.equipmentRequestVersion++;this.equipmentPending=false;
     this.clearNavigation();this.pendingFinalIntent=false;
     this.healingPanel?.destroy();this.healingPanel=undefined;
     this.npcMenu?.destroy();this.npcMenu=undefined;

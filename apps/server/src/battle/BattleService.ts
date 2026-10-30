@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   getCharacterStatistics,
-  getWeaponCombatStatistics,
-  normalizeWeaponTraining,
+  getEquipmentCombatStatistics,
+  getEquippedWeaponFamily,
+  hasEquippedShield,
   MAX_CHARACTER_LEVEL,
   BATTLE_ITEM_AP_COST,
   type ConsumableEffects,
@@ -13,8 +14,7 @@ import {
   type CharacterSnapshot,
   type InjuryKind,
   type PlayerId,
-  type WeaponFamily,
-  type WeaponLoadout
+  type WeaponFamily
 } from "@web-mmorpg/shared";
 import { generateArena } from "./arenaGenerator";
 import {
@@ -30,7 +30,7 @@ import { chooseAutoBattleCommand } from "./AutoBattleAi";
 import { getEncounterDefinition, LEGACY_WOLF_DEFINITION } from "../world/encounterDefinitions";
 
 interface ActiveBattle {
-  participants: Map<PlayerId, { weaponLoadout: WeaponLoadout; auto: boolean }>;
+  participants: Map<PlayerId, { weaponFamily:WeaponFamily|undefined; shield:boolean; used:Set<WeaponFamily>; auto: boolean }>;
   initialParticipantCount: number;
   encounterId: string;
   seed: number;
@@ -49,6 +49,7 @@ export interface TrainingAward { weaponTraining?: { family: WeaponFamily; amount
 
 export interface AppliedBattleCommand {
   participantIds?: PlayerId[];
+  usedWeaponFamilies?:Record<PlayerId,WeaponFamily[]>;
   playerOutcomes?: Record<PlayerId, PlayerBattleOutcome>;
   trainingAwards?: Record<PlayerId, TrainingAward>;
   initialParticipantCount?: number;
@@ -101,10 +102,11 @@ export class BattleService {
 id: `battle:${initiator.playerId}:${encounterId}:${randomUUID()}`, seed, arena, combatants: [
         ...characters.map((character, index) => {
           const characterLevel = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
-          const stats = character.statistics ?? getWeaponCombatStatistics(getCharacterStatistics(characterLevel), character.weaponTraining);
+          const equipped=getEquipmentCombatStatistics(getCharacterStatistics(characterLevel),character.weaponTraining,character.equipment);
+          const stats=character.statistics??equipped;
           const combatStats: CombatStatistics = {
-meleeDamage: stats.meleeDamage, rangedDamage: stats.rangedDamage, armor: stats.armor,
-            ...(stats.healingPower !== undefined ? { healingPower: stats.healingPower } : {}), ...(stats.blockPercent !== undefined ? { blockPercent: stats.blockPercent } : {})
+meleeDamage: equipped.meleeEnabled?stats.meleeDamage:0, rangedDamage: equipped.rangedEnabled?stats.rangedDamage:0, armor: stats.armor,meleeEnabled:Boolean(equipped.meleeEnabled),rangedEnabled:Boolean(equipped.rangedEnabled),
+            ...(equipped.healingPower !== undefined ? { healingPower: equipped.healingPower } : {}), ...(equipped.blockPercent !== undefined ? { blockPercent: equipped.blockPercent } : {})
 };
           return {
 id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "player" as const, name: character.nickname, level: characterLevel, combatStats,
@@ -117,7 +119,7 @@ id: index === 0 ? `${definition.enemyKind}:${encounterId}` : `${definition.enemy
 }))
       ]
 });
-    const participants = new Map(characters.map(character => [character.playerId, { weaponLoadout: { ...normalizeWeaponTraining(character.weaponTraining).loadout }, auto: false }]));
+    const participants = new Map(characters.map(character => [character.playerId, { weaponFamily:getEquippedWeaponFamily(character.equipment),shield:hasEquippedShield(character.equipment),used:new Set<WeaponFamily>(),auto: false }]));
     const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: wolfCount * (25 + 15 * level) };
     for (const id of participants.keys()) this.battlesByPlayer.set(id, active);
     return this.snapshotFor(active, initiator.playerId);
@@ -200,27 +202,21 @@ id: index === 0 ? `${definition.enemyKind}:${encounterId}` : `${definition.enemy
     return new Map(Object.values(active.state.combatants).flatMap(unit => unit.ownerPlayerId ? [[unit.ownerPlayerId, unit.shieldBlocks ?? 0] as const] : []));
   }
   private applied(active: ActiveBattle, actorId: PlayerId, beforeBlocks: Map<PlayerId, number>, command?: BattleCommand): AppliedBattleCommand {
-    const participantIds = [...active.participants.keys()], trainingAwards: Record<PlayerId, TrainingAward> = {};
-    for (const unit of Object.values(active.state.combatants)) {
-      const id = unit.ownerPlayerId; if (!id || !active.participants.has(id)) continue;
-      const shieldTraining = Math.max(0, (unit.shieldBlocks ?? 0) - (beforeBlocks.get(id) ?? 0));
-      if (shieldTraining > 0) trainingAwards[id] = { shieldTraining };
+    const participantIds=[...active.participants.keys()];
+    for(const unit of Object.values(active.state.combatants)) {
+      if(!unit.ownerPlayerId)continue;
+      const participant=active.participants.get(unit.ownerPlayerId);
+      if(participant?.shield && (unit.shieldBlocks??0)>(beforeBlocks.get(unit.ownerPlayerId)??0))participant.used.add("shield");
     }
-    const loadout = active.participants.get(actorId)?.weaponLoadout;
-    let weaponTraining: TrainingAward["weaponTraining"];
-    if (command && loadout) {
-      if (command.type === "meleeAttack" || command.type === "rangedAttack") weaponTraining = { family: command.type === "meleeAttack" ? loadout.melee : loadout.ranged, amount: 1 };
-      else if (command.type === "healSelf" || command.type === "healAlly") weaponTraining = { family: "staff", amount: 1 };
-      if (weaponTraining) trainingAwards[actorId] = { ...trainingAwards[actorId], weaponTraining };
-    }
+    const actor=active.participants.get(actorId);
+    if(command && actor?.weaponFamily && ["meleeAttack","rangedAttack","healSelf","healAlly"].includes(command.type))actor.used.add(actor.weaponFamily);
     const playerOutcomes: Record<PlayerId, PlayerBattleOutcome> = {};
     for (const unit of Object.values(active.state.combatants)) if (unit.ownerPlayerId && active.participants.has(unit.ownerPlayerId)) playerOutcomes[unit.ownerPlayerId] = { hp: unit.hp, severelyInjured: unit.severelyInjured, injuries: [...unit.injuries] };
     const victory = active.state.finished && Object.values(active.state.combatants).some(unit => unit.side === "player" && unit.hp > 0);
-    const own = trainingAwards[actorId];
     return {
 result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, actorId), finished: active.state.finished, victory,
       participantIds, initialParticipantCount: active.initialParticipantCount, encounterId: active.encounterId, seed: active.seed,
-      ...(Object.keys(trainingAwards).length ? { trainingAwards } : {}), ...(own?.weaponTraining ? { weaponTraining: own.weaponTraining } : {}), ...(own?.shieldTraining ? { shieldTraining: own.shieldTraining } : {}),
+      ...(active.state.finished ? {usedWeaponFamilies:Object.fromEntries([...active.participants].map(([id,participant])=>[id,[...participant.used]]))}:{}),
       ...(active.state.finished ? { playerOutcomes, ...(playerOutcomes[actorId] ? { playerOutcome: playerOutcomes[actorId] } : {}) } : {}), ...(victory ? { experienceReward: active.experienceReward } : {})
 };
   }

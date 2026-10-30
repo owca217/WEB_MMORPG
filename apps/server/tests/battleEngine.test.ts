@@ -62,6 +62,13 @@ function makeState(overrides?: Partial<GeneratedArena>) {
 }
 
 describe("battle engine", () => {
+  it.each(["meleeAttack","rangedAttack"] as const)("rejects equipment-disabled %s without spending AP or rolling an attack",type=>{
+    const fighters=combatants();fighters[1]!.position={q:1,r:0};
+    fighters[0]!.combatStats={meleeDamage:55,rangedDamage:55,armor:0,meleeEnabled:type!=="meleeAttack",rangedEnabled:type!=="rangedAttack"};
+    const state=createBattleState({id:"equipped",seed:42,arena,combatants:fighters}),before=structuredClone(state);
+    expect(applyBattleCommand(state,"player-1",{type,combatantId:"hero-1",targetId:"enemy-1"})).toMatchObject({ok:false,code:"WEAPON_ATTACK_UNAVAILABLE"});
+    expect(state).toEqual(before);
+  });
   it.each([
     { type: "meleeAttack" as const, armor: 100, damage: 28 },
     { type: "rangedAttack" as const, armor: 100, damage: 16 },

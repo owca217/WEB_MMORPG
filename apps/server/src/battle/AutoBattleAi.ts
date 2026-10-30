@@ -1,4 +1,4 @@
-import { mitigatedBattleDamage, movementApCost, rangedAttackApCost, STAFF_HEAL_AP_COST, type BattleCommand, type HexCoord, type PlayerId } from "@web-mmorpg/shared";
+import { isBattleAttackEnabled, mitigatedBattleDamage, movementApCost, rangedAttackApCost, STAFF_HEAL_AP_COST, type BattleCommand, type HexCoord, type PlayerId } from "@web-mmorpg/shared";
 import type { BattleState } from "./BattleEngine";
 import type { CombatantState } from "./injuries";
 import { hexDistance, hexKey, hexNeighbors } from "./hex";
@@ -23,11 +23,11 @@ function attackOptions(actor: CombatantState, position: HexCoord, enemies: Comba
   return enemies.flatMap((enemy, target) => {
     const distance = hexDistance(position, enemy.position);
     const result: AttackOption[] = [];
-    if (distance === 1) result.push({
+    if (distance === 1 && isBattleAttackEnabled(actor,"meleeAttack")) result.push({
 command: { type: "meleeAttack", combatantId: actor.id, targetId: enemy.id }, target,
       damage: mitigatedBattleDamage(actor.combatStats?.meleeDamage ?? 20, enemy.combatStats?.armor ?? 0, enemy.combatStats?.blockPercent ?? 0), cost: 2
 });
-    if (distance > 0 && distance <= 6 && hasLineOfSight(position, enemy.position, blockers)) result.push({
+    if (distance > 0 && distance <= 6 && isBattleAttackEnabled(actor,"rangedAttack") && hasLineOfSight(position, enemy.position, blockers)) result.push({
       command: { type: "rangedAttack", combatantId: actor.id, targetId: enemy.id }, target,
       damage: mitigatedBattleDamage(actor.combatStats?.rangedDamage ?? 15, enemy.combatStats?.armor ?? 0, enemy.combatStats?.blockPercent ?? 0), cost: rangedAttackApCost(actor)
 });

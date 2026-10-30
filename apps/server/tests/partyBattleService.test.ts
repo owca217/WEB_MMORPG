@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { getCharacterStatistics, type CharacterSnapshot, type BattleSnapshot } from "@web-mmorpg/shared";
 import { BattleService } from "../src/battle/BattleService";
+import { combatEquipment } from "./combatEquipmentFixtures";
 const hero = (id: string, hp = 100): CharacterSnapshot => ({ playerId: id, nickname: id, level: 1, hp, maxHp: 100, maxAp: 5, initiative: 10, severelyInjured: false, injuries: [], statistics: getCharacterStatistics(1) });
 it("creates one shared arena with five distinct player starts and five scaled enemies", () => {
   const service = new BattleService(); const snapshot = service.startPartyBattle(["a", "b", "c", "d", "e"].map(id => hero(id)), "wolf-pack-01");
@@ -52,17 +53,26 @@ it("shares the asynchronous item lock across all aliases and refuses detach whil
   expect(() => service.detachPlayer("a")).toThrow("BATTLE_ACTION_PENDING"); done(); await operation;
   expect(service.getSnapshot("b")?.combatants.find(c => c.ownerPlayerId === "a")?.hp).toBe(60); expect(service.isItemUsePending("b")).toBe(false);
 });
-it("heals an allied hero in the same battle and awards training to the caster only", () => {
-  const service = new BattleService(), caster = hero("a"); caster.statistics!.healingPower = 20;
+it("heals an allied hero and records the equipped staff only for the caster at battle end", () => {
+  const service = new BattleService(), caster = hero("a"); caster.equipment=combatEquipment("staff");
   service.startPartyBattle([caster, hero("b", 40)], "wolf-pack-01");
   const result = service.applyCommand("a", { type: "healAlly", combatantId: "hero:a", targetId: "hero:b" });
   expect(result.result.ok).toBe(true); expect(service.getSnapshot("b")?.combatants.find(c => c.id === "hero:b")?.hp).toBe(60);
-  expect(result.trainingAwards?.a?.weaponTraining).toEqual({ family: "staff", amount: 1 }); expect(result.trainingAwards?.b?.weaponTraining).toBeUndefined();
+  expect(result.trainingAwards).toBeUndefined();expect(result.usedWeaponFamilies).toBeUndefined();
+  service.setAuto("a",true);service.setAuto("b",true);let terminal;
+  for(let i=0;i<400;i++){const applied=service.applyAutoCommand(service.getActivePlayerId("a")!);expect(applied.result.ok).toBe(true);if(applied.finished){terminal=applied;break;}}
+  expect(terminal?.usedWeaponFamilies).toEqual({a:["staff"],b:[]});
 });
 it("attributes NPC shield blocks to the damaged teammate even when another player ended the turn", () => {
-  const service = new BattleService(), a = hero("a"); a.statistics!.blockPercent = 25;
+  const service = new BattleService(), a = hero("a"); a.equipment=combatEquipment("sword",true);
   service.startPartyBattle([a, hero("b")], "wolf-pack-01"); service.setAuto("a", true); service.setAuto("b", true);
-  let found = false;
-  for (let i = 0; i < 200; i++) { const id = service.getActivePlayerId("a")!, result = service.applyAutoCommand(id); expect(result.result.ok).toBe(true); if (id === "b" && (result.trainingAwards?.a?.shieldTraining ?? 0) > 0) { found = true; break; } if (result.finished) break; }
-  expect(found).toBe(true);
+  let found = false,blocks=0,terminal;
+  for (let i = 0; i < 400; i++) {
+    const id = service.getActivePlayerId("a")!, result = service.applyAutoCommand(id); expect(result.result.ok).toBe(true);
+    const next=result.result.ok?(result.result.state.combatants["hero:a"]?.shieldBlocks??0):blocks;
+    if(id==="b"&&next>blocks)found=true;blocks=next;
+    expect(result.trainingAwards).toBeUndefined();
+    if (result.finished) {terminal=result;break;}
+  }
+  expect(found).toBe(true);expect(terminal?.usedWeaponFamilies?.a).toContain("shield");expect(terminal?.usedWeaponFamilies?.b).not.toContain("shield");
 });

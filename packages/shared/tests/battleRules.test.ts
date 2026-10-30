@@ -12,6 +12,14 @@ function battle(overrides: Partial<BattleSnapshot> = {}): BattleSnapshot {
     combatants: [{...hero}, {...wolf}], finished: false, ...overrides };
 }
 describe("battle previews and movement", () => {
+  it("uses the equipped bow at adjacent range and suppresses attacks disabled by equipment",()=>{
+    const state=battle();
+    state.combatants[0]!.combatStats={meleeDamage:0,rangedDamage:20,armor:0,meleeEnabled:false,rangedEnabled:true};
+    expect(getBattleAttackPreview(state,"hero","wolf")).toMatchObject({type:"rangedAttack",apCost:3,available:true,averageDamage:10});
+    state.combatants[0]!.combatStats={meleeDamage:30,rangedDamage:0,armor:0,meleeEnabled:true,rangedEnabled:false};
+    state.combatants[1]!.position={q:3,r:0};
+    expect(getBattleAttackPreview(state,"hero","wolf")).toMatchObject({available:false,averageDamage:0,hitChance:0});
+  });
   it("selects adjacent melee and distant ranged with the same armor-adjusted damage and costs as combat", () => {
     const state = battle();
     expect(getBattleAttackPreview(state,"hero","wolf")).toMatchObject({ type: "meleeAttack", apCost: 2, hitChance: 100, averageDamage: 15, available: true });

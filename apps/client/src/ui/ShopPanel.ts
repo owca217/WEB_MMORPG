@@ -143,7 +143,7 @@ export class MerchantPanel {
       if (offer.healHp) details.push(`Leczy ${offer.healHp} HP`);
       if (offer.restoreAp) details.push(`Przywraca ${offer.restoreAp} PA`);
       if (offer.capacity) details.push(`${offer.capacity} miejsc`);
-      if (!details.length) details.push(offer.categoryId === "container" ? "Pojemnik" : "Przedmiot użytkowy");
+      if (!details.length) details.push(offer.categoryId === "weapon" ? "Broń" : offer.categoryId === "armor" ? "Uzbrojenie" : offer.categoryId === "container" ? "Pojemnik" : "Przedmiot użytkowy");
       card.appendChild(node("p", details.join(" · "), "merchant-panel__effect"));
       card.appendChild(node("p", `${offer.unitPrice} złota / szt.`, "merchant-panel__price"));
       const actions = node("div", "", "merchant-panel__actions");

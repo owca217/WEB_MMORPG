@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { InventorySnapshot, MerchantOffer, MerchantPurchase, MerchantSnapshot } from "@web-mmorpg/shared";
+import { getEquipmentItemProperties, type InventorySnapshot, type ItemStatModifier, type MerchantOffer, type MerchantPurchase, type MerchantSnapshot } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 import { InventoryService } from "../inventory/InventoryService";
+import { BASIC_EQUIPMENT_ITEMS } from "../items/basicEquipment";
 
 const MERCHANT_ID = "merchant-miro";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -10,7 +11,8 @@ const STOCK = [
   { itemId: "field-bandage", unitPrice: 5, category: "consumable", maxQuantity: 20 },
   { itemId: "rag-bag", unitPrice: 30, category: "container", maxQuantity: 1 },
   { itemId: "minor-healing-potion", unitPrice: 10, category: "consumable", maxQuantity: 20 },
-  { itemId: "invigorating-tonic", unitPrice: 12, category: "consumable", maxQuantity: 20 }
+  { itemId: "invigorating-tonic", unitPrice: 12, category: "consumable", maxQuantity: 20 },
+  ...BASIC_EQUIPMENT_ITEMS.map(item=>({itemId:item.itemId,unitPrice:item.unitPrice,category:item.categoryId,maxQuantity:1}))
 ] as const;
 
 interface DefinitionRow {
@@ -19,6 +21,8 @@ interface DefinitionRow {
   name: string;
   description: string;
   category_id: string;
+  subcategory_id:string|null;
+  stats:ItemStatModifier[];
   stackable: boolean;
   max_stack: number;
   unique_item: boolean;
@@ -166,8 +170,10 @@ export class MerchantService {
 
   private async readDefinitions(client?: PoolClient): Promise<Definition[]> {
     const result = await (client ?? this.pool).query<DefinitionRow>(
-      `SELECT item.id,item.item_id,version.name,version.description,version.category_id,version.stackable,
+      `SELECT item.id,item.item_id,version.name,version.description,version.category_id,version.subcategory_id,version.stackable,
          version.max_stack,version.unique_item,version.soulbound,version.minimum_level,version.special_data,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object('statCode',stat.stat_code,'modifierType',stat.modifier_type,'value',stat.value))
+           FROM item_stat_modifiers stat WHERE stat.version_id=version.id),'[]'::jsonb) AS stats,
          (SELECT SUM(stat.value) FROM item_stat_modifiers stat WHERE stat.version_id=version.id
            AND stat.stat_code='HEAL_AMOUNT' AND stat.modifier_type='flat') AS heal_hp,
          (SELECT SUM(stat.value) FROM item_stat_modifiers stat WHERE stat.version_id=version.id
@@ -191,6 +197,7 @@ export class MerchantService {
       if (stock.category === "container" && (row.stackable || typeof capacity !== "number" ||
           !Number.isSafeInteger(capacity) || capacity < 1 || capacity > 10_000)) return [];
       if (stock.category === "consumable" && !healHp && !restoreAp) return [];
+      if((stock.category==="weapon"||stock.category==="armor") && (row.stackable || !getEquipmentItemProperties({category:row.category_id,...(row.subcategory_id?{subcategory:row.subcategory_id}:{}),minimumLevel:row.minimum_level,stats:row.stats,specialData:row.special_data})))return [];
       const offer: MerchantOffer = {
         itemId: row.item_id, name: row.name, description: row.description, categoryId: row.category_id,
         unitPrice: stock.unitPrice, maxQuantity: Math.min(stock.maxQuantity, row.max_stack, row.unique_item ? 1 : 20),

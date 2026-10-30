@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto";
 import {
   CONTAINER_ITEM_CATEGORY,
   CONTAINER_SLOT_COUNT,
+  emptyEquipmentSlots,
+  getEquipmentItemProperties,
+  isEquipmentSlot,
   type CharacterSnapshot,
   type ConsumableEffects,
   type ContainerSlots,
   type InventoryItem,
   type InventorySnapshot,
-  type PlayerId
+  type PlayerId,
+  type ItemStatModifier
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 
@@ -34,6 +38,11 @@ interface InventoryRow {
   quantity: number;
   name: string;
   category_id: string;
+  subcategory_id: string | null;
+  item_status: string;
+  minimum_level: number;
+  equipment_slot: string | null;
+  stats: ItemStatModifier[];
   description: string;
   icon_url: string | null;
   rarity: InventoryItem["rarity"];
@@ -60,6 +69,7 @@ const CONSUMABLE_EFFECT_COLUMNS = `
 interface ContainerAssignmentRow {
   category_id: string;
   container_instance_id: string | null;
+  equipment_slot: string | null;
 }
 
 interface ContainerStorageRow extends ContainerAssignmentRow {
@@ -81,8 +91,8 @@ export class InventoryService {
     return this.getSnapshot(characterId);
   }
 
-  async getSnapshot(characterId: string): Promise<InventorySnapshot> {
-    return this.getSnapshotForOwner("character", characterId);
+  async getSnapshot(characterId: string,client?:PoolClient): Promise<InventorySnapshot> {
+    return this.getSnapshotForOwner("character", characterId,client);
   }
 
   async consumeBattleItem(
@@ -162,7 +172,7 @@ export class InventoryService {
 
       if (itemInstanceId !== null) {
         const candidate = await client.query<ContainerAssignmentRow>(
-          `SELECT version.category_id, instance.container_instance_id
+          `SELECT version.category_id, instance.container_instance_id, instance.equipment_slot
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
            JOIN item_versions version
@@ -176,6 +186,7 @@ export class InventoryService {
         );
         const row = candidate.rows[0];
         if (!row) throw new Error("CONTAINER_ITEM_NOT_OWNED");
+        if(row.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
         if (row.category_id !== CONTAINER_ITEM_CATEGORY) {
           throw new Error("ITEM_NOT_CONTAINER");
         }
@@ -227,7 +238,7 @@ export class InventoryService {
       if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
       const readOwned = async (id: string, missingCode: string): Promise<ContainerStorageRow> => {
         const result = await client.query<ContainerStorageRow>(
-          `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity,
+          `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity, instance.equipment_slot,
              version.category_id, version.special_data
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
@@ -247,6 +258,7 @@ export class InventoryService {
 
       const source = await readOwned(itemInstanceId, "INVENTORY_ITEM_NOT_OWNED");
       if (targetContainerInstanceId !== null) {
+        if(source.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
         const target = await readOwned(targetContainerInstanceId, "CONTAINER_ITEM_NOT_OWNED");
         if (target.category_id !== CONTAINER_ITEM_CATEGORY) throw new Error("ITEM_NOT_CONTAINER");
         if (target.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
@@ -354,6 +366,12 @@ export class InventoryService {
         instance.quantity,
         version.name,
         version.category_id,
+        version.subcategory_id,
+        item.status AS item_status,
+        version.minimum_level,
+        instance.equipment_slot,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('statCode',stat.stat_code,'modifierType',stat.modifier_type,'value',stat.value))
+          FROM item_stat_modifiers stat WHERE stat.version_id=version.id),'[]'::jsonb) AS stats,
         version.description,
         version.icon_url,
         version.rarity,
@@ -378,8 +396,10 @@ export class InventoryService {
     );
 
     const containerSlots: ContainerSlots = [null, null, null, null];
+    const equipmentSlots=emptyEquipmentSlots();
     if (ownerKind === "character") {
       for (const row of result.rows) {
+        if(isEquipmentSlot(row.equipment_slot))equipmentSlots[row.equipment_slot]=row.instance_id;
         if (row.container_slot !== null &&
           row.container_slot >= 0 && row.container_slot < CONTAINER_SLOT_COUNT &&
           row.category_id === CONTAINER_ITEM_CATEGORY &&
@@ -390,7 +410,8 @@ export class InventoryService {
     }
     return {
       items: result.rows.map((row) => this.mapInventoryRow(row)),
-      containerSlots
+      containerSlots,
+      ...(ownerKind==="character"?{equipmentSlots}:{})
     };
   }
 
@@ -519,6 +540,10 @@ export class InventoryService {
   private mapInventoryRow(row: InventoryRow): InventoryItem {
     const containerCapacity = this.getContainerCapacity(row);
     const consumableEffects = this.getConsumableEffects(row);
+    const equipment=row.item_status==="PUBLISHED" ? getEquipmentItemProperties({
+      category:row.category_id,...(row.subcategory_id?{subcategory:row.subcategory_id}:{}),
+      minimumLevel:row.minimum_level,stats:row.stats??[],specialData:row.special_data??{}
+    }) : undefined;
     return {
       instanceId: row.instance_id,
       itemId: row.item_id,
@@ -534,6 +559,8 @@ export class InventoryService {
         ? {}
         : { maxDurability: Number(row.max_durability) }),
       upgradeLevel: row.upgrade_level,
+      ...(equipment?{equipment}:{}),
+      ...(isEquipmentSlot(row.equipment_slot)?{equippedSlot:row.equipment_slot}:{}),
       ...(consumableEffects ? { consumableEffects } : {}),
       ...(containerCapacity === undefined ? {} : { containerCapacity }),
       ...(row.container_instance_id

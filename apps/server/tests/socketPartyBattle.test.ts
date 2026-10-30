@@ -84,6 +84,11 @@ async function setup() {
     const socket = await connect(); await authenticate(socket, token);
     return { id: character.id, nickname, socket, token };
   };
+  const equipStaff=async(member:Identity)=>{
+    const inventory=await game.services.inventory.addItems(member.id,[{itemId:"training-staff",quantity:1}]);
+    const item=inventory.items.find(item=>item.itemId==="training-staff")!;
+    expect(await member.socket.timeout(2000).emitWithAck("setEquipmentSlot",{slot:"mainHand",itemInstanceId:item.instanceId})).toMatchObject({ok:true});
+  };
   const party = (leader: Identity, ...others: Identity[]) => {
     for (const member of others) {
       game.services.social.parties.invite(leader.id, member.id);
@@ -104,7 +109,7 @@ async function setup() {
     await vi.waitFor(() => { for (const member of members) expect(starts.get(member.id)).toHaveLength(1); });
     return { snapshot, starts };
   };
-  return { game, lifecycle, auth, connect, authenticate, identity, party, start };
+  return { game, lifecycle, auth, connect, authenticate, identity, party, start, equipStaff };
 }
 function owners(snapshot: BattleSnapshot): string[] {
   return snapshot.combatants.flatMap(actor => actor.ownerPlayerId ? [actor.ownerPlayerId] : []).sort();
@@ -117,10 +122,10 @@ function nextPlayerCommand(snapshot: BattleSnapshot): BattleCommand {
   const actor = snapshot.combatants.find(unit => unit.id === snapshot.activeCombatantId)!;
   const enemies = snapshot.combatants.filter(unit => unit.side === "enemy" && unit.hp > 0).sort((a, b) => a.hp - b.hp || a.id.localeCompare(b.id));
   const adjacent = enemies.find(enemy => hexDistance(actor.position, enemy.position) === 1);
-  if (adjacent && actor.ap >= 2) return { type: "meleeAttack", combatantId: actor.id, targetId: adjacent.id };
+  if (adjacent && actor.ap >= 2 && actor.combatStats?.meleeEnabled!==false) return { type: "meleeAttack", combatantId: actor.id, targetId: adjacent.id };
   const blocked = new Set(snapshot.blockedCells.map(hexKey));
   const shot = enemies.find(enemy => hexDistance(actor.position, enemy.position) <= 6 && hasLineOfSight(actor.position, enemy.position, blocked));
-  if (shot && actor.ap >= (actor.injuries.includes("brokenArm") ? 4 : 3)) return { type: "rangedAttack", combatantId: actor.id, targetId: shot.id };
+  if (shot && actor.ap >= (actor.injuries.includes("brokenArm") ? 4 : 3) && actor.combatStats?.rangedEnabled!==false) return { type: "rangedAttack", combatantId: actor.id, targetId: shot.id };
   if (!adjacent && actor.ap >= (actor.injuries.includes("legTrauma") ? 2 : 1)) {
     const allowed = new Set(snapshot.cells.map(hexKey));
     for (const unit of snapshot.combatants) if (unit.id !== actor.id && unit.hp > 0) blocked.add(hexKey(unit.position));
@@ -149,11 +154,11 @@ describeDatabase("shared party battle Socket.IO", () => {
   });
 
   it("enforces each owner's turn and broadcasts ally healing and item use to both players", async () => {
-    const { game, identity, party, start } = await setup();
+    const { game, identity, party, start, equipStaff } = await setup();
     const a = await identity("PartyHealer", 1290, 455, 60), b = await identity("PartyAlly", 100, 100, 60);
-    for (const member of [a, b]) expect(await member.socket.timeout(1500).emitWithAck("setWeaponLoadout", { melee: "sword", ranged: "bow", support: "staff" })).toMatchObject({ ok: true });
+    for (const member of [a,b])await equipStaff(member);
     const bags = new Map<string, string>();
-    for (const member of [a, b]) bags.set(member.id, (await game.services.inventory.addItems(member.id, [{ itemId: "field-bandage", quantity: 1 }])).items[0]!.instanceId);
+    for (const member of [a, b]) bags.set(member.id, (await game.services.inventory.addItems(member.id, [{ itemId: "field-bandage", quantity: 1 }])).items.find(item=>item.itemId==="field-bandage")!.instanceId);
     party(a, b); const { snapshot } = await start(a, [b]);
     const { active, other } = activeAndOther(snapshot, a, b);
     const actor = snapshot.combatants.find(unit => unit.ownerPlayerId === active.id)!;
@@ -165,11 +170,11 @@ describeDatabase("shared party battle Socket.IO", () => {
     other.socket.emit("battleCommand", { type: "endTurn", combatantId: ally.id });
     expect((await inactive).code).toBe("NOT_ACTIVE_TURN");
     const friendly = waitFor<{ code: string }>(active.socket, "commandRejected");
-    active.socket.emit("battleCommand", { type: "rangedAttack", combatantId: actor.id, targetId: ally.id });
+    active.socket.emit("battleCommand", { type: "meleeAttack", combatantId: actor.id, targetId: ally.id });
     expect((await friendly).code).toBe("INVALID_TARGET");
 
-    const healedA = waitFor<BattleSnapshot>(a.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 80));
-    const healedB = waitFor<BattleSnapshot>(b.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 80));
+    const healedA = waitFor<BattleSnapshot>(a.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 88));
+    const healedB = waitFor<BattleSnapshot>(b.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 88));
     active.socket.emit("battleCommand", { type: "healAlly", combatantId: actor.id, targetId: ally.id });
     const [sa, sb] = await Promise.all([healedA, healedB]);
     expect(sa.combatants).toEqual(sb.combatants);
@@ -226,7 +231,7 @@ describeDatabase("shared party battle Socket.IO", () => {
     const { game, identity, party, start } = await setup();
     const a = await identity("PartyItemA", 1290, 455, 50), b = await identity("PartyItemB", 100, 100, 50);
     const items = new Map<string, string>();
-    for (const member of [a, b]) items.set(member.id, (await game.services.inventory.addItems(member.id, [{ itemId: "field-bandage", quantity: 1 }])).items[0]!.instanceId);
+    for (const member of [a, b]) items.set(member.id, (await game.services.inventory.addItems(member.id, [{ itemId: "field-bandage", quantity: 1 }])).items.find(item=>item.itemId==="field-bandage")!.instanceId);
     party(a, b); const { snapshot } = await start(a, [b]); const { active, other } = activeAndOther(snapshot, a, b);
     const hero = snapshot.combatants.find(unit => unit.ownerPlayerId === active.id)!;
     let release!: () => void, committed!: () => void;

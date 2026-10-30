@@ -4,9 +4,11 @@ import {
   type ContainerSlotIndex,
   type InventoryItem,
   type InventorySnapshot,
-  type InventoryUpdateResult
+  type InventoryUpdateResult,
+  type CharacterSnapshot
 } from "@web-mmorpg/shared";
 import { containerIcon } from "./ContainerIcon";
+import { equipmentDisabledReason, equipmentIcon } from "./EquipmentIcon";
 import "./ContainerContentsPanel.css";
 
 const PLACES_PER_PAGE = 40;
@@ -15,6 +17,7 @@ interface ContainerContentsPanelHandlers {
   onMoveItem: (itemInstanceId: string, targetContainerInstanceId: string | null) => Promise<InventoryUpdateResult>;
   onInventoryChanged: (inventory: InventorySnapshot) => void;
   onChangeContainer: (slotIndex: ContainerSlotIndex) => void;
+  onEquipItem?: (item:InventoryItem)=>Promise<InventoryUpdateResult>;
 }
 
 export class ContainerContentsPanel {
@@ -32,6 +35,8 @@ export class ContainerContentsPanel {
   private readonly nextButton: HTMLButtonElement;
   private readonly pageLabel: HTMLElement;
   private snapshot: InventorySnapshot = { items: [] };
+  private character:CharacterSnapshot|undefined;
+  private equipmentRequestVersion=0;
   private slotIndex: ContainerSlotIndex = 0;
   private page = 0;
   private pending = false;
@@ -91,8 +96,10 @@ export class ContainerContentsPanel {
     });
   }
 
-  update(snapshot: InventorySnapshot): void {
+  update(snapshot: InventorySnapshot,character?:CharacterSnapshot): void {
     if (this.destroyed) return;
+    if(character && this.character?.playerId!==character.playerId)this.equipmentRequestVersion++;
+    if(character)this.character=character;
     this.snapshot = snapshot;
     this.render();
   }
@@ -111,12 +118,14 @@ export class ContainerContentsPanel {
 
   hide(): void {
     if (this.destroyed) return;
+    this.equipmentRequestVersion++;
     this.root.classList.add("is-hidden");
     if (this.returnFocus?.isConnected) this.returnFocus.focus();
   }
 
   destroy(): void {
     this.destroyed = true;
+    this.equipmentRequestVersion++;
     this.root.remove();
   }
 
@@ -132,7 +141,7 @@ export class ContainerContentsPanel {
   private render(): void {
     const container = this.assignedContainer();
     const capacity = container?.containerCapacity ?? 0;
-    const contents = container ? this.snapshot.items.filter((item) => item.containerInstanceId === container.instanceId) : [];
+    const contents = container ? this.snapshot.items.filter((item) => item.containerInstanceId === container.instanceId && !item.equippedSlot) : [];
     const pageCount = Math.ceil(capacity / PLACES_PER_PAGE);
     this.page = Math.max(0, Math.min(this.page, pageCount - 1));
     this.title.textContent = container?.name ?? `Pojemnik ${this.slotIndex + 1}`;
@@ -155,7 +164,7 @@ export class ContainerContentsPanel {
         const button = this.itemButton(item, "remove");
         button.disabled = this.pending;
         button.addEventListener("click", () => { void this.moveItem(item.instanceId, null); });
-        cell.appendChild(button);
+        cell.appendChild(this.withEquipmentAction(item,button));
       } else {
         cell.classList.add("container-contents__cell--empty");
         cell.dataset.containerEmptyCell = "";
@@ -178,6 +187,7 @@ export class ContainerContentsPanel {
     const assignedIds = new Set(this.snapshot.containerSlots?.filter((id) => id !== null));
     const nonemptyIds = new Set(this.snapshot.items.map((item) => item.containerInstanceId).filter((id) => !!id));
     const eligible = this.snapshot.items.filter((item) => !item.containerInstanceId
+      && !item.equippedSlot
       && item.instanceId !== container.instanceId
       && !assignedIds.has(item.instanceId)
       && !(item.category === CONTAINER_ITEM_CATEGORY && nonemptyIds.has(item.instanceId)));
@@ -191,7 +201,7 @@ export class ContainerContentsPanel {
       const button = this.itemButton(item, "put");
       button.disabled = this.pending || contents.length >= capacity;
       button.addEventListener("click", () => { void this.moveItem(item.instanceId, container.instanceId); });
-      this.candidates.appendChild(button);
+      this.candidates.appendChild(this.withEquipmentAction(item,button));
     }
   }
 
@@ -211,8 +221,29 @@ export class ContainerContentsPanel {
     quantity.className = "container-contents__quantity";
     quantity.textContent = `×${item.quantity}`;
     content.append(name, quantity);
-    button.append(containerIcon(item), content);
+    button.append(item.equipment?equipmentIcon(item):containerIcon(item), content);
     return button;
+  }
+
+  private withEquipmentAction(item:InventoryItem,storageButton:HTMLButtonElement):HTMLElement {
+    if(!item.equipment || item.equippedSlot || !this.handlers.onEquipItem)return storageButton;
+    const row=document.createElement("div");row.className="container-equipment-row";
+    const equip=document.createElement("button");equip.type="button";equip.className="container-equipment-action";equip.dataset.containerEquip=item.instanceId;
+    equip.textContent="Załóż";equip.setAttribute("aria-label",`Załóż ${item.name}`);
+    const reason=equipmentDisabledReason(item,this.character,this.snapshot);equip.disabled=this.pending||!!reason;if(reason)equip.title=reason;
+    equip.addEventListener("click",()=>{void this.equipItem(item);});row.append(storageButton,equip);return row;
+  }
+
+  private async equipItem(item:InventoryItem):Promise<void> {
+    if(this.pending||this.destroyed||!this.handlers.onEquipItem||equipmentDisabledReason(item,this.character,this.snapshot))return;
+    const version=++this.equipmentRequestVersion;this.pending=true;this.feedback.textContent="Zakładanie przedmiotu…";this.render();
+    try {
+      const result=await this.handlers.onEquipItem(item);
+      if(this.destroyed||version!==this.equipmentRequestVersion)return;
+      if(result.ok){this.snapshot=result.inventory;this.feedback.textContent="Założono przedmiot.";this.handlers.onInventoryChanged(result.inventory);}
+      else this.feedback.textContent=result.message;
+    }catch{if(!this.destroyed&&version===this.equipmentRequestVersion)this.feedback.textContent="Nie udało się założyć przedmiotu. Sprawdź uzbrojenie i spróbuj ponownie.";}
+    finally{this.pending=false;if(!this.destroyed)this.render();}
   }
 
   private changePage(direction: number): void {

@@ -3,13 +3,13 @@ import {
   getLevelForExperience,
   getTotalExperienceForLevel,
   MAX_CHARACTER_LEVEL,
-  getWeaponCombatStatistics,
-  isWeaponLoadout,
+  getEquipmentCombatStatistics,
+  emptyCharacterEquipment,
   normalizeWeaponTraining,
   WEAPON_FAMILIES,
   MAX_WEAPON_EXPERIENCE,
   type WeaponFamily,
-  type WeaponLoadout,
+  type CharacterEquipment,
   type CharacterSnapshot,
   type PlayerId
 } from "@web-mmorpg/shared";
@@ -21,7 +21,7 @@ export class CharacterService {
     const existing = this.characters.get(playerId);
     if (existing) return this.clone(existing);
 
-    const statistics = getCharacterStatistics(1);
+    const statistics = getEquipmentCombatStatistics(getCharacterStatistics(1),undefined);
     const character: CharacterSnapshot = {
       playerId,
       nickname,
@@ -29,6 +29,7 @@ export class CharacterService {
       experience: 0,
       statistics,
       weaponTraining:normalizeWeaponTraining(undefined),
+      equipment:emptyCharacterEquipment(),
       hp: statistics.maxHp,
       maxHp: statistics.maxHp,
       maxAp: statistics.maxAp,
@@ -50,7 +51,7 @@ export class CharacterService {
     );
     hydrated.level = getLevelForExperience(hydrated.experience);
     hydrated.weaponTraining=normalizeWeaponTraining(snapshot.weaponTraining);
-    hydrated.statistics = getWeaponCombatStatistics(getCharacterStatistics(hydrated.level),hydrated.weaponTraining);
+    hydrated.statistics = getEquipmentCombatStatistics(getCharacterStatistics(hydrated.level),hydrated.weaponTraining,hydrated.equipment);
     hydrated.maxHp = hydrated.statistics.maxHp;
     hydrated.maxAp = hydrated.statistics.maxAp;
     hydrated.initiative = hydrated.statistics.initiative;
@@ -70,7 +71,7 @@ export class CharacterService {
       (character.experience ?? getTotalExperienceForLevel(character.level)) + amount
     );
     character.level = getLevelForExperience(character.experience);
-    character.statistics = getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
+    character.statistics = getEquipmentCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining,character.equipment);
     character.maxHp = character.statistics.maxHp;
     character.maxAp = character.statistics.maxAp;
     character.initiative = character.statistics.initiative;
@@ -83,12 +84,12 @@ export class CharacterService {
     return character ? this.clone(character) : undefined;
   }
 
-  setWeaponLoadout(playerId:PlayerId,loadout:WeaponLoadout):CharacterSnapshot {
-    if(!isWeaponLoadout(loadout))throw new Error("INVALID_WEAPON_LOADOUT");
+  setEquipment(playerId:PlayerId,equipment:CharacterEquipment):CharacterSnapshot {
     const character=this.require(playerId);
-    const training=normalizeWeaponTraining(character.weaponTraining);
-    character.weaponTraining=normalizeWeaponTraining({...training,loadout:{...training.loadout,...loadout}});
-    character.statistics=getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
+    character.equipment=structuredClone(equipment);
+    character.statistics=getEquipmentCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining,character.equipment);
+    character.maxHp=character.statistics.maxHp;character.maxAp=character.statistics.maxAp;character.initiative=character.statistics.initiative;
+    character.hp=Math.min(character.hp,character.maxHp);
     return this.clone(character);
   }
 
@@ -98,7 +99,7 @@ export class CharacterService {
     const character=this.require(playerId);
     character.weaponTraining=normalizeWeaponTraining(character.weaponTraining);
     character.weaponTraining.experience[family]=Math.min(MAX_WEAPON_EXPERIENCE,character.weaponTraining.experience[family]+amount);
-    character.statistics=getWeaponCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining);
+    character.statistics=getEquipmentCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining,character.equipment);
     return this.clone(character);
   }
 
@@ -150,6 +151,7 @@ export class CharacterService {
       ...(character.appearance !== undefined ? { appearance: structuredClone(character.appearance) } : {}),
       ...(character.statistics !== undefined ? { statistics: { ...character.statistics } } : {}),
       ...(character.weaponTraining !== undefined ? {weaponTraining:normalizeWeaponTraining(character.weaponTraining)} : {}),
+      ...(character.equipment !== undefined ? {equipment:structuredClone(character.equipment)} : {}),
       injuries: [...character.injuries]
     };
   }

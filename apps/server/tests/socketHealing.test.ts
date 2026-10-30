@@ -72,12 +72,17 @@ async function setup(autoBattleStepMs = 10) {
     await authenticate(socket, token);
     return { id: character.id, socket, token };
   };
+  const equip = async (member:{id:string;socket:Socket},itemId:string,slot:"mainHand"|"offHand"="mainHand") => {
+    const items=await game.services.inventory.addItems(member.id,[{itemId,quantity:1}]);
+    const item=items.items.find(item=>item.itemId===itemId)!;
+    expect(await member.socket.timeout(2000).emitWithAck("setEquipmentSlot",{slot,itemInstanceId:item.instanceId})).toMatchObject({ok:true});
+  };
   const start = async (socket: Socket, mode: "manual" | "auto" = "manual") => {
     const started = waitFor<AutoSnapshot>(socket, "battleStarted");
     socket.emit("startEncounter", { encounterId: "wolf-pack-01", mode });
     return started;
   };
-  return { game, connect, authenticate, identity, start, lifecycle };
+  return { game, connect, authenticate, identity, start, lifecycle, equip };
 }
 
 describeDatabase("healing staff cross-player Socket.IO",()=>{
@@ -87,28 +92,28 @@ describeDatabase("healing staff cross-player Socket.IO",()=>{
   const hero=await identity();
   expect(await hero.socket.timeout(1000).emitWithAck("castHealing",{requestId:"first-cast",targetId:hero.id})).toMatchObject({ok:false,code:"HEALING_STAFF_REQUIRED"});
  });
- it("heals party-owned HP, trains the caster once, replays safely and restores both on reconnect",async()=>{
-  const {game,identity,connect,authenticate}=await setup(),caster=await identity("HealAlice"),ally=await identity("HealBob");
-  expect(await caster.socket.timeout(1500).emitWithAck("setWeaponLoadout",{melee:"sword",ranged:"bow",support:"staff",defense:"shield"})).toMatchObject({ok:true});
+ it("heals party-owned HP without world training, replays safely and restores both on reconnect",async()=>{
+  const {game,identity,connect,authenticate,equip}=await setup(),caster=await identity("HealAlice"),ally=await identity("HealBob");
+  await equip(caster,"training-staff");
   expect(await caster.socket.timeout(1000).emitWithAck("castHealing",{requestId:"notparty",targetId:ally.id})).toMatchObject({ok:false});
   game.services.social.parties.invite(caster.id,ally.id);game.services.social.parties.respond(ally.id,game.services.social.parties.getInvites(ally.id)[0]!.id,true);
   const targets=await caster.socket.timeout(1500).emitWithAck("requestHealingTargets");
-  expect(targets).toMatchObject({ok:true,healingPower:20});expect(targets.targets.map((t:any)=>t.id)).toContain(ally.id);
-  const targetPush=waitFor<PlayerStateSnapshot>(ally.socket,"playerState",s=>s.character.hp===60);
+  expect(targets).toMatchObject({ok:true,healingPower:28});expect(targets.targets.map((t:any)=>t.id)).toContain(ally.id);
+  const targetPush=waitFor<PlayerStateSnapshot>(ally.socket,"playerState",s=>s.character.hp===68);
   const request={requestId:"party-cast-01",targetId:ally.id};
   const result=await caster.socket.timeout(2000).emitWithAck("castHealing",request);
-  expect(result).toMatchObject({ok:true,targetId:ally.id,restoredHp:20});await targetPush;
+  expect(result).toMatchObject({ok:true,targetId:ally.id,restoredHp:28});await targetPush;
   expect(await caster.socket.timeout(2000).emitWithAck("castHealing",request)).toEqual(result);
-  expect(game.services.characters.getSnapshot(ally.id)?.hp).toBe(60);
-  expect(game.services.characters.getSnapshot(caster.id)?.weaponTraining?.experience.staff).toBe(1);
+  expect(game.services.characters.getSnapshot(ally.id)?.hp).toBe(68);
+  expect(game.services.characters.getSnapshot(caster.id)?.weaponTraining?.experience.staff).toBe(0);
   caster.socket.disconnect();ally.socket.disconnect();
   const nextCaster=await connect(),nextAlly=await connect();const restoredCaster=await authenticate(nextCaster,caster.token),restoredAlly=await authenticate(nextAlly,ally.token);
-  expect(restoredCaster.character.weaponTraining?.experience.staff).toBe(1);expect(restoredAlly.character.hp).toBe(60);
+  expect(restoredCaster.character.weaponTraining?.experience.staff).toBe(0);expect(restoredAlly.character.hp).toBe(68);
   expect(await nextCaster.timeout(1000).emitWithAck("castHealing",{requestId:"cooldown-cast",targetId:restoredCaster.character.playerId})).toMatchObject({ok:false,code:"HEAL_COOLDOWN"});
  });
  it("waits for the healed player's durable mutation before reconnecting that player",async()=>{
-  const {game,lifecycle,identity,connect,authenticate}=await setup(),caster=await identity("HealKeeper"),ally=await identity("HealTarget");
-  expect(await caster.socket.timeout(1500).emitWithAck("setWeaponLoadout",{melee:"sword",ranged:"bow",support:"staff"})).toMatchObject({ok:true});
+  const {game,lifecycle,identity,connect,authenticate,equip}=await setup(),caster=await identity("HealKeeper"),ally=await identity("HealTarget");
+  await equip(caster,"training-staff");
   game.services.social.parties.invite(caster.id,ally.id);game.services.social.parties.respond(ally.id,game.services.social.parties.getInvites(ally.id)[0]!.id,true);
   const save=lifecycle.saveGameplayState.bind(lifecycle);let resume!:()=>void,entered!:()=>void;
   const hold=new Promise<void>(resolve=>{resume=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;});
@@ -118,19 +123,25 @@ describeDatabase("healing staff cross-player Socket.IO",()=>{
   await started;ally.socket.disconnect();const next=await connect();let restoredEarly=false;
   const restoring=authenticate(next,ally.token).then(state=>{restoredEarly=true;return state;});
   try{await new Promise(resolve=>setTimeout(resolve,30));expect(restoredEarly).toBe(false);}finally{resume();}
-  expect(await casting).toMatchObject({ok:true,restoredHp:20});expect((await restoring).character.hp).toBe(60);
+  expect(await casting).toMatchObject({ok:true,restoredHp:28});expect((await restoring).character.hp).toBe(68);
  });
 
- it("trains and persists self-healing and shield blocks in an automatic battle",async()=>{
-  const {game,identity,start,connect,authenticate}=await setup(10),hero=await identity("SupportAuto",30);
-  expect(await hero.socket.timeout(1500).emitWithAck("setWeaponLoadout",{melee:"sword",ranged:"bow",support:"staff",defense:"shield"})).toMatchObject({ok:true});
-  game.services.world.addPlayer({id:hero.id,nickname:"SupportAuto",x:1290,y:455});
-  const finished=waitFor<{character:{weaponTraining:{experience:{staff:number;shield:number}}}}>(hero.socket,"battleEnded");
-  await start(hero.socket,"auto");const result=await finished;
-  expect(result.character.weaponTraining.experience.staff).toBeGreaterThan(0);expect(result.character.weaponTraining.experience.shield).toBeGreaterThan(0);
+ it.each(["staff","sword"] as const)("persists %s battle training and permits shields only with the one-handed weapon",async(family)=>{
+  const {game,identity,start,connect,authenticate,equip}=await setup(10),hero=await identity(`SupportAuto${family}`,family==="staff"?30:100);
+  await equip(hero,`training-${family}`);
+  if(family==="sword")await equip(hero,"training-shield","offHand");
+  game.services.world.addPlayer({id:hero.id,nickname:`SupportAuto${family}`,x:1290,y:455});
+  const finished=waitFor<{outcome:string;experienceGained:number;character:{weaponTraining:{experience:{staff:number;shield:number;sword:number}}}}>(hero.socket,"battleEnded");
+  const initial=await start(hero.socket,"auto");
+  expect(Boolean(initial.combatants.find(c=>c.ownerPlayerId===hero.id)?.combatStats?.blockPercent)).toBe(family==="sword");
+  const result=await finished;
+  expect(result.outcome).toBe("victory");
+  const experience=result.character.weaponTraining.experience;
+  expect(experience[family]).toBeGreaterThan(0);
+  expect(experience.staff+experience.sword+experience.shield).toBe(Math.floor(result.experienceGained/2));
+  if(family==="staff")expect(experience.shield).toBe(0);else expect(experience.shield).toBeGreaterThan(0);
   hero.socket.disconnect();const next=await connect(),restored=await authenticate(next,hero.token);
-  expect(restored.character.weaponTraining?.experience.staff).toBe(result.character.weaponTraining.experience.staff);
-  expect(restored.character.weaponTraining?.experience.shield).toBe(result.character.weaponTraining.experience.shield);
+  expect(restored.character.weaponTraining?.experience).toEqual(experience);
  });
 
 });

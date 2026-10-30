@@ -26,6 +26,12 @@ export function mitigatedBattleDamage(damage: number, armor: number, blockPercen
   return Math.max(1, Math.round(afterArmor * (1 - block / 100)));
 }
 
+export function isBattleAttackEnabled(actor:Pick<CombatantSnapshot,"combatStats">,type:"meleeAttack"|"rangedAttack"):boolean {
+  return type==="meleeAttack"
+    ? actor.combatStats?.meleeEnabled!==false && (actor.combatStats?.meleeDamage??20)>0
+    : actor.combatStats?.rangedEnabled!==false && (actor.combatStats?.rangedDamage??15)>0;
+}
+
 export function getBattleHealingPreview(snapshot: BattleSnapshot, actorId: string, targetId = actorId): { amount: number; apCost: number; available: boolean; reason?: string } {
   const actor = snapshot.combatants.find(unit => unit.id === actorId);
   const target = snapshot.combatants.find(unit => unit.id === targetId);
@@ -34,7 +40,7 @@ export function getBattleHealingPreview(snapshot: BattleSnapshot, actorId: strin
   const reason = snapshot.finished ? "Walka zakończona."
     : !actor || actor.hp <= 0 ? "Postać jest nieprzytomna."
       : snapshot.activeCombatantId !== actorId ? "Poczekaj na swoją turę."
-        : !Number.isFinite(power) || power <= 0 ? "Wybierz kostur leczący przed walką."
+        : !Number.isFinite(power) || power <= 0 ? "Załóż kostur leczący przed walką."
           : actor.healingUsedThisTurn ? "Kostur został już użyty w tej turze."
             : !target || target.hp <= 0 || (target.id !== actorId && (!actor.side || target.side !== actor.side)) ? "Wybierz żywego sojusznika."
               : targetId !== actorId && hexDistance(actor.position, target.position) > 6 ? "Sojusznik jest poza zasięgiem (6 pól)."
@@ -54,17 +60,19 @@ export function getBattleAttackPreview(snapshot: BattleSnapshot, actorId: string
   const target = snapshot.combatants.find(unit => unit.id === targetId);
   if (!actor || !target || !areBattleEnemies(actor, target)) return null;
   const distance = hexDistance(actor.position, target.position);
-  const melee = distance === 1;
+  const melee = distance === 1 && isBattleAttackEnabled(actor,"meleeAttack");
   const type = melee ? "meleeAttack" : "rangedAttack";
   const apCost = melee ? 2 : rangedAttackApCost(actor);
   const inRange = distance > 0 && distance <= 6;
   const lineOfSight = melee || hasLineOfSight(actor.position, target.position, new Set(snapshot.blockedCells.map(hexKey)));
   const damage = melee ? actor.combatStats?.meleeDamage ?? 20 : actor.combatStats?.rangedDamage ?? 15;
-  const possible = inRange && lineOfSight;
+  const enabled=isBattleAttackEnabled(actor,type);
+  const possible = enabled && inRange && lineOfSight;
   const reason = snapshot.finished ? "Walka zakończona."
     : actor.hp <= 0 ? "Postać jest nieprzytomna."
       : snapshot.activeCombatantId !== actorId ? "Poczekaj na swoją turę."
-        : !inRange ? "Cel poza zasięgiem (6 pól)."
+        : !enabled ? "Założona broń nie pozwala na atak z tej odległości."
+          : !inRange ? "Cel poza zasięgiem (6 pól)."
           : !lineOfSight ? "Przeszkoda zasłania cel."
             : actor.ap < apCost ? `Potrzeba ${apCost} AP.` : undefined;
   return {

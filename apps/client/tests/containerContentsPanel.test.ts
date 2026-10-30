@@ -203,3 +203,13 @@ it("ignores a late acknowledgement after destruction", async () => {
   expect(onInventoryChanged).not.toHaveBeenCalled();
   expect(document.querySelector("[data-container-contents]")).toBeNull();
 });
+
+it("equips an item from a bag through a separate action without moving it",async()=>{
+ const sword=item("sword",{name:"Miecz",category:"weapon",containerInstanceId:"bag",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[]}});
+ const move=vi.fn(),updated=vi.fn(),equipped={...sword,equippedSlot:"mainHand" as const};
+ delete equipped.containerInstanceId;
+ const equip=vi.fn().mockResolvedValue({ok:true,inventory:inventory([bag(),equipped])});
+ const panel=new ContainerContentsPanel({onMoveItem:move,onEquipItem:equip,onInventoryChanged:updated,onChangeContainer:vi.fn()});panel.update(inventory([bag(),sword]));panel.show(0);
+ const action=button('[data-container-equip="sword"]');expect(action.closest('[data-container-remove]')).toBeNull();action.click();
+ await vi.waitFor(()=>expect(updated).toHaveBeenCalled());expect(equip).toHaveBeenCalledWith(sword);expect(move).not.toHaveBeenCalled();expect(document.querySelector('[data-container-capacity]')?.textContent).toContain("0 / 8");expect(document.querySelector('[data-container-put="sword"]')).toBeNull();panel.destroy();
+});

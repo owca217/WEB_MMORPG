@@ -161,7 +161,7 @@ function choosePlayerCommand(snapshot: BattleSnapshot, playerId: PlayerId): Batt
   if (!hero || !enemy) throw new Error("Expected living hero and enemy.");
 
   const distance = hexDistance(hero.position, enemy.position);
-  if (distance === 1) {
+  if (distance === 1 && hero.combatStats?.meleeEnabled !== false) {
     if (hero.ap >= 2) {
       return { type: "meleeAttack", combatantId: hero.id, targetId: enemy.id };
     }
@@ -171,6 +171,7 @@ function choosePlayerCommand(snapshot: BattleSnapshot, playerId: PlayerId): Batt
   const rangedCost = hero.injuries.includes("brokenArm") ? 4 : 3;
   const blockers = new Set(snapshot.blockedCells.map(hexKey));
   if (
+    hero.combatStats?.rangedEnabled !== false &&
     hero.ap >= rangedCost &&
     distance <= 6 &&
     hasLineOfSight(hero.position, enemy.position, blockers)

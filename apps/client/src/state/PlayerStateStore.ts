@@ -1,6 +1,17 @@
-import type { PlayerStateSnapshot } from "@web-mmorpg/shared";
+import { EQUIPMENT_SLOTS, type CharacterEquipment, type InventoryItem, type PlayerStateSnapshot } from "@web-mmorpg/shared";
 
 export type PlayerStateHandler = (state: PlayerStateSnapshot) => void;
+
+function cloneItem(item: InventoryItem): InventoryItem {
+  return {
+    ...item,
+    ...(item.equipment ? { equipment: {
+      ...item.equipment,
+      modifiers: item.equipment.modifiers.map(modifier => ({ ...modifier }))
+    } } : {}),
+    ...(item.consumableEffects ? { consumableEffects: { ...item.consumableEffects } } : {})
+  };
+}
 
 function cloneState(state: PlayerStateSnapshot): PlayerStateSnapshot {
   return {
@@ -11,11 +22,17 @@ function cloneState(state: PlayerStateSnapshot): PlayerStateSnapshot {
         experience: { ...state.character.weaponTraining.experience },
         loadout: { ...state.character.weaponTraining.loadout }
       } } : {}),
+      ...(state.character.equipment ? { equipment: Object.fromEntries(EQUIPMENT_SLOTS.map(slot => {
+        const item = state.character.equipment![slot];
+        return [slot, item ? cloneItem(item) : null];
+      })) as CharacterEquipment } : {}),
+      ...(state.character.statistics ? { statistics: { ...state.character.statistics } } : {}),
       injuries: [...state.character.injuries]
     },
     inventory: {
-      items: state.inventory.items.map((item) => ({ ...item })),
-      ...(state.inventory.containerSlots ? { containerSlots: [...state.inventory.containerSlots] } : {})
+      items: state.inventory.items.map(cloneItem),
+      ...(state.inventory.containerSlots ? { containerSlots: [...state.inventory.containerSlots] } : {}),
+      ...(state.inventory.equipmentSlots ? { equipmentSlots: { ...state.inventory.equipmentSlots } } : {})
     }
   };
 }

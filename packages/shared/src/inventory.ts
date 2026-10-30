@@ -1,5 +1,6 @@
 import type { ItemInstanceId } from "./ids";
 import type { ItemRarity } from "./items";
+import type { EquipmentItemProperties, EquipmentSlot, EquipmentSlots } from "./equipment";
 
 export type ItemCategory = string;
 
@@ -37,11 +38,14 @@ export interface InventoryItem {
   containerInstanceId?: ItemInstanceId;
   containerCapacity?: number;
   consumableEffects?: ConsumableEffects;
+  equipment?: EquipmentItemProperties;
+  equippedSlot?: EquipmentSlot;
 }
 
 export interface InventorySnapshot {
   items: InventoryItem[];
   containerSlots?: ContainerSlots;
+  equipmentSlots?: EquipmentSlots;
 }
 
 export type InventoryUpdateResult =

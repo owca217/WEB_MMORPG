@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [WEB-MMORPG-0.1.15.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.15/WEB-MMORPG-0.1.15.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [WEB-MMORPG-0.1.16.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.16/WEB-MMORPG-0.1.16.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -37,6 +37,8 @@ Wersja 0.1.13 dodaje wspólne walki drużynowe. Rozpoczęcie spotkania dołącza
 Wersja 0.1.14 dodaje „Gęsty Las” na wschód od osady. Wejście w oznaczony obszar przy prawej krawędzi osady przenosi do lasu, a obszar przy lewej krawędzi lasu prowadzi z powrotem. Las zawiera nowe grupy dzików, pająków leśnych i wilków. Pokonana grupa odradza się po 3 minutach; znacznik pokazuje pozostały czas i blokuje ponowną walkę. Licznik jest wspólny dla graczy i zapisany na serwerze, więc ponowne logowanie ani restart serwera go nie skracają.
 
 Wersja 0.1.15 dodaje kolizje pni drzew, skał, budynków i ogrodzenia w obu lokacjach. Kliknięcie celu wyznacza przejście omijające przeszkody; podejście do NPC wybiera dostępne miejsce w zasięgu rozmowy lub sklepu. Brama, ścieżki i obszary teleportacyjne pozostają drożne. Ruch jest sprawdzany również na serwerze; krzewy i drobna roślinność pozostają dekoracją.
+
+Wersja 0.1.16 dzieli okno postaci na zakładki „Statystyki”, „Władanie” i „Uzbrojenie”. Broń, tarczę i sześć części pancerza zakłada się z posiadanych przedmiotów poza walką; podstawowe wyposażenie sprzedaje Miro. Łuki, kusze i kostury zajmują obie ręce. Ataki, leczenie i parametry postaci wynikają z faktycznie założonych przedmiotów, a stare zapisane style nie zastępują broni. Połowa zdobytego doświadczenia za zwycięstwo jest dzielona między faktycznie użyte rodzaje broni i tarczę; dotychczasowy postęp zostaje zachowany. Założonych przedmiotów nie można przekazać w handlu ani schować do pojemnika.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

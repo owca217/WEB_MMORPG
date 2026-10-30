@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorldHud } from "../src/ui/WorldHud";
-import type { InventoryItem } from "@web-mmorpg/shared";
+import { emptyCharacterEquipment, getCharacterStatistics, type CharacterSnapshot, type InventoryItem } from "@web-mmorpg/shared";
 
 beforeEach(() => {
   document.body.replaceChildren();
@@ -149,11 +149,18 @@ describe("WorldHud session controls", () => {
   });
 });
 
-it("offers world healing only while a staff style is active",()=>{
+it("offers healing only for a usable equipped staff and positive authoritative healing power",()=>{
  const onHealing=vi.fn(),hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onHealing});
- const character={playerId:"hero",nickname:"Hero",level:1,hp:50,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+ const character:CharacterSnapshot={playerId:"hero",nickname:"Hero",level:1,hp:50,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],statistics:{...getCharacterStatistics(1),healingPower:20},weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}};
  hud.update({character,inventory:{items:[]}});
- const healing=document.querySelector<HTMLButtonElement>('[data-healing]')!;expect(healing.hidden).toBe(true);healing.click();expect(onHealing).not.toHaveBeenCalled();
- hud.update({character:{...character,weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}},inventory:{items:[]}});
- expect(healing.hidden).toBe(false);healing.click();expect(onHealing).toHaveBeenCalledOnce();hud.destroy();
+ const healing=document.querySelector<HTMLButtonElement>('[data-healing]')!;
+ expect(healing.hidden).toBe(true);healing.click();expect(onHealing).not.toHaveBeenCalled();
+ const staff:InventoryItem={instanceId:"staff",itemId:"staff",itemDefinitionId:"staff",name:"Kostur",description:"",quantity:1,category:"weapon",rarity:"COMMON",upgradeLevel:0,equippedSlot:"mainHand",equipment:{slot:"mainHand",weaponFamily:"staff",twoHanded:true,minimumLevel:1,modifiers:[]}};
+ const equipped={...character,equipment:{...emptyCharacterEquipment(),mainHand:staff}};
+ hud.update({character:equipped,inventory:{items:[staff]}});
+ expect(healing.hidden).toBe(false);healing.click();expect(onHealing).toHaveBeenCalledOnce();
+ hud.update({character:{...equipped,statistics:{...getCharacterStatistics(1),healingPower:0}},inventory:{items:[staff]}});
+ expect(healing.hidden).toBe(true);
+ hud.update({character:{...equipped,equipment:{...emptyCharacterEquipment(),mainHand:{...staff,durability:0}}},inventory:{items:[staff]}});
+ expect(healing.hidden).toBe(true);hud.destroy();
 });

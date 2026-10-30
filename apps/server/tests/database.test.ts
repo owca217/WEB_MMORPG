@@ -60,7 +60,8 @@ describeDatabase("item catalog database", () => {
       { migration_name: "007_social" },
       { migration_name: "008_merchant" },
       { migration_name: "009_weapon_proficiencies" },
-      { migration_name: "010_encounter_respawns" }
+      { migration_name: "010_encounter_respawns" },
+      { migration_name: "011_equipment_slots" }
     ]);
   });
 

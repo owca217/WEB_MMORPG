@@ -1,4 +1,4 @@
-import { normalizeWeaponTraining, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
+import { getEquippedWeaponFamily, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
 import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { experienceProgressMarkup } from "./ExperienceProgress";
@@ -126,7 +126,7 @@ export class WorldHud {
 
   update(state: PlayerStateSnapshot): void {
     const character = state.character;
-    this.healingButton.hidden=!this.hasHealing || normalizeWeaponTraining(character.weaponTraining).loadout.support!=="staff";
+    this.healingButton.hidden=!this.hasHealing || getEquippedWeaponFamily(character.equipment)!=="staff" || !((character.statistics?.healingPower ?? 0) > 0);
     this.name.textContent = character.nickname;
     this.hp.textContent = `${character.hp}/${character.maxHp}`;
     this.level.textContent = `${character.level}`;

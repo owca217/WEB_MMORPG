@@ -1,4 +1,4 @@
-import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type SetContainerSlotResult } from "@web-mmorpg/shared";
+import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_INDEX, type ContainerSlotIndex, type InventorySnapshot, type SetContainerSlotResult } from "@web-mmorpg/shared";
 import { containerIcon } from "./ContainerIcon";
 import { itemQualityText } from "./ItemQualityFrame";
 
@@ -49,12 +49,14 @@ export class ContainerPicker {
 
   update(snapshot: InventorySnapshot): void {
     this.snapshot = snapshot;
+    if(this.permanentSlot())this.hide();
     this.render();
   }
 
   show(slotIndex: ContainerSlotIndex): void {
     if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT || this.pending) return;
     this.slotIndex = slotIndex;
+    if(this.permanentSlot()){this.hide();return;}
     this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.feedback.textContent = "";
     this.root.classList.remove("is-hidden");
@@ -74,10 +76,11 @@ export class ContainerPicker {
 
   private render(): void {
     this.title.textContent = `Pojemnik ${this.slotIndex + 1}`;
-    this.clearButton.disabled = this.pending || !this.snapshot.containerSlots?.[this.slotIndex];
+    this.clearButton.hidden=this.permanentSlot();
+    this.clearButton.disabled = this.pending || this.permanentSlot() || !this.snapshot.containerSlots?.[this.slotIndex];
     this.root.setAttribute("aria-busy", `${this.pending}`);
     this.list.replaceChildren();
-    const containers = this.snapshot.items.filter((item) => item.category === CONTAINER_ITEM_CATEGORY && !item.containerInstanceId);
+    const containers = this.snapshot.items.filter((item) => item.category === CONTAINER_ITEM_CATEGORY && !item.containerInstanceId && !item.permanentContainer);
     if (containers.length === 0) {
       const empty = document.createElement("p");
       empty.className = "game-panel__empty";
@@ -109,7 +112,7 @@ export class ContainerPicker {
   }
 
   private async setSlot(itemInstanceId: string | null): Promise<void> {
-    if (this.pending) return;
+    if (this.pending || this.destroyed || this.permanentSlot() || this.snapshot.items.some(item=>item.instanceId===itemInstanceId&&item.permanentContainer)) return;
     this.pending = true;
     this.feedback.textContent = "Zapisywanie…";
     this.feedback.dataset.state = "pending";
@@ -133,6 +136,10 @@ export class ContainerPicker {
       this.pending = false;
       if (!this.destroyed) this.render();
     }
+  }
+
+  private permanentSlot():boolean {
+    return this.slotIndex===PERMANENT_BACKPACK_SLOT_INDEX || this.snapshot.items.some(item=>item.instanceId===this.snapshot.containerSlots?.[this.slotIndex]&&item.permanentContainer);
   }
 
   private require<T extends HTMLElement = HTMLElement>(selector: string): T {

@@ -79,9 +79,9 @@ it("discards a delayed bag acknowledgement from before a gear change and applies
   const oldWeapon={...weapon("old-sword"),equippedSlot:"mainHand" as const},newWeapon=weapon("new-sword");
   const bag:InventoryItem={instanceId:"bag",itemId:"bag",itemDefinitionId:"bag",name:"Worek",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,containerCapacity:8};
   const wood:InventoryItem={instanceId:"wood",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0};
-  const state:PlayerStateSnapshot={character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:{...emptyCharacterEquipment(),mainHand:oldWeapon}},inventory:{items:[bag,wood,oldWeapon,newWeapon],containerSlots:["bag",null,null,null],equipmentSlots:{...emptyEquipmentSlots(),mainHand:oldWeapon.instanceId}},gold:100};
+  const state:PlayerStateSnapshot={character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:{...emptyCharacterEquipment(),mainHand:oldWeapon}},inventory:{items:[bag,wood,oldWeapon,newWeapon],containerSlots:[null,"bag",null,null],equipmentSlots:{...emptyEquipmentSlots(),mainHand:oldWeapon.instanceId}},gold:100};
   transport.emit("playerState",state);
-  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   document.querySelector<HTMLButtonElement>('[data-container-put="wood"]')!.click();
   const equippedNew={...newWeapon,equippedSlot:"mainHand" as const},unequippedOld=weapon("old-sword");
   const fresh:PlayerStateSnapshot={...state,character:{...state.character,hp:77,equipment:{...emptyCharacterEquipment(),mainHand:equippedNew}},inventory:{...state.inventory,items:[bag,wood,unequippedOld,equippedNew],equipmentSlots:{...emptyEquipmentSlots(),mainHand:newWeapon.instanceId}}};
@@ -314,22 +314,50 @@ it("opens eight-place contents for an equipped bag and can switch to the contain
       initiative: 10, severelyInjured: false, injuries: [] },
     inventory: { items: [{ instanceId: "rag", itemId: "rag-bag", itemDefinitionId: "rag-def",
       name: "Szmaciany worek", category: "container", description: "Worek", quantity: 1,
-      rarity: "COMMON", upgradeLevel: 0, containerCapacity: 8 }], containerSlots: ["rag", null, null, null] }
+      rarity: "COMMON", upgradeLevel: 0, containerCapacity: 8 }], containerSlots: [null, "rag", null, null] }
   };
   scene.init({ playerId: "hero" }); scene.create(); transport.emit("playerState", state);
-  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   const contents = document.querySelector<HTMLElement>('[data-container-contents]');
   expect(contents?.classList.contains("is-hidden")).toBe(false);
   expect(contents?.textContent).toContain("Szmaciany worek");
   expect(contents?.querySelectorAll("[data-storage-cell]")).toHaveLength(8);
-  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-slot="2"]')!.click();
   expect(contents?.classList.contains("is-hidden")).toBe(true);
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(false);
-  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   expect(contents?.classList.contains("is-hidden")).toBe(false);
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(true);
   contents?.querySelector<HTMLButtonElement>("[data-change-container]")!.click();
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(false);
   events.emit("shutdown");
   expect(document.querySelector("[data-container-contents]")).toBeNull();
+});
+
+it("opens only a real sixteen-place permanent backpack in slot zero and refreshes missing or old packets",()=>{
+  const refresh=vi.spyOn(gameSocket,"requestPlayerState"),scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const character:PlayerStateSnapshot["character"]={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+  const backpack:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak podróżnika",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  transport.emit("playerState",{character,inventory:{items:[backpack],containerSlots:["permanent",null,null,null]}});
+  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  expect(document.querySelector('[data-container-contents]')?.classList.contains("is-hidden")).toBe(false);
+  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
+  expect(document.querySelector<HTMLButtonElement>("[data-change-container]")?.hidden).toBe(true);
+  expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(true);
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
+  expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(false);
+
+  const oldBag={...backpack,permanentContainer:false,containerCapacity:8};
+  const invalid:InventorySnapshot[]=[{items:[oldBag],containerSlots:["permanent",null,null,null]},{items:[],containerSlots:[null,null,null,null]},{items:[{...backpack,containerCapacity:8}],containerSlots:["permanent",null,null,null]}];
+  for(const inventory of invalid) {
+    transport.emit("playerState",{character,inventory});const before=refresh.mock.calls.length;
+    document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+    expect(refresh.mock.calls.length).toBe(before+1);
+    expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(true);
+    expect(document.querySelector('[data-container-contents]')?.classList.contains("is-hidden")).toBe(true);
+    expect(playerStateStore.get()?.inventory).toEqual(inventory);
+  }
+  events.emit("shutdown");
 });

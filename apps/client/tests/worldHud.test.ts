@@ -8,7 +8,26 @@ beforeEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+it("opens the permanent backpack from the left HUD slot with the bundled icon and retains three ordinary empty slots",()=>{
+  vi.stubEnv("BASE_URL","/WEB_MMORPG/");
+  const onContainerSlot=vi.fn(),hud=new WorldHud({onContainerSlot,onCharacter:vi.fn(),onAdmin:vi.fn()});
+  const backpack:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak podróżnika",category:"container",description:"",quantity:1,rarity:"COMMON",quality:"NORMAL",upgradeLevel:0,permanentContainer:true,containerCapacity:16,iconUrl:"/wrong-root-url.png"};
+  hud.updateInventory({items:[backpack],containerSlots:["permanent",null,null,null]});
+  const left=document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!;
+  expect(left.getAttribute("aria-label")).toContain("Otwórz plecak");
+  expect(left.title).toContain("16 miejsc");expect(left.title).toContain("na stałe");
+  expect(left.querySelector("img")?.getAttribute("src")).toBe("/WEB_MMORPG/assets/items/permanent-backpack.png");
+  expect(left.querySelector<HTMLElement>("[data-item-quality]")?.dataset.itemQuality).toBe("NORMAL");
+  left.click();expect(onContainerSlot).toHaveBeenCalledWith(0);
+  left.querySelector("img")!.dispatchEvent(new Event("error"));
+  expect(left.querySelector("svg")).not.toBeNull();expect(left.querySelector("[data-item-quality]")).not.toBeNull();
+  for(const slot of document.querySelectorAll<HTMLButtonElement>('[data-container-slot]:not([data-container-slot="0"])')) {
+    expect(slot.classList.contains("is-empty")).toBe(true);expect(slot.querySelector("img")).toBeNull();expect(slot.querySelector("[data-item-quality]")).toBeNull();
+  }
+  hud.destroy();
+});
 
 describe("WorldHud session controls", () => {
   it("keeps four container slots directly in the HUD and opens the clicked slot", () => {
@@ -20,7 +39,7 @@ describe("WorldHud session controls", () => {
     expect(document.querySelector(".world-hud [data-inventory]")).toBeNull();
     expect([...document.querySelectorAll(".world-hud button")].some((button) => button.textContent === "Ekwipunek")).toBe(false);
     expect([...slots].map((slot) => slot.getAttribute("aria-label"))).toEqual([
-      "Pojemnik 1: pusty. Wybierz pojemnik", "Pojemnik 2: pusty. Wybierz pojemnik",
+      "Ładowanie plecaka. Odśwież plecak", "Pojemnik 2: pusty. Wybierz pojemnik",
       "Pojemnik 3: pusty. Wybierz pojemnik", "Pojemnik 4: pusty. Wybierz pojemnik"
     ]);
     for (const slot of slots) {
@@ -86,7 +105,7 @@ describe("WorldHud session controls", () => {
         hp: 95, maxHp: 120, maxAp: 5, initiative: 10, severelyInjured: false, injuries: [] },
       inventory: { items: [{ instanceId: "bag", itemId: "bag", itemDefinitionId: "bag", name: "Torba podróżna",
         category: "container", description: "Torba", quantity: 1, rarity: "COMMON", upgradeLevel: 0 }],
-        containerSlots: ["bag", null, null, null] }
+        containerSlots: [null, "bag", null, null] }
     });
     hud.updateSession("ADMIN");
     toggle.click();
@@ -94,13 +113,13 @@ describe("WorldHud session controls", () => {
     expect(content.hidden).toBe(false);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector("[data-experience]")?.textContent).toContain("150 / 200");
-    expect(document.querySelector('[data-container-slot="0"]')?.textContent).toContain("Torba podróżna");
+    expect(document.querySelector('[data-container-slot="1"]')?.textContent).toContain("Torba podróżna");
     expect(document.querySelector<HTMLButtonElement>("[data-admin]")?.hidden).toBe(false);
-    document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
     document.querySelector<HTMLButtonElement>("[data-character]")!.click();
     document.querySelector<HTMLButtonElement>("[data-admin]")!.click();
     document.querySelector<HTMLButtonElement>("[data-logout]")!.click();
-    expect(onContainerSlot).toHaveBeenCalledWith(0);
+    expect(onContainerSlot).toHaveBeenCalledWith(1);
     expect(onCharacter).toHaveBeenCalledTimes(1);
     expect(onAdmin).toHaveBeenCalledTimes(1);
     expect(onLogout).toHaveBeenCalledTimes(1);

@@ -11,6 +11,7 @@ import { InventoryService } from "../inventory/InventoryService";
 
 interface EquipmentRow {
   id:string;
+  permanent_container:boolean;
   quantity:number;
   equipment_slot:string|null;
   durability:string|number|null;
@@ -46,7 +47,7 @@ export class EquipmentService {
       if(!character)throw new Error("CHARACTER_NOT_FOUND");
       // Every owner mutation locks the character first; lock item rows in stable order.
       const rows=(await client.query<EquipmentRow>(
-        `SELECT instance.id,instance.quantity,instance.equipment_slot,instance.durability,instance.bound_to_player_id,
+        `SELECT instance.id,instance.quantity,instance.equipment_slot,instance.durability,instance.bound_to_player_id,instance.permanent_container,
            version.category_id,version.subcategory_id,version.minimum_level,version.soulbound,version.special_data,
            EXISTS(SELECT 1 FROM item_instances child WHERE child.container_instance_id=instance.id) AS has_children,
            COALESCE((SELECT jsonb_agg(jsonb_build_object('statCode',stat.stat_code,'modifierType',stat.modifier_type,'value',stat.value))
@@ -62,6 +63,7 @@ export class EquipmentService {
       if(instanceId!==null) {
         const item=rows.find(row=>row.id===instanceId);
         if(!item)throw new Error("EQUIPMENT_ITEM_NOT_OWNED");
+        if(item.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
         const properties=this.properties(item);
         if(!properties || properties.slot!==slot || item.quantity!==1)throw new Error("EQUIPMENT_SLOT_MISMATCH");
         if(properties.minimumLevel>character.level)throw new Error("EQUIPMENT_LEVEL_REQUIRED");

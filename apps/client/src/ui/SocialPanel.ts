@@ -369,7 +369,7 @@ export class SocialPanel {
   private eligibleItems(): InventoryItem[] {
     const equipped = new Set(this.inventory.containerSlots?.filter((id) => id !== null));
     const nonempty = new Set(this.inventory.items.map((item) => item.containerInstanceId).filter(Boolean));
-    return this.inventory.items.filter((item) => !item.containerInstanceId && !item.boundToPlayerId && !equipped.has(item.instanceId) && !nonempty.has(item.instanceId) && item.quantity > 0);
+    return this.inventory.items.filter((item) => !item.containerInstanceId && !item.boundToPlayerId && !item.permanentContainer && !equipped.has(item.instanceId) && !nonempty.has(item.instanceId) && item.quantity > 0);
   }
 
   private renderOfferEditor(trade: TradeSnapshot, self: TradeParticipant): void {

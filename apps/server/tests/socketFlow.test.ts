@@ -237,7 +237,7 @@ describeDatabase("Socket.IO game flow", () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const identity = await createIdentity(auth, lifecycle, "item_user", "ItemHero");
     await pool!.query("UPDATE characters SET hp=41,severely_injured=TRUE,injuries='[\"bleeding\"]'::jsonb,x=1320,y=455 WHERE id=$1", [identity.characterId]);
-    const item = (await game.services.inventory.addItems(identity.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items[0]!;
+    const item = (await game.services.inventory.addItems(identity.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items.find(item=>item.itemId==="field-bandage")!;
     const client = await connectClient();
     const initialState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     await authenticate(client, identity.token);
@@ -252,7 +252,11 @@ describeDatabase("Socket.IO game flow", () => {
       battleState,
       playerState
     ]);
-    expect(result).toMatchObject({ ok: true, inventory: { items: [expect.objectContaining({ instanceId: item.instanceId, quantity: 1 })] } });
+    expect(result).toMatchObject({ ok: true, inventory: { items: expect.arrayContaining([
+      expect.objectContaining({ instanceId: item.instanceId, quantity: 1 }),
+      expect.objectContaining({ permanentContainer:true,containerCapacity:16 })
+    ]) } });
+    expect(result.inventory.items).toHaveLength(2);
     expect(updatedBattle.combatants.find((actor) => actor.ownerPlayerId === identity.characterId)).toMatchObject({ hp: 71, ap: 3, injuries: ["bleeding"] });
     expect(updatedPlayer.character).toMatchObject({ hp: 71, severelyInjured: true, injuries: ["bleeding"] });
     expect((await pool!.query("SELECT hp FROM characters WHERE id=$1", [identity.characterId])).rows[0]!.hp).toBe(71);
@@ -262,7 +266,7 @@ describeDatabase("Socket.IO game flow", () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const identity = await createIdentity(auth, lifecycle, "item_owner", "ItemOwner");
     const other = await createIdentity(auth, lifecycle, "item_other", "ItemOther");
-    const item = (await game.services.inventory.addItems(other.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items[0]!;
+    const item = (await game.services.inventory.addItems(other.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items.find(item=>item.itemId==="field-bandage")!;
     const client = await connectClient();
     const payload = { combatantId: `hero:${identity.characterId}`, itemInstanceId: item.instanceId };
     expect(await client.timeout(800).emitWithAck("useBattleItem", payload)).toMatchObject({ ok: false, code: "AUTHENTICATION_REQUIRED" });
@@ -274,7 +278,7 @@ describeDatabase("Socket.IO game flow", () => {
     expect(await client.timeout(800).emitWithAck("useBattleItem", { ...payload, combatantId: battle.combatants.find((actor) => !actor.ownerPlayerId)!.id }))
       .toMatchObject({ ok: false, code: "NOT_OWNER" });
     expect(await client.timeout(800).emitWithAck("useBattleItem", payload)).toMatchObject({ ok: false, code: "INVENTORY_ITEM_NOT_OWNED" });
-    expect((await game.services.inventory.getSnapshot(other.characterId)).items[0]!.quantity).toBe(2);
+    expect((await game.services.inventory.getSnapshot(other.characterId)).items.find(entry=>entry.instanceId===item.instanceId)?.quantity).toBe(2);
     expect(game.services.battles.getSnapshot(identity.characterId)!.combatants.find((actor) => actor.ownerPlayerId === identity.characterId)!.ap).toBe(5);
   });
 
@@ -282,7 +286,7 @@ describeDatabase("Socket.IO game flow", () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const identity = await createIdentity(auth, lifecycle, "item_reconnect", "ItemReconnect");
     await pool!.query("UPDATE characters SET hp=41,x=1320,y=455 WHERE id=$1", [identity.characterId]);
-    const item = (await game.services.inventory.addItems(identity.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items[0]!;
+    const item = (await game.services.inventory.addItems(identity.characterId, [{ itemId: "field-bandage", quantity: 2 }])).items.find(item=>item.itemId==="field-bandage")!;
     const client = await connectClient();
     const initialState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     await authenticate(client, identity.token);
@@ -328,7 +332,12 @@ describeDatabase("Socket.IO game flow", () => {
       releaseResult();
     }
     expect(await authenticated).toMatchObject({ ok: true });
-    expect(await restoredState).toMatchObject({ character: { hp: 71 }, inventory: { items: [expect.objectContaining({ quantity: 1 })] } });
+    const restored=await restoredState;
+    expect(restored).toMatchObject({ character: { hp: 71 }, inventory: { items: expect.arrayContaining([
+      expect.objectContaining({ instanceId:item.instanceId,quantity:1 }),
+      expect.objectContaining({ permanentContainer:true,containerCapacity:16 })
+    ]) } });
+    expect(restored.inventory.items).toHaveLength(2);
     expect((await pool!.query("SELECT hp FROM characters WHERE id=$1", [identity.characterId])).rows[0]!.hp).toBe(71);
   });
 
@@ -369,7 +378,7 @@ describeDatabase("Socket.IO game flow", () => {
     expect((await game.services.inventory.getSnapshot(owner.characterId)).items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBeUndefined();
   });
 
-  it("persists four container slots using socket identity and rejects unrelated items", async () => {
+  it("keeps a permanent starter backpack and persists three changeable container slots using socket identity", async () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const owner = await createIdentity(auth, lifecycle, "slot_owner", "SlotOwner");
     const other = await createIdentity(auth, lifecycle, "slot_other", "SlotOther");
@@ -382,14 +391,26 @@ describeDatabase("Socket.IO game flow", () => {
       .toMatchObject({ ok: false, code: "AUTHENTICATION_REQUIRED" });
     const initial = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     await authenticate(client, owner.token);
-    await initial;
+    const initialState=await initial;
+    const backpack=initialState.inventory.items.find(item=>item.permanentContainer);
+    expect(backpack).toMatchObject({containerCapacity:16,quantity:1});
+    expect(initialState.inventory.containerSlots).toEqual([backpack!.instanceId,null,null,null]);
+    for(const itemInstanceId of [null,container]) {
+      expect(await client.timeout(1000).emitWithAck("setContainerSlot",{slotIndex:0,itemInstanceId}))
+        .toMatchObject({ok:false,code:"PERMANENT_BACKPACK_FIXED"});
+    }
+    expect(await client.timeout(1000).emitWithAck("setContainerSlot",{slotIndex:1,itemInstanceId:backpack!.instanceId}))
+      .toMatchObject({ok:false,code:"PERMANENT_BACKPACK_FIXED"});
+    expect(await client.timeout(1000).emitWithAck("moveItemToContainer",{itemInstanceId:backpack!.instanceId,targetContainerInstanceId:container}))
+      .toMatchObject({ok:false,code:"PERMANENT_BACKPACK_FIXED"});
     const updated = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     const assigned: SetContainerSlotResult = await client.timeout(1000).emitWithAck("setContainerSlot", {
       slotIndex: 2, itemInstanceId: container, characterId: other.characterId
     });
-    expect(assigned).toMatchObject({ ok: true, inventory: { containerSlots: [null, null, container, null] } });
-    expect((await updated).inventory.containerSlots).toEqual([null, null, container, null]);
-    expect((await game.services.inventory.getSnapshot(other.characterId)).containerSlots).toEqual([null, null, null, null]);
+    expect(assigned).toMatchObject({ ok: true, inventory: { containerSlots: [backpack!.instanceId, null, container, null] } });
+    expect((await updated).inventory.containerSlots).toEqual([backpack!.instanceId, null, container, null]);
+    const otherInventory=await game.services.inventory.getSnapshot(other.characterId);
+    expect(otherInventory.containerSlots).toEqual([otherInventory.items.find(item=>item.permanentContainer)!.instanceId, null, null, null]);
     expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 2, itemInstanceId: material }))
       .toMatchObject({ ok: false, code: "ITEM_NOT_CONTAINER" });
     expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 2, itemInstanceId: foreign }))
@@ -399,10 +420,11 @@ describeDatabase("Socket.IO game flow", () => {
     const restored = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     await authenticate(client, owner.token);
     const state = await restored;
-    expect(state.inventory.containerSlots).toEqual([null, null, container, null]);
+    expect(state.inventory.containerSlots).toEqual([backpack!.instanceId, null, container, null]);
+    expect(state.inventory.items.find(item=>item.permanentContainer)?.instanceId).toBe(backpack!.instanceId);
     expect(state.inventory.items.some((item) => item.instanceId === material)).toBe(true);
     expect(await client.timeout(1000).emitWithAck("setContainerSlot", { slotIndex: 2, itemInstanceId: null }))
-      .toMatchObject({ ok: true, inventory: { containerSlots: [null, null, null, null] } });
+      .toMatchObject({ ok: true, inventory: { containerSlots: [backpack!.instanceId, null, null, null] } });
   });
 
   it("emits player state after durable authentication and routes NPC interaction", async () => {

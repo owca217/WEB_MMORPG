@@ -204,7 +204,7 @@ describeDatabase("item creator end-to-end acceptance", () => {
 
     const inventory = new InventoryService(pool);
     await inventory.addItems(inventoryCharacterId, [{ itemId: "e2e-storm-sword", quantity: 1 }]);
-    const instanceBefore = (await inventory.getSnapshot(inventoryCharacterId)).items[0]!;
+    const instanceBefore = (await inventory.getSnapshot(inventoryCharacterId)).items.find(item=>item.itemId==="e2e-storm-sword")!;
     expect(instanceBefore).toMatchObject({
       itemId: "e2e-storm-sword",
       name: "Miecz Burzy",
@@ -260,7 +260,7 @@ describeDatabase("item creator end-to-end acceptance", () => {
       .expect(200);
     expect(publishedV2.body).toMatchObject({ versionNo: 2, state: "PUBLISHED", rarity: "EPIC" });
 
-    const instanceAfterV2 = (await inventory.getSnapshot(inventoryCharacterId)).items[0]!;
+    const instanceAfterV2 = (await inventory.getSnapshot(inventoryCharacterId)).items.find(item=>item.itemId==="e2e-storm-sword")!;
     expect(instanceAfterV2.instanceId).toBe(instanceBefore.instanceId);
     expect(instanceAfterV2.quantity).toBe(instanceBefore.quantity);
     expect(instanceAfterV2).toMatchObject({ name: "Miecz Burzy v2", rarity: "EPIC" });
@@ -273,7 +273,7 @@ describeDatabase("item creator end-to-end acceptance", () => {
 
       const persistedItem = await reconnectedCatalog.getItem("e2e-storm-sword");
       const persistedVersions = await reconnectedCatalog.listVersions("e2e-storm-sword");
-      const persistedInstance = (await reconnectedInventory.getSnapshot(inventoryCharacterId)).items[0]!;
+      const persistedInstance = (await reconnectedInventory.getSnapshot(inventoryCharacterId)).items.find(item=>item.itemId==="e2e-storm-sword")!;
 
       expect(persistedItem.item).toMatchObject({ activeVersionNo: 2, name: "Miecz Burzy v2" });
       expect(persistedVersions.map((entry) => entry.versionNo)).toEqual([2, 1]);

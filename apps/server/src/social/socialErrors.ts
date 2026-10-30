@@ -33,6 +33,7 @@ const errors: Record<string,string> = {
   TRADE_INVALID_OFFER:"Wybierz maksymalnie 8 różnych przedmiotów.",
   TRADE_ITEM_NOT_TOP_LEVEL:"Wyjmij przedmiot z pojemnika i zdejmij go ze slotu przed wymianą.",
   TRADE_ITEM_EQUIPPED:"Najpierw zdejmij ten przedmiot z uzbrojenia.",
+  TRADE_PERMANENT_BACKPACK:"Plecak podróżnika jest przypisany na stałe i nie można go wymienić.",
   TRADE_UNIQUE_ITEM_EXISTS:"Drugi gracz posiada już ten unikatowy przedmiot.",
   TRADE_IN_BATTLE:"Handel jest niedostępny podczas walki.",
   TRADE_ALREADY_ACTIVE:"Jeden z graczy jest już w trakcie wymiany.",

@@ -100,14 +100,22 @@ describeDatabase("authenticated merchant Socket.IO", () => {
     expect(await shop(alice.socket)).toMatchObject({ ok: true, shop: { gold: 100, npcId: "merchant-miro" } });
     const updated = waitFor<PlayerStateSnapshot>(alice.socket, "playerState", state => state.gold === 75);
     const request = order(5), result = await buy(alice.socket, request);
-    expect(result).toMatchObject({ ok: true, shop: { gold: 75 }, inventory: { items: [expect.objectContaining({ itemId: "field-bandage", quantity: 5 })] } });
+    expect(result).toMatchObject({ ok: true, shop: { gold: 75 }, inventory: { items: expect.arrayContaining([
+      expect.objectContaining({ itemId: "field-bandage", quantity: 5 }),
+      expect.objectContaining({ permanentContainer:true,containerCapacity:16 })
+    ]) } });
+    if(result.ok)expect(result.inventory?.items).toHaveLength(2);
     expect((await updated).inventory).toEqual(result.ok ? result.inventory : undefined);
     expect(await buy(alice.socket, request)).toMatchObject({ ok: true, shop: { gold: 75 } });
     await lifecycle.saveGameplayState(alice.id, initialState);
     alice.socket.disconnect();
     const reconnected = await connect(), restored = await authenticate(reconnected, alice.token);
     expect(restored.gold).toBe(75);
-    expect(restored.inventory.items).toEqual([expect.objectContaining({ itemId: "field-bandage", quantity: 5 })]);
+    expect(restored.inventory.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemId: "field-bandage", quantity: 5 }),
+      expect.objectContaining({ instanceId:alice.state.inventory.containerSlots![0],permanentContainer:true,containerCapacity:16 })
+    ]));
+    expect(restored.inventory.items).toHaveLength(2);
     expect((await pool!.query("SELECT COUNT(*)::int AS count FROM merchant_purchase_receipts WHERE character_id=$1", [alice.id])).rows[0].count).toBe(1);
   });
 

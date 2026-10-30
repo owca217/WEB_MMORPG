@@ -178,6 +178,12 @@ describeDatabase("Render legacy production migration compatibility", () => {
         character_id: "22222222-2222-4222-8222-222222222222"
       },
       {
+        id: expect.any(String),
+        item_id: "permanent-backpack",
+        quantity: 1,
+        character_id: "22222222-2222-4222-8222-222222222222"
+      },
+      {
         id: "30000000-0000-4000-8000-000000000003",
         item_id: "simple-bag",
         quantity: 1,
@@ -190,6 +196,9 @@ describeDatabase("Render legacy production migration compatibility", () => {
         character_id: "22222222-2222-4222-8222-222222222222"
       }
     ]);
+
+    const permanent=await pool.query("SELECT container_slot,container_capacity,permanent_container,bound_to_player_id FROM item_instances WHERE character_id='22222222-2222-4222-8222-222222222222' AND permanent_container");
+    expect(permanent.rows).toEqual([{container_slot:0,container_capacity:16,permanent_container:true,bound_to_player_id:"22222222-2222-4222-8222-222222222222"}]);
 
     const bagSlots = await pool.query<{ item_id: string; value: string }>(`
       SELECT item.item_id, modifier.value::text AS value

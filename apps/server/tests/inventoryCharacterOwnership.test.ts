@@ -81,7 +81,7 @@ describeDatabase("persistent character inventory ownership", () => {
     }>(
       `SELECT character_id, player_id, quantity
        FROM item_instances
-       WHERE character_id = $1`,
+       WHERE character_id = $1 AND NOT permanent_container`,
       [characterId]
     );
 
@@ -104,7 +104,7 @@ describeDatabase("persistent character inventory ownership", () => {
     );
 
     const snapshot = await new InventoryService(pool).getSnapshot(characterId);
-    expect(snapshot.items).toEqual([]);
+    expect(snapshot.items).toEqual([expect.objectContaining({ permanentContainer: true, containerCapacity: 16 })]);
   });
 
   it("keeps the same character-owned instance while a newly published definition changes its display", async () => {
@@ -113,7 +113,7 @@ describeDatabase("persistent character inventory ownership", () => {
     const catalog = new ItemCatalogService(pool, metadata);
 
     await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 1 }]);
-    const before = (await inventory.getSnapshot(characterId)).items[0]!;
+    const before = (await inventory.getSnapshot(characterId)).items.find(item => item.itemId === "wolf-pelt")!;
 
     const details = await catalog.getItem("wolf-pelt");
     await catalog.updateDraft(
@@ -127,7 +127,7 @@ describeDatabase("persistent character inventory ownership", () => {
     );
     await catalog.publish("wolf-pelt", 1, actor);
 
-    const after = (await inventory.getSnapshot(characterId)).items[0]!;
+    const after = (await inventory.getSnapshot(characterId)).items.find(item => item.itemId === "wolf-pelt")!;
     expect(after.instanceId).toBe(before.instanceId);
     expect(after.quantity).toBe(1);
     expect(after).toMatchObject({

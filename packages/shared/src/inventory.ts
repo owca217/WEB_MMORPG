@@ -8,6 +8,11 @@ export type ItemCategory = string;
 export const CONTAINER_SLOT_COUNT = 4;
 export const CONTAINER_ITEM_CATEGORY = "container";
 export const BATTLE_ITEM_AP_COST = 2;
+export const PERMANENT_BACKPACK_SLOT_INDEX = 0;
+export const PERMANENT_BACKPACK_CAPACITY = 16;
+export const PERMANENT_BACKPACK_ITEM_ID = "permanent-backpack";
+export const PERMANENT_BACKPACK_NAME = "Plecak podróżnika";
+export const PERMANENT_BACKPACK_ICON_PATH = "assets/items/permanent-backpack.png";
 
 export interface ConsumableEffects {
   healHp?: number;
@@ -39,6 +44,7 @@ export interface InventoryItem {
   boundToPlayerId?: string;
   containerInstanceId?: ItemInstanceId;
   containerCapacity?: number;
+  permanentContainer?: boolean;
   consumableEffects?: ConsumableEffects;
   equipment?: EquipmentItemProperties;
   equippedSlot?: EquipmentSlot;

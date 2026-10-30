@@ -114,17 +114,19 @@ describeDatabase("persistent catalog-backed inventory", () => {
       specialData: { capacity: 8 }
     });
     const inventory = new InventoryService(pool);
-    expect((await inventory.getSnapshot(characterId)).items).toEqual([]);
+    const initial = await inventory.getSnapshot(characterId);
+    expect(initial.items).toEqual([expect.objectContaining({ permanentContainer: true, containerCapacity: 16 })]);
+    const backpack = initial.items[0]!;
     const snapshot = await inventory.addItems(characterId, [{ itemId: "rag-bag", quantity: 1 }]);
-    const bag = snapshot.items[0]!;
+    const bag = snapshot.items.find(item => item.itemId === "rag-bag")!;
     expect(bag).toMatchObject({ name: "Szmaciany worek", category: "container", containerCapacity: 8 });
     expect((await inventory.setContainerSlot(characterId, 2, bag.instanceId)).containerSlots)
-      .toEqual([null, null, bag.instanceId, null]);
+      .toEqual([backpack.instanceId, null, bag.instanceId, null]);
   });
 
   it("preserves edited rag bag definitions on reseed and resolves their published capacity", async () => {
     const inventory = new InventoryService(pool);
-    const bag = (await inventory.addItems(characterId, [{ itemId: "rag-bag", quantity: 1 }])).items[0]!;
+    const bag = (await inventory.addItems(characterId, [{ itemId: "rag-bag", quantity: 1 }])).items.find(item => item.itemId === "rag-bag")!;
     await pool.query("UPDATE item_instances SET container_capacity = 4 WHERE id = $1", [bag.instanceId]);
     const source = (await catalog.getItem("rag-bag")).item;
     await catalog.updateDraft("rag-bag", asDraft(source, {
@@ -138,6 +140,7 @@ describeDatabase("persistent catalog-backed inventory", () => {
       name: "Uszyty worek", activeVersionNo: 2, specialData: { capacity: 12 }
     });
     expect((await inventory.getSnapshot(characterId)).items).toEqual([
+      expect.objectContaining({ permanentContainer: true, containerCapacity: 16 }),
       expect.objectContaining({ instanceId: bag.instanceId, name: "Uszyty worek", containerCapacity: 12 })
     ]);
   });
@@ -150,15 +153,15 @@ describeDatabase("persistent catalog-backed inventory", () => {
     const source = (await catalog.getItem("rag-bag")).item;
     await catalog.updateDraft("rag-bag", asDraft(source, { specialData: {} }), 1, actor);
     await catalog.publish("rag-bag", 1, actor);
-    for (const item of snapshot.items) {
+    for (const item of snapshot.items.filter(item => !item.permanentContainer)) {
       await pool.query("UPDATE item_instances SET container_capacity = 8 WHERE id = $1", [item.instanceId]);
     }
     expect((await inventory.getSnapshot(characterId)).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ itemId: "rag-bag", containerCapacity: 8 }),
       expect.objectContaining({ itemId: "simple-bag", containerCapacity: 8 })
     ]));
-    await pool.query("UPDATE item_instances SET container_capacity = 0 WHERE character_id = $1", [characterId]);
-    for (const item of (await inventory.getSnapshot(characterId)).items) {
+    await pool.query("UPDATE item_instances SET container_capacity = 0 WHERE character_id = $1 AND NOT permanent_container", [characterId]);
+    for (const item of (await inventory.getSnapshot(characterId)).items.filter(item => !item.permanentContainer)) {
       expect(item).not.toHaveProperty("containerCapacity");
     }
   });
@@ -186,7 +189,7 @@ describeDatabase("persistent catalog-backed inventory", () => {
     );
 
     const rows = await pool.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM item_instances WHERE character_id = $1 AND player_id IS NULL",
+      "SELECT COUNT(*)::text AS count FROM item_instances WHERE character_id = $1 AND player_id IS NULL AND NOT permanent_container",
       [characterId]
     );
     expect(rows.rows[0]?.count).toBe("2");
@@ -195,7 +198,7 @@ describeDatabase("persistent catalog-backed inventory", () => {
   it("keeps instance identity/quantity while a newly published definition changes displayed base data", async () => {
     const inventory = new InventoryService(pool);
     await inventory.addItems(characterId, [{ itemId: "wolf-pelt", quantity: 2 }]);
-    const before = (await inventory.getSnapshot(characterId)).items[0]!;
+    const before = (await inventory.getSnapshot(characterId)).items.find(item => item.itemId === "wolf-pelt")!;
 
     const details = await catalog.getItem("wolf-pelt");
     await catalog.updateDraft(
@@ -210,7 +213,7 @@ describeDatabase("persistent catalog-backed inventory", () => {
     );
     await catalog.publish("wolf-pelt", 1, actor);
 
-    const after = (await inventory.getSnapshot(characterId)).items[0]!;
+    const after = (await inventory.getSnapshot(characterId)).items.find(item => item.itemId === "wolf-pelt")!;
     expect(after.instanceId).toBe(before.instanceId);
     expect(after.quantity).toBe(2);
     expect(after).toMatchObject({
@@ -224,10 +227,10 @@ describeDatabase("persistent catalog-backed inventory", () => {
   it("survives reconstructing the inventory service", async () => {
     const first = new InventoryService(pool);
     await first.addItems(characterId, [{ itemId: "field-bandage", quantity: 2 }]);
-    const saved = (await first.getSnapshot(characterId)).items[0]!;
+    const saved = (await first.getSnapshot(characterId)).items.find(item => item.itemId === "field-bandage")!;
 
     const restarted = new InventoryService(pool);
-    const restored = (await restarted.getSnapshot(characterId)).items[0]!;
+    const restored = (await restarted.getSnapshot(characterId)).items.find(item => item.itemId === "field-bandage")!;
 
     expect(restored.instanceId).toBe(saved.instanceId);
     expect(restored.quantity).toBe(saved.quantity);

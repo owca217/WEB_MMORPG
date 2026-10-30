@@ -19,6 +19,20 @@ function choice(instanceId: string): HTMLButtonElement {
 
 beforeEach(() => document.body.replaceChildren());
 
+it("reserves slot zero and never offers a permanent backpack for replacement or removal",()=>{
+  const onSetContainerSlot=vi.fn(),picker=new ContainerPicker({onSetContainerSlot,onInventoryChanged:vi.fn()});
+  const backpack={...item("permanent"),permanentContainer:true,containerCapacity:16};
+  picker.update({items:[backpack,item("a")],containerSlots:["permanent",null,null,null]});
+  picker.show(0);
+  expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(true);
+  document.querySelector<HTMLButtonElement>("[data-container-clear]")!.click();
+  expect(onSetContainerSlot).not.toHaveBeenCalled();
+  picker.show(1);
+  expect(document.querySelector('[data-container-instance="permanent"]')).toBeNull();
+  expect(choice("a")).not.toBeNull();
+  picker.destroy();
+});
+
 it("lists every owned container even beyond four and leaves other inventory categories out", () => {
   const picker = new ContainerPicker({ onSetContainerSlot: vi.fn(), onInventoryChanged: vi.fn() });
   picker.update({ items: [item("a"), item("b"), item("c"), item("d"), item("e"), item("medicine", "medical"), item("wood", "material")] });
@@ -35,7 +49,7 @@ it("excludes containers stored inside another container from slot choices", () =
   const nested = { ...item("nested"), containerInstanceId: "outer" };
   const picker = new ContainerPicker({ onSetContainerSlot: vi.fn(), onInventoryChanged: vi.fn() });
   picker.update({ items: [item("outer"), nested] });
-  picker.show(0);
+  picker.show(1);
 
   expect(document.querySelector('[data-container-instance="outer"]')).not.toBeNull();
   expect(document.querySelector('[data-container-instance="nested"]')).toBeNull();
@@ -43,28 +57,28 @@ it("excludes containers stored inside another container from slot choices", () =
 });
 
 it("waits for the server before replacing a slot, supports moving equipped containers and clears a slot", async () => {
-  const inventory: InventorySnapshot = { items: [item("a"), item("b")], containerSlots: ["a", "b", null, null] };
+  const inventory: InventorySnapshot = { items: [item("a"), item("b")], containerSlots: [null, "a", "b", null] };
   let resolve!: (value: { ok: true; inventory: InventorySnapshot }) => void;
   const onSetContainerSlot = vi.fn().mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
   const onInventoryChanged = vi.fn();
   const picker = new ContainerPicker({ onSetContainerSlot, onInventoryChanged });
   picker.update(inventory);
-  picker.show(0);
+  picker.show(1);
 
   expect(choice("b").textContent).toContain("Przenieś");
   choice("b").click();
-  expect(onSetContainerSlot).toHaveBeenCalledWith(0, "b");
+  expect(onSetContainerSlot).toHaveBeenCalledWith(1, "b");
   expect(choice("b").disabled).toBe(true);
   expect(onInventoryChanged).not.toHaveBeenCalled();
-  const moved: InventorySnapshot = { ...inventory, containerSlots: ["b", null, null, null] };
+  const moved: InventorySnapshot = { ...inventory, containerSlots: [null, "b", null, null] };
   resolve({ ok: true, inventory: moved });
   await vi.waitFor(() => expect(onInventoryChanged).toHaveBeenCalledWith(moved));
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(true);
 
   onSetContainerSlot.mockResolvedValueOnce({ ok: true, inventory: { ...moved, containerSlots: [null, null, null, null] } });
-  picker.show(0);
+  picker.show(1);
   document.querySelector<HTMLButtonElement>("[data-container-clear]")!.click();
-  await vi.waitFor(() => expect(onSetContainerSlot).toHaveBeenLastCalledWith(0, null));
+  await vi.waitFor(() => expect(onSetContainerSlot).toHaveBeenLastCalledWith(1, null));
   await vi.waitFor(() => expect(onInventoryChanged).toHaveBeenCalledTimes(2));
   picker.destroy();
 });
@@ -73,8 +87,8 @@ it("keeps the equipped state on rejection and lets the player retry", async () =
   const onSetContainerSlot = vi.fn().mockResolvedValue({ ok: false, code: "ITEM_NOT_FOUND", message: "Pojemnik jest niedostępny." });
   const onInventoryChanged = vi.fn();
   const picker = new ContainerPicker({ onSetContainerSlot, onInventoryChanged });
-  picker.update({ items: [item("a"), item("b")], containerSlots: ["a", null, null, null] });
-  picker.show(0);
+  picker.update({ items: [item("a"), item("b")], containerSlots: [null, "a", null, null] });
+  picker.show(1);
   choice("b").click();
 
   await vi.waitFor(() => expect(document.querySelector("[data-container-feedback]")?.textContent).toContain("niedostępny"));

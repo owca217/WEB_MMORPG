@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { seedStarterItems } from "./seedStarterItems";
+import { ensurePermanentBackpack, ensurePermanentBackpackDefinition } from "../inventory/permanentBackpack";
 import {
   ENGINE_STATS,
   SYSTEM_CATEGORIES,
@@ -8,17 +9,30 @@ import {
 
 export async function seedItemMetadata(pool: Pool): Promise<void> {
   const client = await pool.connect();
+  let transactionOpen=false;
 
   try {
     await client.query("BEGIN");
+    transactionOpen=true;
     await seedStats(client);
     await seedCategories(client);
     await seedSubcategories(client);
     await seedStarterItems(client);
     await migrateLegacyCharacterItems(client);
+    await ensurePermanentBackpackDefinition(client);
+    // Release catalog locks before taking character locks, matching live inventory operations.
     await client.query("COMMIT");
+    transactionOpen=false;
+    const characters=await client.query<{id:string}>("SELECT id FROM characters ORDER BY id");
+    for(const character of characters.rows){
+      await client.query("BEGIN");
+      transactionOpen=true;
+      await ensurePermanentBackpack(client,character.id);
+      await client.query("COMMIT");
+      transactionOpen=false;
+    }
   } catch (error) {
-    await client.query("ROLLBACK");
+    if(transactionOpen)await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();

@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import {
   CONTAINER_ITEM_CATEGORY,
   CONTAINER_SLOT_COUNT,
+  PERMANENT_BACKPACK_CAPACITY,
+  PERMANENT_BACKPACK_ICON_PATH,
+  PERMANENT_BACKPACK_ITEM_ID,
+  PERMANENT_BACKPACK_NAME,
+  PERMANENT_BACKPACK_SLOT_INDEX,
   emptyEquipmentSlots,
   getEquipmentItemProperties,
   isEquipmentSlot,
@@ -14,6 +19,7 @@ import {
   type ItemStatModifier
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
+import { ensurePermanentBackpack } from "./permanentBackpack";
 
 export interface InventoryReward {
   itemId: string;
@@ -55,6 +61,7 @@ interface InventoryRow {
   container_slot: number | null;
   container_instance_id: string | null;
   container_capacity: number | null;
+  permanent_container: boolean;
   special_data: Record<string, unknown> | null;
   heal_hp: string | number | null;
   restore_ap: string | number | null;
@@ -69,6 +76,7 @@ const CONSUMABLE_EFFECT_COLUMNS = `
      AND stat.modifier_type = 'flat') AS restore_ap`;
 
 interface ContainerAssignmentRow {
+  permanent_container: boolean;
   category_id: string;
   container_instance_id: string | null;
   equipment_slot: string | null;
@@ -84,6 +92,13 @@ type OwnerKind = "character" | "legacyPlayer";
 
 export class InventoryService {
   constructor(private readonly pool: Pool) {}
+
+  async ensurePermanentBackpack(characterId:string):Promise<void> {
+    const client=await this.pool.connect();
+    try {await client.query("BEGIN");await ensurePermanentBackpack(client,characterId);await client.query("COMMIT");}
+    catch(error){await client.query("ROLLBACK");throw error;}
+    finally{client.release();}
+  }
 
   async addItems(
     characterId: string,
@@ -109,8 +124,8 @@ export class InventoryService {
       await client.query("BEGIN");
       const character = await client.query("SELECT id FROM characters WHERE id = $1 FOR UPDATE", [characterId]);
       if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
-      const found = await client.query<Pick<InventoryRow, "quantity" | "category_id" | "heal_hp" | "restore_ap" | "container_instance_id">>(
-        `SELECT instance.quantity, instance.container_instance_id, version.category_id, ${CONSUMABLE_EFFECT_COLUMNS}
+      const found = await client.query<Pick<InventoryRow, "quantity" | "category_id" | "heal_hp" | "restore_ap" | "container_instance_id" | "permanent_container">>(
+        `SELECT instance.quantity, instance.container_instance_id, instance.permanent_container, version.category_id, ${CONSUMABLE_EFFECT_COLUMNS}
          FROM item_instances instance
          JOIN items item ON item.id = instance.item_id
          JOIN item_versions version ON version.item_id = item.id
@@ -121,6 +136,7 @@ export class InventoryService {
       );
       const item = found.rows[0];
       if (!item || item.quantity < 1) throw new Error("INVENTORY_ITEM_NOT_OWNED");
+      if(item.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
       if (item.category_id !== "consumable") throw new Error("ITEM_NOT_CONSUMABLE");
       if (item.container_instance_id) {
         const container = await client.query("SELECT id FROM item_instances WHERE id = $1 AND character_id = $2 FOR SHARE", [item.container_instance_id, characterId]);
@@ -159,6 +175,7 @@ export class InventoryService {
     if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT) {
       throw new Error("INVALID_CONTAINER_SLOT");
     }
+    if(slotIndex===PERMANENT_BACKPACK_SLOT_INDEX)throw new Error("PERMANENT_BACKPACK_FIXED");
     if (itemInstanceId !== null && !this.isInstanceId(itemInstanceId)) {
       throw new Error("INVALID_CONTAINER_INSTANCE_ID");
     }
@@ -174,7 +191,7 @@ export class InventoryService {
 
       if (itemInstanceId !== null) {
         const candidate = await client.query<ContainerAssignmentRow>(
-          `SELECT version.category_id, instance.container_instance_id, instance.equipment_slot
+          `SELECT version.category_id, instance.container_instance_id, instance.equipment_slot, instance.permanent_container
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
            JOIN item_versions version
@@ -188,6 +205,7 @@ export class InventoryService {
         );
         const row = candidate.rows[0];
         if (!row) throw new Error("CONTAINER_ITEM_NOT_OWNED");
+        if(row.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
         if(row.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
         if (row.category_id !== CONTAINER_ITEM_CATEGORY) {
           throw new Error("ITEM_NOT_CONTAINER");
@@ -240,7 +258,7 @@ export class InventoryService {
       if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
       const readOwned = async (id: string, missingCode: string): Promise<ContainerStorageRow> => {
         const result = await client.query<ContainerStorageRow>(
-          `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity, instance.equipment_slot,
+          `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity, instance.equipment_slot, instance.permanent_container,
              version.category_id, version.special_data
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
@@ -259,10 +277,11 @@ export class InventoryService {
       };
 
       const source = await readOwned(itemInstanceId, "INVENTORY_ITEM_NOT_OWNED");
+      if(source.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
       if (targetContainerInstanceId !== null) {
         if(source.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
         const target = await readOwned(targetContainerInstanceId, "CONTAINER_ITEM_NOT_OWNED");
-        if (target.category_id !== CONTAINER_ITEM_CATEGORY) throw new Error("ITEM_NOT_CONTAINER");
+        if (!target.permanent_container && target.category_id !== CONTAINER_ITEM_CATEGORY) throw new Error("ITEM_NOT_CONTAINER");
         if (target.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
         const capacity = this.getContainerCapacity(target);
         if (capacity === undefined) throw new Error("CONTAINER_CAPACITY_INVALID");
@@ -385,6 +404,7 @@ export class InventoryService {
         instance.container_slot,
         instance.container_instance_id,
         instance.container_capacity,
+        instance.permanent_container,
         version.special_data,
         ${CONSUMABLE_EFFECT_COLUMNS}
        FROM item_instances instance
@@ -405,7 +425,7 @@ export class InventoryService {
         if(isEquipmentSlot(row.equipment_slot))equipmentSlots[row.equipment_slot]=row.instance_id;
         if (row.container_slot !== null &&
           row.container_slot >= 0 && row.container_slot < CONTAINER_SLOT_COUNT &&
-          row.category_id === CONTAINER_ITEM_CATEGORY &&
+          (row.permanent_container || row.category_id === CONTAINER_ITEM_CATEGORY) &&
           row.container_instance_id === null) {
           containerSlots[row.container_slot] = row.instance_id;
         }
@@ -533,7 +553,8 @@ export class InventoryService {
     );
   }
 
-  private getContainerCapacity(row: Pick<InventoryRow, "special_data" | "container_capacity" | "category_id">): number | undefined {
+  private getContainerCapacity(row: Pick<InventoryRow, "special_data" | "container_capacity" | "category_id" | "permanent_container">): number | undefined {
+    if(row.permanent_container)return PERMANENT_BACKPACK_CAPACITY;
     const capacity = row.special_data?.capacity ?? row.container_capacity;
     return (
       (row.category_id === CONTAINER_ITEM_CATEGORY || row.category_id === "backpack") &&
@@ -545,20 +566,20 @@ export class InventoryService {
 
   private mapInventoryRow(row: InventoryRow): InventoryItem {
     const containerCapacity = this.getContainerCapacity(row);
-    const consumableEffects = this.getConsumableEffects(row);
-    const equipment=row.item_status==="PUBLISHED" ? getEquipmentItemProperties({
+    const consumableEffects = row.permanent_container?undefined:this.getConsumableEffects(row);
+    const equipment=!row.permanent_container&&row.item_status==="PUBLISHED" ? getEquipmentItemProperties({
       category:row.category_id,...(row.subcategory_id?{subcategory:row.subcategory_id}:{}),
       minimumLevel:row.minimum_level,stats:row.stats??[],specialData:row.special_data??{}
     }) : undefined;
     return {
       instanceId: row.instance_id,
-      itemId: row.item_id,
+      itemId: row.permanent_container?PERMANENT_BACKPACK_ITEM_ID:row.item_id,
       itemDefinitionId: row.item_definition_id,
-      name: row.name,
+      name: row.permanent_container?PERMANENT_BACKPACK_NAME:row.name,
       quantity: row.quantity,
-      category: row.category_id,
+      category: row.permanent_container?CONTAINER_ITEM_CATEGORY:row.category_id,
       description: row.description,
-      ...(row.icon_url ? { iconUrl: row.icon_url } : {}),
+      ...(row.permanent_container ? {iconUrl:`/${PERMANENT_BACKPACK_ICON_PATH}`,permanentContainer:true} : row.icon_url ? { iconUrl: row.icon_url } : {}),
       rarity: row.rarity,
       quality: row.quality,
       ...(row.durability === null ? {} : { durability: Number(row.durability) }),

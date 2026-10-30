@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getCharacterSkin, type CharacterLifecycleSummary, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
+import { ensurePermanentBackpack } from "../inventory/permanentBackpack";
 import {
   CharacterRepository,
   type PersistedCharacterRecord
@@ -106,8 +107,10 @@ export class CharacterLifecycleService {
       );
     }
 
+    const client=await this.pool.connect();
     try {
-      return await repository.create({
+      await client.query("BEGIN");
+      const character=await new CharacterRepository(client).create({
         id: randomUUID(),
         accountId,
         nickname: nickname.display,
@@ -117,7 +120,11 @@ export class CharacterLifecycleService {
         x: START_X,
         y: START_Y
       });
+      await ensurePermanentBackpack(client,character.id);
+      await client.query("COMMIT");
+      return character;
     } catch (error) {
+      await client.query("ROLLBACK");
       if (hasPgCode(error, "23505")) {
         throw new CharacterLifecycleError(
           "NICKNAME_TAKEN",
@@ -126,7 +133,7 @@ export class CharacterLifecycleService {
         );
       }
       throw error;
-    }
+    } finally {client.release();}
   }
 
   async saveGameplayState(

@@ -44,10 +44,10 @@ describeDatabase("battle item persistence", () => {
       .toMatchObject({ consumableEffects: { healHp: 30 } });
     await pool.query("DELETE FROM item_stat_modifiers WHERE stat_code='HEAL_AMOUNT'");
     await seedItemMetadata(pool);
-    expect((await inventory.getSnapshot(characterId)).items[0]!.consumableEffects).toEqual({ healHp: 30 });
+    expect((await inventory.getSnapshot(characterId)).items.find(item => item.instanceId === id)!.consumableEffects).toEqual({ healHp: 30 });
     await pool.query("UPDATE item_stat_modifiers SET value=54 WHERE stat_code='HEAL_AMOUNT'");
     await seedItemMetadata(pool);
-    expect((await inventory.getSnapshot(characterId)).items[0]!.consumableEffects).toEqual({ healHp: 54 });
+    expect((await inventory.getSnapshot(characterId)).items.find(item => item.instanceId === id)!.consumableEffects).toEqual({ healHp: 54 });
   });
 
   it("consumes exactly one stored item and commits matching HP while preserving injuries", async () => {
@@ -68,7 +68,10 @@ describeDatabase("battle item persistence", () => {
     const battles = start();
     const use = () => battles.useConsumable(characterId, `hero:${characterId}`, (prepare) => inventory.consumeBattleItem(characterId, id, prepare));
     await use();
-    expect((await inventory.getSnapshot(characterId)).items).toEqual([]);
+    const remaining = (await inventory.getSnapshot(characterId)).items;
+    expect(remaining.find(item => item.instanceId === id)).toBeUndefined();
+    expect(remaining.filter(item => !item.permanentContainer)).toEqual([]);
+    expect(remaining.find(item => item.permanentContainer)).toMatchObject({ containerCapacity: 16 });
     await expect(use()).rejects.toThrow("INVENTORY_ITEM_NOT_OWNED");
     expect(battles.getSnapshot(characterId)!.combatants.find((actor) => actor.ownerPlayerId === characterId)).toMatchObject({ hp: 71, ap: 3 });
   });
@@ -76,10 +79,10 @@ describeDatabase("battle item persistence", () => {
   it("allows an owned archived consumable with an active published version", async () => {
     const id = await give();
     await pool.query("UPDATE items SET status='ARCHIVED' WHERE item_id='field-bandage'");
-    expect((await inventory.getSnapshot(characterId)).items[0]).toMatchObject({ instanceId: id, consumableEffects: { healHp: 30 } });
+    expect((await inventory.getSnapshot(characterId)).items.find(item => item.instanceId === id)).toMatchObject({ instanceId: id, consumableEffects: { healHp: 30 } });
     const battles = start();
     const applied = await battles.useConsumable(characterId, `hero:${characterId}`, (prepare) => inventory.consumeBattleItem(characterId, id, prepare));
-    expect(applied.inventory.items[0]).toMatchObject({ instanceId: id, quantity: 1 });
+    expect(applied.inventory.items.find(item => item.instanceId === id)).toMatchObject({ instanceId: id, quantity: 1 });
     expect(applied.snapshot.combatants.find((actor) => actor.ownerPlayerId === characterId)).toMatchObject({ hp: 71, ap: 3 });
   });
 
@@ -101,7 +104,7 @@ describeDatabase("battle item persistence", () => {
       CREATE TRIGGER reject_item_hp BEFORE UPDATE OF hp ON characters FOR EACH ROW EXECUTE FUNCTION reject_item_hp()`);
     await expect(battles.useConsumable(characterId, `hero:${characterId}`, (prepare) => inventory.consumeBattleItem(characterId, id, prepare)))
       .rejects.toThrow("HP_SAVE_FAILED");
-    expect((await inventory.getSnapshot(characterId)).items[0]!.quantity).toBe(2);
+    expect((await inventory.getSnapshot(characterId)).items.find(item => item.instanceId === id)!.quantity).toBe(2);
     expect(battles.getSnapshot(characterId)!.combatants.find((actor) => actor.ownerPlayerId === characterId)).toMatchObject({ hp: 41, ap: 5 });
   });
 });

@@ -17,6 +17,7 @@ interface Trade {
 }
 interface OfferedInstance {
   id: string;
+  permanent_container: boolean;
   character_id: string | null;
   item_id: string;
   quantity: number;
@@ -258,7 +259,7 @@ export class TradeService {
     if (!ids.length) return new Map();
     const result = await client.query<OfferedInstance>(
       `SELECT instance.id,instance.character_id,instance.item_id,instance.quantity,instance.bound_to_player_id,
-        instance.container_instance_id,instance.container_slot,instance.equipment_slot,instance.quality,version.name,version.tradable,version.soulbound,
+        instance.container_instance_id,instance.container_slot,instance.equipment_slot,instance.quality,instance.permanent_container,version.name,version.tradable,version.soulbound,
         version.unique_item,version.stackable,version.max_stack,
         EXISTS(SELECT 1 FROM item_instances child WHERE child.container_instance_id=instance.id) AS has_children
        FROM item_instances instance JOIN items item ON item.id=instance.item_id
@@ -276,6 +277,7 @@ export class TradeService {
       for (const offer of offers[index]) {
         const row = instances.get(offer.instanceId);
         if (!row || row.character_id !== ownerId) throw new Error("TRADE_ITEM_NOT_OWNED");
+        if(row.permanent_container)throw new Error("TRADE_PERMANENT_BACKPACK");
         if(row.equipment_slot!==null)throw new Error("TRADE_ITEM_EQUIPPED");
         if (!row.tradable || row.soulbound !== "NONE" || row.bound_to_player_id) throw new Error("TRADE_ITEM_NOT_TRADABLE");
         if (row.container_instance_id !== null || row.container_slot !== null) throw new Error("TRADE_ITEM_NOT_TOP_LEVEL");

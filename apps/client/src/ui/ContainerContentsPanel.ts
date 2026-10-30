@@ -1,6 +1,7 @@
 import {
   CONTAINER_ITEM_CATEGORY,
   CONTAINER_SLOT_COUNT,
+  PERMANENT_BACKPACK_SLOT_INDEX,
   type ContainerSlotIndex,
   type InventoryItem,
   type InventorySnapshot,
@@ -10,6 +11,7 @@ import {
 import { containerIcon } from "./ContainerIcon";
 import { equipmentDisabledReason, equipmentIcon } from "./EquipmentIcon";
 import { itemQualityText } from "./ItemQualityFrame";
+import { getPermanentBackpack } from "./PermanentBackpack";
 import "./ContainerContentsPanel.css";
 
 const PLACES_PER_PAGE = 40;
@@ -86,7 +88,7 @@ export class ContainerContentsPanel {
     this.pageLabel = this.require("[data-container-page-label]");
     this.require("[data-close]").addEventListener("click", () => this.hide());
     this.changeButton.addEventListener("click", () => {
-      if (this.pending || this.destroyed) return;
+      if (this.pending || this.destroyed || this.slotIndex===PERMANENT_BACKPACK_SLOT_INDEX || this.assignedContainer()?.permanentContainer) return;
       this.hide();
       this.handlers.onChangeContainer(this.slotIndex);
     });
@@ -107,6 +109,7 @@ export class ContainerContentsPanel {
 
   show(slotIndex: ContainerSlotIndex): void {
     if (this.destroyed || this.pending || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT) return;
+    if(slotIndex===PERMANENT_BACKPACK_SLOT_INDEX&&!getPermanentBackpack(this.snapshot)){this.hide();return;}
     this.slotIndex = slotIndex;
     this.page = 0;
     this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -131,6 +134,7 @@ export class ContainerContentsPanel {
   }
 
   private assignedContainer(): InventoryItem | undefined {
+    if(this.slotIndex===PERMANENT_BACKPACK_SLOT_INDEX)return getPermanentBackpack(this.snapshot);
     const assignedId = this.snapshot.containerSlots?.[this.slotIndex];
     return this.snapshot.items.find((item) => item.instanceId === assignedId
       && item.category === CONTAINER_ITEM_CATEGORY
@@ -149,7 +153,8 @@ export class ContainerContentsPanel {
     this.capacity.textContent = container ? `${contents.length} / ${capacity} zajętych miejsc` : "";
     this.empty.hidden = !!container;
     this.empty.textContent = container ? "" : "Brak dostępnego pojemnika w tym slocie. Wybierz pojemnik, aby schować przedmioty.";
-    this.changeButton.disabled = this.pending;
+    this.changeButton.hidden=this.slotIndex===PERMANENT_BACKPACK_SLOT_INDEX||!!container?.permanentContainer;
+    this.changeButton.disabled = this.pending||this.changeButton.hidden;
     this.root.setAttribute("aria-busy", `${this.pending}`);
     this.grid.replaceChildren();
     this.grid.hidden = !container;
@@ -189,6 +194,7 @@ export class ContainerContentsPanel {
     const nonemptyIds = new Set(this.snapshot.items.map((item) => item.containerInstanceId).filter((id) => !!id));
     const eligible = this.snapshot.items.filter((item) => !item.containerInstanceId
       && !item.equippedSlot
+      && !item.permanentContainer
       && item.instanceId !== container.instanceId
       && !assignedIds.has(item.instanceId)
       && !(item.category === CONTAINER_ITEM_CATEGORY && nonemptyIds.has(item.instanceId)));
@@ -254,7 +260,7 @@ export class ContainerContentsPanel {
   }
 
   private async moveItem(itemInstanceId: string, targetContainerInstanceId: string | null): Promise<void> {
-    if (this.pending || this.destroyed) return;
+    if (this.pending || this.destroyed || this.snapshot.items.some(item=>item.instanceId===itemInstanceId&&item.permanentContainer)) return;
     this.pending = true;
     this.feedback.textContent = "Przenoszenie przedmiotu…";
     this.feedback.dataset.state = "pending";

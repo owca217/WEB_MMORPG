@@ -96,7 +96,7 @@ describeDatabase("trade completion during second confirmer disconnect", () => {
       return { id: character.id, socket, token };
     };
     const alice = await identity("alice"), bob = await identity("bob");
-    const gift = (await game.services.inventory.addItems(alice.id, [{ itemId: "wolf-pelt", quantity: 2 }])).items[0]!;
+    const gift = (await game.services.inventory.addItems(alice.id, [{ itemId: "wolf-pelt", quantity: 2 }])).items.find(item=>item.itemId==="wolf-pelt")!;
     const trade = (await act(alice.socket, { type: "requestTrade", playerId: bob.id })).trade!;
     await act(bob.socket, { type: "respondTrade", tradeId: trade.id, accept: true });
     const offered = (await act(alice.socket, {

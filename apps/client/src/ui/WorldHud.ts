@@ -1,8 +1,9 @@
-import { getEquippedWeaponFamily, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
+import { getEquippedWeaponFamily, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_CAPACITY, PERMANENT_BACKPACK_SLOT_INDEX, type ContainerSlotIndex, type InventorySnapshot, type PlayerStateSnapshot, type UserRole } from "@web-mmorpg/shared";
 import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { experienceProgressMarkup } from "./ExperienceProgress";
 import { itemQualityText } from "./ItemQualityFrame";
+import { getPermanentBackpack } from "./PermanentBackpack";
 
 interface WorldHudHandlers {
   onInventory?: () => void;
@@ -140,15 +141,17 @@ export class WorldHud {
   updateInventory(inventory: InventorySnapshot): void {
     this.containerSlots.forEach((button, slotIndex) => {
       const instanceId = inventory.containerSlots?.[slotIndex];
-      const item = inventory.items.find((candidate) => candidate.instanceId === instanceId && candidate.category === CONTAINER_ITEM_CATEGORY && !candidate.containerInstanceId);
+      const permanentSlot=slotIndex===PERMANENT_BACKPACK_SLOT_INDEX;
+      const item = permanentSlot ? getPermanentBackpack(inventory) : inventory.items.find((candidate) => candidate.instanceId === instanceId && candidate.category === CONTAINER_ITEM_CATEGORY && !candidate.containerInstanceId);
       const number = document.createElement("span");
       number.className = "world-hud__container-number";
       number.textContent = `${slotIndex + 1}`;
       const label = document.createElement("span");
       label.className = "world-hud__container-name";
       label.textContent = item?.name ?? "Pusty";
-      button.title = `Pojemnik ${slotIndex + 1}: ${item?.name ?? "pusty"}${item ? ` · ${itemQualityText(item)}` : ""}`;
-      button.setAttribute("aria-label", `${button.title}. Wybierz pojemnik`);
+      button.title = permanentSlot ? item ? `${item.name} · ${PERMANENT_BACKPACK_CAPACITY} miejsc · na stałe · ${itemQualityText(item)}` : "Ładowanie plecaka" : `Pojemnik ${slotIndex + 1}: ${item?.name ?? "pusty"}${item ? ` · ${itemQualityText(item)}` : ""}`;
+      button.setAttribute("aria-label", `${button.title}. ${permanentSlot ? item ? "Otwórz plecak" : "Odśwież plecak" : "Wybierz pojemnik"}`);
+      button.classList.toggle("is-permanent",permanentSlot&&!!item);
       button.classList.toggle("is-equipped", Boolean(item));
       button.classList.toggle("is-empty", !item);
       button.replaceChildren(containerIcon(item));

@@ -53,6 +53,7 @@ interface OwnerStateOperations {
 }
 
 const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
+  PERMANENT_BACKPACK_FIXED: "Plecak podróżnika jest na stałe. Nie można go zdjąć, zastąpić ani przenieść.",
   INVALID_CONTAINER_SLOT: "Wybierz jeden z czterech slotów.",
   INVALID_CONTAINER_INSTANCE_ID: "Nieprawidłowy przedmiot.",
   CONTAINER_ITEM_NOT_OWNED: "Nie posiadasz tego pojemnika.",
@@ -69,6 +70,7 @@ const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
 };
 
 const BATTLE_ITEM_ERRORS: Readonly<Record<string, string>> = {
+  PERMANENT_BACKPACK_FIXED: "Plecak podróżnika jest na stałe i nie można go zużyć.",
   AUTO_BATTLE_ACTIVE: "Najpierw przejmij sterowanie w panelu walki.",
   BATTLE_NOT_FOUND: "Nie trwa teraz żadna walka.",
   BATTLE_FINISHED: "Walka już się zakończyła.",
@@ -113,6 +115,7 @@ function merchantFailure(error: unknown): {ok:false;code:string;message:string} 
 }
 
 const EQUIPMENT_ERRORS:Record<string,string>={
+  PERMANENT_BACKPACK_FIXED:"Plecak podróżnika jest na stałe i nie można zmienić jego miejsca.",
   INVALID_EQUIPMENT_SLOT:"Wybierz poprawne miejsce uzbrojenia.",
   INVALID_ITEM_INSTANCE_ID:"Wybierz przedmiot ze swojego ekwipunku.",
   EQUIPMENT_ITEM_NOT_OWNED:"Nie posiadasz tego przedmiotu.",
@@ -558,6 +561,7 @@ export function createGameServer(
             return;
           }
 
+          await inventory.ensurePermanentBackpack(persisted.id);
           const ownedItems=await inventory.getSnapshot(persisted.id);
           const finalSession=await options.authService.validateToken(sessionToken);
           if(!socket.connected)return;

@@ -1,5 +1,5 @@
 import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
-import { EQUIPMENT_SLOTS, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
+import { EQUIPMENT_SLOTS, PERMANENT_BACKPACK_SLOT_INDEX, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
@@ -21,6 +21,7 @@ import { NpcMenu } from "../ui/NpcMenu";
 import { ContainerPicker } from "../ui/ContainerPicker";
 import { ContainerContentsPanel } from "../ui/ContainerContentsPanel";
 import { WorldHud } from "../ui/WorldHud";
+import { getPermanentBackpack } from "../ui/PermanentBackpack";
 import { ChatController } from "../ui/ChatController";
 import { SocialController } from "../ui/SocialController";
 import { FOREST_SETTLEMENT_LAYOUT } from "../world/ForestSettlementLayout";
@@ -204,7 +205,7 @@ export class WorldScene extends Phaser.Scene {
         const result=await this.setEquipmentSlot({slot:item.equipment!.slot,itemInstanceId:item.instanceId});
         return result.ok?{ok:true,inventory:playerStateStore.get()?.inventory??result.inventory}:result;
       },
-      onChangeContainer: (slotIndex) => this.containerPicker?.show(slotIndex)
+      onChangeContainer: (slotIndex) => {if(slotIndex!==PERMANENT_BACKPACK_SLOT_INDEX)this.containerPicker?.show(slotIndex);}
     });
     this.healingPanel=new HealingPanel({requestTargets:()=>gameSocket.requestHealingTargets(),cast:request=>gameSocket.castHealing(request)});
     this.characterPanel = new CharacterPanel({
@@ -418,6 +419,9 @@ export class WorldScene extends Phaser.Scene {
   private openContainerSlot(slotIndex: ContainerSlotIndex): void {
     const state = playerStateStore.get();
     const inventory = state?.character.playerId === this.playerId ? state.inventory : undefined;
+    if(slotIndex===PERMANENT_BACKPACK_SLOT_INDEX && (!inventory||!getPermanentBackpack(inventory))) {
+      this.containerContents?.hide();this.containerPicker?.hide();gameSocket.requestPlayerState();return;
+    }
     const instanceId = inventory?.containerSlots?.[slotIndex];
     const container = inventory?.items.find((item) => item.instanceId === instanceId);
     if (container && (container.containerCapacity ?? 0) > 0) {

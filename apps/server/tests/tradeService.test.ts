@@ -206,7 +206,7 @@ describeDatabase("atomic item barter", () => {
       if (kind === "foreign") await pool.query("UPDATE item_instances SET character_id=$1 WHERE id=$2", [eve, source]);
       if (kind === "bound") await pool.query("UPDATE item_instances SET bound_to_player_id=$1 WHERE id=$2", [alice, source]);
       if (kind === "soulbound") await pool.query("UPDATE item_versions SET soulbound='ON_EQUIP' WHERE item_id=$1", [stackDefinition]);
-      if (kind === "equipped") await pool.query("UPDATE item_instances SET container_slot=0 WHERE id=$1", [source]);
+      if (kind === "equipped") await pool.query("UPDATE item_instances SET container_slot=1 WHERE id=$1", [source]);
       if (kind === "stored") await pool.query("UPDATE item_instances SET container_instance_id=$1 WHERE id=$2", [await item(alice), source]);
       if (kind === "nonempty") await pool.query("UPDATE item_instances SET container_instance_id=$1 WHERE id=$2", [source, await item(alice)]);
       if (kind === "untradable") await pool.query("UPDATE item_versions SET tradable=false WHERE item_id=$1", [stackDefinition]);

@@ -1,4 +1,4 @@
-import type { InventoryItem } from "@web-mmorpg/shared";
+import { PERMANENT_BACKPACK_ICON_PATH, type InventoryItem } from "@web-mmorpg/shared";
 import { applyItemQualityFrame } from "./ItemQualityFrame";
 
 function backpackGlyph(): SVGSVGElement {
@@ -27,10 +27,11 @@ export function containerIcon(item?: InventoryItem): HTMLSpanElement {
   };
   showFallback();
 
-  if (item?.iconUrl) {
+  const iconUrl=item?.permanentContainer ? `${import.meta.env.BASE_URL}${PERMANENT_BACKPACK_ICON_PATH}` : item?.iconUrl;
+  if (iconUrl) {
     const image = document.createElement("img");
     image.alt = "";
-    image.src = item.iconUrl;
+    image.src = iconUrl;
     image.addEventListener("error", showFallback, { once: true });
     icon.classList.remove("container-icon--muted");
     icon.replaceChildren(image);

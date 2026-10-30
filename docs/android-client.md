@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [WEB-MMORPG-0.1.17.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.17/WEB-MMORPG-0.1.17.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [WEB-MMORPG-0.1.18.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.18/WEB-MMORPG-0.1.18.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -41,6 +41,8 @@ Wersja 0.1.15 dodaje kolizje pni drzew, skał, budynków i ogrodzenia w obu loka
 Wersja 0.1.16 dzieli okno postaci na zakładki „Statystyki”, „Władanie” i „Uzbrojenie”. Broń, tarczę i sześć części pancerza zakłada się z posiadanych przedmiotów poza walką; podstawowe wyposażenie sprzedaje Miro. Łuki, kusze i kostury zajmują obie ręce. Ataki, leczenie i parametry postaci wynikają z faktycznie założonych przedmiotów, a stare zapisane style nie zastępują broni. Połowa zdobytego doświadczenia za zwycięstwo jest dzielona między faktycznie użyte rodzaje broni i tarczę; dotychczasowy postęp zostaje zachowany. Założonych przedmiotów nie można przekazać w handlu ani schować do pojemnika.
 
 Wersja 0.1.17 dodaje sześć jakości przedmiotów: „Zwykła” (szara), „Normalna” (biała), „Dobra” (zielona), „Znakomita” (niebieska), „Doskonała” (złota) i „Arcydzieło” (czerwona). Jakość wpływa na oznaczenie i kolor przedmiotu, bez zmiany statystyk. Istniejące przedmioty bez przypisanej jakości otrzymują domyślnie jakość „Normalna”.
+
+Wersja 0.1.18 zastępuje lewy slot pojemnika stałym plecakiem z 16 miejscami i nową grafiką. Każda postać otrzymuje go od początku i nie może go zdjąć ani zastąpić innym pojemnikiem. Pozostałe trzy sloty nadal służą zwykłym pojemnikom. Dotychczasowy pojemnik z lewego slotu pozostaje w ekwipunku jako niewyposażony i zachowuje swoją zawartość.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

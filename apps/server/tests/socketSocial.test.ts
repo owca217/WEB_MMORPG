@@ -88,8 +88,8 @@ describeDb("authenticated social Socket.IO",()=>{
 
   it("pushes both committed inventories after partial barter and prevents receipt replay",async()=>{
     const {identity,game}=await setup();const alice=await identity("alice"),bob=await identity("bob");
-    const pelt=(await game.services.inventory.addItems(alice.id,[{itemId:"wolf-pelt",quantity:3}])).items[0]!;
-    const bandage=(await game.services.inventory.addItems(bob.id,[{itemId:"field-bandage",quantity:2}])).items[0]!;
+    const pelt=(await game.services.inventory.addItems(alice.id,[{itemId:"wolf-pelt",quantity:3}])).items.find(item=>item.itemId==="wolf-pelt")!;
+    const bandage=(await game.services.inventory.addItems(bob.id,[{itemId:"field-bandage",quantity:2}])).items.find(item=>item.itemId==="field-bandage")!;
     const invited=(await act(alice.socket,{type:"requestTrade",playerId:bob.id})).trade!;
     await act(bob.socket,{type:"respondTrade",tradeId:invited.id,accept:true});
     const first=(await act(alice.socket,{type:"setTradeOffer",tradeId:invited.id,revision:0,items:[{instanceId:pelt.instanceId,quantity:1}]})).trade!;

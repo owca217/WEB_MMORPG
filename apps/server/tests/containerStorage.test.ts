@@ -17,6 +17,7 @@ describeDatabase("container item storage", () => {
   const pool = createPool(databaseUrl);
   const inventory = new InventoryService(pool);
   const catalog = new ItemCatalogService(pool, new ItemMetadataRepository(pool));
+  let backpack: string;
 
   beforeAll(async () => {
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
@@ -37,6 +38,7 @@ describeDatabase("container item storage", () => {
   beforeEach(async () => {
     await pool.query("TRUNCATE item_instances, items, admin_audit_log CASCADE");
     await seedItemMetadata(pool);
+    backpack = (await inventory.getSnapshot(characterId)).items.find(item => item.permanentContainer)!.instanceId;
     const source = (await catalog.getItem("wolf-pelt")).item;
     await catalog.createDraft({
       ...source, itemId: "storage-token", name: "Znacznik", stackable: false, maxStack: 1
@@ -108,7 +110,7 @@ describeDatabase("container item storage", () => {
   it("allows empty unassigned containers but rejects equipped sources, nested targets, and nonempty sources", async () => {
     const [first, second, third] = await add("rag-bag", 3);
     const [token] = await add("storage-token");
-    await inventory.setContainerSlot(characterId, 0, first!);
+    await inventory.setContainerSlot(characterId, 1, first!);
     await expect(inventory.moveItemToContainer(characterId, first!, second!)).rejects.toThrow("CONTAINER_ITEM_EQUIPPED");
     await inventory.moveItemToContainer(characterId, second!, first!);
     await expect(inventory.moveItemToContainer(characterId, token!, second!)).rejects.toThrow("CONTAINER_ITEM_STORED");
@@ -116,7 +118,7 @@ describeDatabase("container item storage", () => {
     await inventory.moveItemToContainer(characterId, token!, second!);
     await expect(inventory.moveItemToContainer(characterId, second!, third!)).rejects.toThrow("CONTAINER_NOT_EMPTY");
     const snapshot = await inventory.getSnapshot(characterId);
-    expect(snapshot.containerSlots).toEqual([first, null, null, null]);
+    expect(snapshot.containerSlots).toEqual([backpack, first, null, null]);
     expect(snapshot.items.find((item) => item.instanceId === second)).not.toHaveProperty("containerInstanceId");
     expect(snapshot.items.find((item) => item.instanceId === token)).toMatchObject({ containerInstanceId: second });
   });

@@ -1,4 +1,5 @@
 import type { ItemCreatorMetadata, ItemDraftInput } from "@web-mmorpg/shared";
+import { applyItemQualityFrame, itemQualityText } from "../ItemQualityFrame";
 
 export class ItemTooltipPreview {
   private metadata: ItemCreatorMetadata | null = null;
@@ -17,26 +18,28 @@ export class ItemTooltipPreview {
 
     const header = document.createElement("div");
     header.className = "item-tooltip-preview__header";
+    const icon = document.createElement("div");
+    icon.className = "item-tooltip-preview__icon";
+    const fallback = (): void => { icon.textContent = "?"; };
+    fallback();
+    applyItemQualityFrame(icon,draft);
     if (draft.iconUrl) {
       const image = document.createElement("img");
       image.src = draft.iconUrl;
       image.alt = "";
       image.width = 56;
       image.height = 56;
-      header.append(image);
-    } else {
-      const placeholder = document.createElement("div");
-      placeholder.className = "item-tooltip-preview__icon";
-      placeholder.textContent = "?";
-      header.append(placeholder);
+      image.addEventListener("error",fallback,{once:true});
+      icon.replaceChildren(image);
     }
+    header.append(icon);
 
     const identity = document.createElement("div");
     const name = document.createElement("strong");
     name.className = `item-tooltip-preview__name rarity-${draft.rarity.toLocaleLowerCase()}`;
     name.textContent = draft.name.trim() || "Bez nazwy";
     const meta = document.createElement("span");
-    meta.textContent = `${draft.rarity} • Poziom przedmiotu ${draft.itemLevel} • Wymagany poziom ${draft.minimumLevel}`;
+    meta.textContent = `${draft.rarity} • ${itemQualityText(draft)} • Poziom przedmiotu ${draft.itemLevel} • Wymagany poziom ${draft.minimumLevel}`;
     identity.append(name, meta);
     header.append(identity);
     this.host.append(header);

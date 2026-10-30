@@ -1,4 +1,5 @@
 import type { InventoryItem } from "@web-mmorpg/shared";
+import { applyItemQualityFrame } from "./ItemQualityFrame";
 
 function backpackGlyph(): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -34,5 +35,5 @@ export function containerIcon(item?: InventoryItem): HTMLSpanElement {
     icon.classList.remove("container-icon--muted");
     icon.replaceChildren(image);
   }
-  return icon;
+  return applyItemQualityFrame(icon, item);
 }

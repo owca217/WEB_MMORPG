@@ -1,0 +1,11 @@
+:root .item-quality-frame[data-item-quality] {
+  box-sizing: border-box;
+  border: 2px solid var(--item-quality-color);
+  border-radius: 6px;
+}
+
+.container-icon--muted.item-quality-frame { opacity: 1; }
+.container-icon--muted.item-quality-frame > svg { opacity: 0.4; }
+
+.item-tooltip-preview__icon.item-quality-frame { display: grid; place-items: center; flex: 0 0 56px; width: 56px; height: 56px; }
+.item-tooltip-preview__icon > img { width: 100%; height: 100%; object-fit: contain; }

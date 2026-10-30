@@ -4,6 +4,7 @@ import { CategoryManagerView } from "./admin/CategoryManagerView";
 import { ItemCatalogView } from "./admin/ItemCatalogView";
 import { ItemCreatorView } from "./admin/ItemCreatorView";
 import { ItemHistoryView } from "./admin/ItemHistoryView";
+import { itemQualityText } from "./ItemQualityFrame";
 
 export class AdminPanel {
   private readonly root: HTMLDivElement;
@@ -130,7 +131,7 @@ export class AdminPanel {
       const heading = document.createElement("h3");
       heading.textContent = item.name;
       const meta = document.createElement("p");
-      meta.textContent = `${item.itemId} • ${item.categoryId} • ${item.rarity} • Lv.${item.itemLevel} • ${item.status}`;
+      meta.textContent = `${item.itemId} • ${item.categoryId} • ${item.rarity} • ${itemQualityText(item)} • Lv.${item.itemLevel} • ${item.status}`;
       const description = document.createElement("p");
       description.textContent = item.description;
       const back = document.createElement("button");

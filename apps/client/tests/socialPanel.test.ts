@@ -106,9 +106,13 @@ it("reviews both offers and saves a local draft before allowing confirmation of 
   let resolve!: (result: SocialActionResult) => void;
   const actions: SocialAction[] = [];
   const initial = snapshot({ trade: trade() });
+  initial.trade!.participants[1].offer[0]!.quality="PERFECT";
   const instance = panel((action) => { actions.push(action); return new Promise((done) => { resolve = done; }); }, initial);
+  instance.update(initial,{items:[inventoryItem("herb",{quality:"GOOD"})]},"connected",false);
   tab("trade");
   expect(element("[data-social-content]").textContent).toContain("Miecz ×1");
+  expect(element("[data-social-content]").textContent).toContain("Jakość: Doskonała");
+  expect(element("[data-trade-item]").textContent).toContain("Jakość: Dobra");
   expect(element("[data-social-content]").textContent).toContain("Zatwierdzono");
   type("[data-trade-quantity]", "2");
   button("[data-trade-add]").click();

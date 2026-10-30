@@ -1,5 +1,6 @@
 import type { ItemInstanceId } from "./ids";
 import type { ItemRarity } from "./items";
+import type { ItemQuality } from "./itemQuality";
 import type { EquipmentItemProperties, EquipmentSlot, EquipmentSlots } from "./equipment";
 
 export type ItemCategory = string;
@@ -31,6 +32,7 @@ export interface InventoryItem {
   description: string;
   iconUrl?: string;
   rarity: ItemRarity;
+  quality?: ItemQuality;
   durability?: number;
   maxDurability?: number;
   upgradeLevel: number;

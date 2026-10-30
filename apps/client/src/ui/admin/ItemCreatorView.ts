@@ -6,6 +6,7 @@ import type {
   ItemStatModifier,
   ItemVersion
 } from "@web-mmorpg/shared";
+import { DEFAULT_ITEM_QUALITY, ITEM_QUALITY_DEFINITIONS, normalizeItemQuality } from "@web-mmorpg/shared";
 import { AdminApi, AdminApiRequestError } from "../../net/AdminApi";
 import { ItemTooltipPreview } from "./ItemTooltipPreview";
 
@@ -273,6 +274,11 @@ export class ItemCreatorView {
         <label>Rzadkość
           <select data-field="rarity">
             ${["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"].map((value) => option(value, value, value === this.draft.rarity)).join("")}
+          </select>
+        </label>
+        <label>Jakość
+          <select data-field="quality">
+            ${ITEM_QUALITY_DEFINITIONS.map((entry) => option(entry.id, entry.label, entry.id === normalizeItemQuality(this.draft.quality))).join("")}
           </select>
         </label>
         ${field("Poziom przedmiotu", "itemLevel", String(this.draft.itemLevel), "number")}
@@ -621,6 +627,9 @@ export class ItemCreatorView {
       case "rarity":
         this.draft.rarity = element.value as ItemDraftInput["rarity"];
         break;
+      case "quality":
+        this.draft.quality = normalizeItemQuality(element.value);
+        break;
       case "itemLevel":
         this.draft.itemLevel = numberValue(element.value, 0);
         break;
@@ -889,6 +898,7 @@ function emptyDraft(metadata?: ItemCreatorMetadata): ItemDraftInput {
     ...(subcategory ? { subcategoryId: subcategory.id } : {}),
     description: "",
     rarity: "COMMON",
+    quality: DEFAULT_ITEM_QUALITY,
     itemLevel: 1,
     minimumLevel: 0,
     sellValue: 0,
@@ -920,7 +930,7 @@ function definitionToDraft(item: ItemDetails["item"]): ItemDraftInput {
 }
 
 function cloneDraft(input: ItemDraftInput): ItemDraftInput {
-  return JSON.parse(JSON.stringify(input)) as ItemDraftInput;
+  return { ...JSON.parse(JSON.stringify(input)) as ItemDraftInput, quality: normalizeItemQuality(input.quality) };
 }
 
 function specialFieldControl(

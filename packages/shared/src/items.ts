@@ -1,3 +1,5 @@
+import type { ItemQuality } from "./itemQuality";
+
 export const ITEM_RARITIES = [
   "COMMON",
   "UNCOMMON",
@@ -85,6 +87,7 @@ export interface ItemDraftInput {
   iconKey?: string;
   iconUrl?: string;
   rarity: ItemRarity;
+  quality?: ItemQuality;
   itemLevel: number;
   minimumLevel: number;
   sellValue: number;

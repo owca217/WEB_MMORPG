@@ -10,6 +10,7 @@ import type {
   TradeSnapshot
 } from "@web-mmorpg/shared";
 import "./SocialPanel.css";
+import { itemQualityText } from "./ItemQualityFrame";
 
 interface SocialPanelHandlers {
   onAction: (action: SocialAction) => Promise<SocialActionResult>;
@@ -361,7 +362,7 @@ export class SocialPanel {
     offer.append(node("h4", own ? `Twoja oferta · ${participant.player.nickname}` : `Oferta · ${participant.player.nickname}`));
     offer.append(node("p", participant.confirmed ? "Zatwierdzono" : "Oczekuje na zatwierdzenie", participant.confirmed ? "social-widget__confirmed" : "social-widget__hint"));
     if (!participant.offer.length) offer.append(node("p", "Brak przedmiotów", "social-widget__hint"));
-    else { const list = node("ul"); for (const item of participant.offer) list.append(node("li", `${item.name} ×${item.quantity}`)); offer.append(list); }
+    else { const list = node("ul"); for (const item of participant.offer) list.append(node("li", `${item.name} ×${item.quantity} · ${itemQualityText(item)}`)); offer.append(list); }
     parent.append(offer);
   }
 
@@ -382,7 +383,7 @@ export class SocialPanel {
     select.dataset.tradeItem = "";
     select.dataset.focusKey = "trade-item";
     select.disabled = !this.available || !eligible.length;
-    for (const item of eligible) { const option = node("option", `${item.name} · posiadasz ${item.quantity}`); option.value = item.instanceId; select.append(option); }
+    for (const item of eligible) { const option = node("option", `${item.name} · ${itemQualityText(item)} · posiadasz ${item.quantity}`); option.value = item.instanceId; select.append(option); }
     if (!eligible.length) select.append(node("option", "Brak dostępnych przedmiotów"));
     select.value = this.selectedItemId;
     select.addEventListener("change", () => { this.selectedItemId = select.value; this.quantityDraft = "1"; this.render(); });
@@ -419,14 +420,15 @@ export class SocialPanel {
     draft.append(node("h4", "Twoja oferta do zapisania"));
     if (!this.offerDraft.length) draft.append(node("p", "Brak przedmiotów", "social-widget__hint"));
     for (const item of this.offerDraft) {
-      const name = this.inventory.items.find((owned) => owned.instanceId === item.instanceId)?.name ?? self.offer.find((offered) => offered.instanceId === item.instanceId)?.name ?? "Przedmiot";
+      const identity = this.inventory.items.find((owned) => owned.instanceId === item.instanceId) ?? self.offer.find((offered) => offered.instanceId === item.instanceId);
+      const name = identity?.name ?? "Przedmiot";
       const row = node("div", "", "social-widget__row");
       const remove = node("button", "Usuń z oferty");
       remove.type = "button";
       remove.dataset.tradeRemove = "";
       remove.disabled = !this.available;
       remove.addEventListener("click", () => { if (!remove.disabled) { this.offerDraft = this.offerDraft.filter((entry) => entry.instanceId !== item.instanceId); this.render(); } });
-      row.append(node("span", `${name} ×${item.quantity}`), remove);
+      row.append(node("span", `${name} ×${item.quantity} · ${itemQualityText(identity??{})}`), remove);
       draft.append(row);
     }
     editor.append(draft);

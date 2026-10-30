@@ -80,7 +80,8 @@ describeDatabase("additive account auth migration", () => {
       { migration_name: "008_merchant" },
       { migration_name: "009_weapon_proficiencies" },
       { migration_name: "010_encounter_respawns" },
-      { migration_name: "011_equipment_slots" }
+      { migration_name: "011_equipment_slots" },
+      { migration_name: "012_item_quality" }
     ]);
   });
 

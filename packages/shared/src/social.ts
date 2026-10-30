@@ -21,7 +21,7 @@ export interface PartyInvite {
   expiresAt: number;
 }
 export interface TradeOfferEntry { instanceId: string; quantity: number; }
-export interface TradeOfferItem extends TradeOfferEntry { name: string; }
+export interface TradeOfferItem extends TradeOfferEntry { name: string; quality?: import("./itemQuality").ItemQuality; }
 export interface TradeParticipant { player: SocialPlayer; offer: TradeOfferItem[]; confirmed: boolean; }
 export interface TradeSnapshot {
   id: string;

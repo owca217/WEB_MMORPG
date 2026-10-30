@@ -1,5 +1,6 @@
 import {
   ITEM_RARITIES,
+  ITEM_QUALITIES,
   MODIFIER_TYPES,
   SOULBOUND_TYPES,
   type ItemCreatorMetadata,
@@ -42,6 +43,7 @@ const itemDraftSchema = z
     iconKey: z.string().min(1).max(500).optional(),
     iconUrl: z.string().url().max(2000).optional(),
     rarity: z.enum(ITEM_RARITIES),
+    quality: z.enum(ITEM_QUALITIES).optional(),
     itemLevel: z.number().int().min(0).max(1_000_000),
     minimumLevel: z.number().int().min(0).max(1_000_000),
     sellValue: finiteNumber.min(0).max(1_000_000_000_000),

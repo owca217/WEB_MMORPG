@@ -1,10 +1,12 @@
 import type { InventorySnapshot } from "./inventory";
+import type { ItemQuality } from "./itemQuality";
 
 export interface MerchantOffer {
   itemId: string;
   name: string;
   description: string;
   categoryId: string;
+  quality?: ItemQuality;
   unitPrice: number;
   healHp?: number;
   restoreAp?: number;

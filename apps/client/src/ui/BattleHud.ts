@@ -9,6 +9,7 @@ import {
   type InventoryUpdateResult
 } from "@web-mmorpg/shared";
 import "./BattleHud.css";
+import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 
 interface BattleHudHandlers {
   onEndTurn: () => void;
@@ -266,6 +267,7 @@ export class BattleHud {
       icon.className = "battle-hud__item-icon";
       icon.textContent = "+";
       icon.setAttribute("aria-hidden", "true");
+      applyItemQualityFrame(icon,item);
       if (item.iconUrl) {
         const image = document.createElement("img");
         image.src = item.iconUrl;
@@ -274,7 +276,7 @@ export class BattleHud {
         icon.appendChild(image);
       }
       const name = document.createElement("strong");
-      name.textContent = item.name;
+      name.textContent = `${item.name} · ${itemQualityText(item)}`;
       const quantity = document.createElement("span");
       quantity.className = "battle-hud__quantity";
       quantity.textContent = `×${item.quantity}`;

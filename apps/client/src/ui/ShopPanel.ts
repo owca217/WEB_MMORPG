@@ -1,5 +1,6 @@
 import type { MerchantOffer, MerchantPurchase, MerchantResult, MerchantSnapshot } from "@web-mmorpg/shared";
 import "./ShopPanel.css";
+import { itemQualityText } from "./ItemQualityFrame";
 
 interface MerchantPanelHandlers {
   onPurchase: (payload: MerchantPurchase) => Promise<MerchantResult>;
@@ -144,6 +145,7 @@ export class MerchantPanel {
       if (offer.restoreAp) details.push(`Przywraca ${offer.restoreAp} PA`);
       if (offer.capacity) details.push(`${offer.capacity} miejsc`);
       if (!details.length) details.push(offer.categoryId === "weapon" ? "Broń" : offer.categoryId === "armor" ? "Uzbrojenie" : offer.categoryId === "container" ? "Pojemnik" : "Przedmiot użytkowy");
+      details.push(itemQualityText(offer));
       card.appendChild(node("p", details.join(" · "), "merchant-panel__effect"));
       card.appendChild(node("p", `${offer.unitPrice} złota / szt.`, "merchant-panel__price"));
       const actions = node("div", "", "merchant-panel__actions");

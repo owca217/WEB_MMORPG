@@ -2,6 +2,7 @@ import { getEquippedWeaponFamily, CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT,
 import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { experienceProgressMarkup } from "./ExperienceProgress";
+import { itemQualityText } from "./ItemQualityFrame";
 
 interface WorldHudHandlers {
   onInventory?: () => void;
@@ -146,7 +147,7 @@ export class WorldHud {
       const label = document.createElement("span");
       label.className = "world-hud__container-name";
       label.textContent = item?.name ?? "Pusty";
-      button.title = `Pojemnik ${slotIndex + 1}: ${item?.name ?? "pusty"}`;
+      button.title = `Pojemnik ${slotIndex + 1}: ${item?.name ?? "pusty"}${item ? ` · ${itemQualityText(item)}` : ""}`;
       button.setAttribute("aria-label", `${button.title}. Wybierz pojemnik`);
       button.classList.toggle("is-equipped", Boolean(item));
       button.classList.toggle("is-empty", !item);

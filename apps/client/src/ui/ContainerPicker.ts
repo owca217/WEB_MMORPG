@@ -1,5 +1,6 @@
 import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, type ContainerSlotIndex, type InventorySnapshot, type SetContainerSlotResult } from "@web-mmorpg/shared";
 import { containerIcon } from "./ContainerIcon";
+import { itemQualityText } from "./ItemQualityFrame";
 
 interface ContainerPickerHandlers {
   onSetContainerSlot: (slotIndex: ContainerSlotIndex, itemInstanceId: string | null) => Promise<SetContainerSlotResult>;
@@ -96,7 +97,7 @@ export class ContainerPicker {
       const name = document.createElement("strong");
       name.textContent = item.name;
       const description = document.createElement("span");
-      description.textContent = item.description;
+      description.textContent = `${itemQualityText(item)}${item.description ? ` · ${item.description}` : ""}`;
       const action = document.createElement("span");
       action.className = "container-picker__action";
       action.textContent = selected ? "Założony tutaj" : equippedIndex >= 0 ? `Przenieś ze slotu ${equippedIndex + 1}` : "Załóż tutaj";

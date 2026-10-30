@@ -4,6 +4,7 @@ import type {
   ItemDefinition
 } from "@web-mmorpg/shared";
 import { AdminApi, AdminApiRequestError } from "../../net/AdminApi";
+import { itemQualityText } from "../ItemQualityFrame";
 
 export interface ItemCatalogHandlers {
   onPreview(itemId: string): void;
@@ -119,7 +120,7 @@ export class ItemCatalogView {
     const name = document.createElement("strong");
     name.textContent = item.name;
     const meta = document.createElement("span");
-    meta.textContent = `${item.itemId} • ${item.categoryId}${item.subcategoryId ? ` / ${item.subcategoryId}` : ""} • ${item.rarity} • Lv.${item.itemLevel} • ${item.status}`;
+    meta.textContent = `${item.itemId} • ${item.categoryId}${item.subcategoryId ? ` / ${item.subcategoryId}` : ""} • ${item.rarity} • ${itemQualityText(item)} • Lv.${item.itemLevel} • ${item.status}`;
     title.append(name, meta);
 
     const actions = document.createElement("div");

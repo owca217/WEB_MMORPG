@@ -28,11 +28,13 @@ afterEach(() => { panels.splice(0).forEach(panel => panel.destroy()); vi.restore
 
 it("renders catalog text safely and validates quantity, cost and available gold", () => {
   const panel = setup();
-  panel.show({ ...shop(12), npcName: "<img src=x>", offers: [{ ...shop().offers[0]!, name: "<b>Bandaż</b>" }, shop().offers[1]!] });
+  panel.show({ ...shop(12), npcName: "<img src=x>", offers: [{ ...shop().offers[0]!, name: "<b>Bandaż</b>", quality:"GOOD" }, shop().offers[1]!] });
   expect(el("[data-merchant-title]").textContent).toContain("<img src=x>");
   expect(el("[data-merchant-offers]").querySelector("b")).toBeNull();
   expect(el("[data-merchant-offers]").textContent).toContain("30 HP");
   expect(el("[data-merchant-offers]").textContent).toContain("8 miejsc");
+  expect(el("[data-merchant-offers]").textContent).toContain("Jakość: Dobra");
+  expect(el("[data-merchant-offers]").textContent).toContain("Jakość: Normalna");
   expect(buy("bag").disabled).toBe(true);
   expect(buy().disabled).toBe(false);
   input("3");

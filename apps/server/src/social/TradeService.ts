@@ -25,6 +25,7 @@ interface OfferedInstance {
   container_slot: number | null;
   equipment_slot: string | null;
   name: string;
+  quality: NonNullable<TradeOfferItem["quality"]>;
   tradable: boolean;
   soulbound: string;
   unique_item: boolean;
@@ -99,7 +100,10 @@ export class TradeService {
         const offers: [TradeOfferEntry[], TradeOfferEntry[]] = [trade.offers[0], trade.offers[1]];
         offers[index] = entriesToValidate;
         const instances = await this.validateOffers(client, trade, offers);
-        const nextOffer = entriesToValidate.map(entry => ({ ...entry, name: instances.get(entry.instanceId)!.name }));
+        const nextOffer = entriesToValidate.map(entry => {
+          const instance=instances.get(entry.instanceId)!;
+          return { ...entry, name:instance.name, quality:instance.quality };
+        });
         this.assertEligible(trade);
         this.assertNotExpired(trade);
         await client.query("COMMIT");
@@ -222,9 +226,9 @@ export class TradeService {
             // Copy every persisted instance attribute, including creation time and custom rolls.
             await client.query(
               `INSERT INTO item_instances (id,player_id,item_id,quantity,durability,max_durability,upgrade_level,
-                affixes,sockets,bound_to_player_id,created_at,updated_at,character_id,container_capacity,container_instance_id,container_slot)
+                affixes,sockets,bound_to_player_id,created_at,updated_at,character_id,container_capacity,container_instance_id,container_slot,quality)
                SELECT $2,NULL,item_id,$3,durability,max_durability,upgrade_level,affixes,sockets,bound_to_player_id,
-                created_at,NOW(),$4,container_capacity,container_instance_id,container_slot
+                created_at,NOW(),$4,container_capacity,container_instance_id,container_slot,quality
                FROM item_instances WHERE id=$1`,
               [instance.id, randomUUID(), offer.quantity, recipientId]
             );
@@ -254,7 +258,7 @@ export class TradeService {
     if (!ids.length) return new Map();
     const result = await client.query<OfferedInstance>(
       `SELECT instance.id,instance.character_id,instance.item_id,instance.quantity,instance.bound_to_player_id,
-        instance.container_instance_id,instance.container_slot,instance.equipment_slot,version.name,version.tradable,version.soulbound,
+        instance.container_instance_id,instance.container_slot,instance.equipment_slot,instance.quality,version.name,version.tradable,version.soulbound,
         version.unique_item,version.stackable,version.max_stack,
         EXISTS(SELECT 1 FROM item_instances child WHERE child.container_instance_id=instance.id) AS has_children
        FROM item_instances instance JOIN items item ON item.id=instance.item_id

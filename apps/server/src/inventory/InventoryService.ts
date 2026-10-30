@@ -22,6 +22,7 @@ export interface InventoryReward {
 
 interface PublishedDefinitionRow {
   id: string;
+  quality: NonNullable<InventoryItem["quality"]>;
   stackable: boolean;
   max_stack: number;
 }
@@ -46,6 +47,7 @@ interface InventoryRow {
   description: string;
   icon_url: string | null;
   rarity: InventoryItem["rarity"];
+  quality: NonNullable<InventoryItem["quality"]>;
   durability: string | number | null;
   max_durability: string | number | null;
   upgrade_level: number;
@@ -375,6 +377,7 @@ export class InventoryService {
         version.description,
         version.icon_url,
         version.rarity,
+        instance.quality,
         instance.durability,
         instance.max_durability,
         instance.upgrade_level,
@@ -432,7 +435,7 @@ export class InventoryService {
     stableItemId: string
   ): Promise<PublishedDefinitionRow> {
     const result = await client.query<PublishedDefinitionRow>(
-      `SELECT item.id, version.stackable, version.max_stack
+      `SELECT item.id, version.stackable, version.max_stack, version.quality
        FROM items item
        JOIN item_versions version
          ON version.item_id = item.id
@@ -459,7 +462,7 @@ export class InventoryService {
   ): Promise<void> {
     if (!definition.stackable) {
       for (let index = 0; index < quantity; index += 1) {
-        await this.insertInstance(client, ownerKind, ownerId, definition.id, 1);
+        await this.insertInstance(client, ownerKind, ownerId, definition.id, 1, definition.quality);
       }
       return;
     }
@@ -473,6 +476,7 @@ export class InventoryService {
          WHERE ${ownerColumn} = $1
            AND item_id = $2
            AND quantity < $3
+           AND quality = $4
            AND durability IS NULL
            AND max_durability IS NULL
            AND upgrade_level = 0
@@ -482,7 +486,7 @@ export class InventoryService {
          ORDER BY created_at ASC, id ASC
          LIMIT 1
          FOR UPDATE`,
-        [ownerId, definition.id, definition.max_stack]
+        [ownerId, definition.id, definition.max_stack, definition.quality]
       );
 
       const existing = existingResult.rows[0];
@@ -505,7 +509,8 @@ export class InventoryService {
         ownerKind,
         ownerId,
         definition.id,
-        stackQuantity
+        stackQuantity,
+        definition.quality
       );
       remaining -= stackQuantity;
     }
@@ -516,14 +521,15 @@ export class InventoryService {
     ownerKind: OwnerKind,
     ownerId: string,
     itemDefinitionUuid: string,
-    quantity: number
+    quantity: number,
+    quality: NonNullable<InventoryItem["quality"]>
   ): Promise<void> {
     const ownerColumn = this.ownerColumn(ownerKind);
     await client.query(
       `INSERT INTO item_instances (
-        id, ${ownerColumn}, item_id, quantity, upgrade_level, affixes, sockets
-       ) VALUES ($1, $2, $3, $4, 0, '[]'::jsonb, '[]'::jsonb)`,
-      [randomUUID(), ownerId, itemDefinitionUuid, quantity]
+        id, ${ownerColumn}, item_id, quantity, upgrade_level, affixes, sockets, quality
+       ) VALUES ($1, $2, $3, $4, 0, '[]'::jsonb, '[]'::jsonb, $5)`,
+      [randomUUID(), ownerId, itemDefinitionUuid, quantity, quality]
     );
   }
 
@@ -554,6 +560,7 @@ export class InventoryService {
       description: row.description,
       ...(row.icon_url ? { iconUrl: row.icon_url } : {}),
       rarity: row.rarity,
+      quality: row.quality,
       ...(row.durability === null ? {} : { durability: Number(row.durability) }),
       ...(row.max_durability === null
         ? {}

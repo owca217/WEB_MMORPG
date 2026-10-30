@@ -19,6 +19,7 @@ interface DefinitionRow {
   id: string;
   item_id: string;
   name: string;
+  quality: NonNullable<MerchantOffer["quality"]>;
   description: string;
   category_id: string;
   subcategory_id:string|null;
@@ -170,7 +171,7 @@ export class MerchantService {
 
   private async readDefinitions(client?: PoolClient): Promise<Definition[]> {
     const result = await (client ?? this.pool).query<DefinitionRow>(
-      `SELECT item.id,item.item_id,version.name,version.description,version.category_id,version.subcategory_id,version.stackable,
+      `SELECT item.id,item.item_id,version.name,version.quality,version.description,version.category_id,version.subcategory_id,version.stackable,
          version.max_stack,version.unique_item,version.soulbound,version.minimum_level,version.special_data,
          COALESCE((SELECT jsonb_agg(jsonb_build_object('statCode',stat.stat_code,'modifierType',stat.modifier_type,'value',stat.value))
            FROM item_stat_modifiers stat WHERE stat.version_id=version.id),'[]'::jsonb) AS stats,
@@ -200,6 +201,7 @@ export class MerchantService {
       if((stock.category==="weapon"||stock.category==="armor") && (row.stackable || !getEquipmentItemProperties({category:row.category_id,...(row.subcategory_id?{subcategory:row.subcategory_id}:{}),minimumLevel:row.minimum_level,stats:row.stats,specialData:row.special_data})))return [];
       const offer: MerchantOffer = {
         itemId: row.item_id, name: row.name, description: row.description, categoryId: row.category_id,
+        quality: row.quality,
         unitPrice: stock.unitPrice, maxQuantity: Math.min(stock.maxQuantity, row.max_stack, row.unique_item ? 1 : 20),
         ...(healHp ? { healHp } : {}), ...(restoreAp ? { restoreAp } : {}),
         ...(stock.category === "container" ? { capacity: capacity as number } : {})
@@ -218,7 +220,8 @@ export class MerchantService {
            AND container_instance_id IS NULL AND container_slot IS NULL AND durability IS NULL
            AND max_durability IS NULL AND upgrade_level=0 AND affixes='[]'::jsonb AND sockets='[]'::jsonb
            AND bound_to_player_id IS NOT DISTINCT FROM $4::uuid
-         ORDER BY created_at,id FOR UPDATE`, [characterId, row.id, row.max_stack, boundTo]
+           AND quality=$5
+         ORDER BY created_at,id FOR UPDATE`, [characterId, row.id, row.max_stack, boundTo, row.quality]
       );
       for (const stack of stacks.rows) {
         const added = Math.min(remaining, row.max_stack - stack.quantity);
@@ -230,8 +233,8 @@ export class MerchantService {
     while (remaining > 0) {
       const count = row.stackable ? Math.min(remaining, row.max_stack) : 1;
       await client.query(
-        `INSERT INTO item_instances(id,character_id,item_id,quantity,bound_to_player_id,container_capacity)
-         VALUES($1,$2,$3,$4,$5,$6)`, [randomUUID(), characterId, row.id, count, boundTo, definition.offer.capacity ?? null]
+        `INSERT INTO item_instances(id,character_id,item_id,quantity,bound_to_player_id,container_capacity,quality)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), characterId, row.id, count, boundTo, definition.offer.capacity ?? null, row.quality]
       );
       remaining -= count;
     }

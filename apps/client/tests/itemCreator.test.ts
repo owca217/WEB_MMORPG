@@ -143,6 +143,23 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+it("saves six-level cosmetic quality separately from rarity and previews its Polish label", async () => {
+  const host=document.createElement("div"),api=createApi(),view=new ItemCreatorView(host,api);
+  await view.loadMetadata();
+  click(host,"[data-step-target='basics']");
+  const quality=host.querySelector<HTMLSelectElement>("[data-field='quality']")!;
+  expect(quality).not.toBeNull();
+  expect(quality.value).toBe("NORMAL");
+  expect([...quality.options].map(option=>option.textContent)).toEqual(["Zwykła","Normalna","Dobra","Znakomita","Doskonała","Arcydzieło"]);
+  select(host,"[data-field='quality']","MASTERWORK");
+  select(host,"[data-field='rarity']","LEGENDARY");
+  expect(view.getDraftSnapshot()).toMatchObject({quality:"MASTERWORK",rarity:"LEGENDARY",stats:[]});
+  expect(host.querySelector("[data-tooltip-preview]")?.textContent).toContain("Jakość: Arcydzieło");
+  expect(host.querySelector<HTMLElement>("[data-tooltip-preview] [data-item-quality]")?.dataset.itemQuality).toBe("MASTERWORK");
+  await view.saveDraft();
+  expect(vi.mocked(api.createItem).mock.calls[0]?.[0]).toMatchObject({quality:"MASTERWORK",rarity:"LEGENDARY",stats:[]});
+});
+
 describe("ItemCreatorView navigation and metadata constraints", () => {
   it("renders exactly nine steps and filters stat choices by category/subcategory", async () => {
     const host = document.createElement("div");
@@ -364,5 +381,8 @@ describe("ItemCreatorView save resilience", () => {
     expect(host.querySelector<HTMLImageElement>("[data-tooltip-preview] img")?.src).toBe(
       "https://assets.example.test/icons/creator.png"
     );
+    host.querySelector("[data-tooltip-preview] img")!.dispatchEvent(new Event("error"));
+    expect(host.querySelector("[data-tooltip-preview] img")).toBeNull();
+    expect(host.querySelector<HTMLElement>("[data-tooltip-preview] [data-item-quality]")?.dataset.itemQuality).toBe("NORMAL");
   });
 });

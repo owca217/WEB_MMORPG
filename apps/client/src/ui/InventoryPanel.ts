@@ -1,4 +1,5 @@
 import type { InventorySnapshot } from "@web-mmorpg/shared";
+import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 
 const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   material: "Materiał",
@@ -42,12 +43,13 @@ export class InventoryPanel {
       const icon = document.createElement("div");
       icon.className = `inventory-item__icon inventory-item__icon--${item.category}`;
       icon.textContent = item.category === "medical" ? "+" : "◆";
+      applyItemQualityFrame(icon,item);
 
       const content = document.createElement("div");
       const title = document.createElement("strong");
       title.textContent = `${item.name} ×${item.quantity}`;
       const category = document.createElement("span");
-      category.textContent = CATEGORY_LABELS[item.category] ?? item.category;
+      category.textContent = `${CATEGORY_LABELS[item.category] ?? item.category} · ${itemQualityText(item)}`;
       const description = document.createElement("p");
       description.textContent = item.description;
       content.append(title, category, description);

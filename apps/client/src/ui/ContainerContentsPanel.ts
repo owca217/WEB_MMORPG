@@ -9,6 +9,7 @@ import {
 } from "@web-mmorpg/shared";
 import { containerIcon } from "./ContainerIcon";
 import { equipmentDisabledReason, equipmentIcon } from "./EquipmentIcon";
+import { itemQualityText } from "./ItemQualityFrame";
 import "./ContainerContentsPanel.css";
 
 const PLACES_PER_PAGE = 40;
@@ -211,8 +212,8 @@ export class ContainerContentsPanel {
     button.className = `container-contents__item container-contents__item--${action}`;
     if (action === "put") button.dataset.containerPut = item.instanceId;
     else button.dataset.containerRemove = item.instanceId;
-    button.setAttribute("aria-label", `${action === "put" ? "Włóż" : "Wyjmij"} ${item.name} ×${item.quantity}`);
-    button.title = `${item.name} ×${item.quantity}${item.description ? ` — ${item.description}` : ""}`;
+    button.setAttribute("aria-label", `${action === "put" ? "Włóż" : "Wyjmij"} ${item.name} ×${item.quantity} · ${itemQualityText(item)}`);
+    button.title = `${item.name} ×${item.quantity} · ${itemQualityText(item)}${item.description ? ` — ${item.description}` : ""}`;
     const content = document.createElement("span");
     content.className = "container-contents__item-text";
     const name = document.createElement("strong");

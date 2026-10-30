@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_ITEM_QUALITY } from "@web-mmorpg/shared";
 import type {
   ItemCatalogPage,
   ItemCatalogQuery,
@@ -39,6 +40,7 @@ interface VersionRow {
   icon_key: string | null;
   icon_url: string | null;
   rarity: ItemDraftInput["rarity"];
+  quality: NonNullable<ItemDraftInput["quality"]>;
   item_level: number;
   minimum_level: number;
   sell_value: string | number;
@@ -148,8 +150,9 @@ export class ItemCatalogRepository {
         id: string;
         revision: number;
         version_no: number;
+        quality: NonNullable<ItemDraftInput["quality"]>;
       }>(
-        `SELECT id, revision, version_no
+        `SELECT id, revision, version_no, quality
          FROM item_versions
          WHERE item_id = $1 AND state = 'DRAFT'
          FOR UPDATE`,
@@ -164,7 +167,7 @@ export class ItemCatalogRepository {
 
         const nextRevision = draft.revision + 1;
         resultingVersionNo = draft.version_no;
-        await this.updateVersionRow(client, draft.id, nextRevision, input, actor);
+        await this.updateVersionRow(client, draft.id, nextRevision, {...input,quality:input.quality??draft.quality}, actor);
         await this.replaceChildren(client, draft.id, input);
         await this.audit.appendWithClient(client, {
           actorPlayerId: actor,
@@ -183,8 +186,8 @@ export class ItemCatalogRepository {
         if (item.active_version_no === null) {
           throw new ItemNotFoundError(`DRAFT_NOT_FOUND:${stableItemId}`);
         }
-        const activeResult = await client.query<{ revision: number }>(
-          `SELECT revision
+        const activeResult = await client.query<{ revision: number;quality:NonNullable<ItemDraftInput["quality"]> }>(
+          `SELECT revision, quality
            FROM item_versions
            WHERE item_id = $1 AND state = 'PUBLISHED' AND version_no = $2
            FOR UPDATE`,
@@ -208,7 +211,7 @@ export class ItemCatalogRepository {
           nextVersion,
           1,
           "DRAFT",
-          input,
+          {...input,quality:input.quality??active.quality},
           actor
         );
         await this.replaceChildren(client, versionUuid, input);
@@ -586,6 +589,7 @@ export class ItemCatalogRepository {
         unique_item = $20,
         special_data = $21::jsonb,
         created_by = $22,
+        quality = $23,
         updated_at = NOW()
        WHERE id = $1`,
       [
@@ -610,7 +614,8 @@ export class ItemCatalogRepository {
         input.soulbound,
         input.unique,
         JSON.stringify(input.specialData),
-        actor
+        actor,
+        input.quality ?? DEFAULT_ITEM_QUALITY
       ]
     );
   }
@@ -630,10 +635,10 @@ export class ItemCatalogRepository {
         id, item_id, version_no, revision, state, name, category_id,
         subcategory_id, description, icon_key, icon_url, rarity, item_level,
         minimum_level, sell_value, sellable, tradable, droppable, stackable,
-        max_stack, weight, soulbound, unique_item, special_data, created_by
+        max_stack, weight, soulbound, unique_item, special_data, created_by, quality
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24::jsonb, $25
+        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24::jsonb, $25, $26
       )`,
       [
         versionUuid,
@@ -660,7 +665,8 @@ export class ItemCatalogRepository {
         input.soulbound,
         input.unique,
         JSON.stringify(input.specialData),
-        actor
+        actor,
+        input.quality ?? DEFAULT_ITEM_QUALITY
       ]
     );
   }
@@ -830,6 +836,7 @@ export class ItemCatalogRepository {
       categoryId: row.category_id,
       description: row.description,
       rarity: row.rarity,
+      quality: row.quality,
       itemLevel: row.item_level,
       minimumLevel: row.minimum_level,
       sellValue: Number(row.sell_value),
@@ -869,6 +876,7 @@ export class ItemCatalogRepository {
       categoryId: version.categoryId,
       description: version.description,
       rarity: version.rarity,
+      quality: version.quality ?? DEFAULT_ITEM_QUALITY,
       itemLevel: version.itemLevel,
       minimumLevel: version.minimumLevel,
       sellValue: version.sellValue,
@@ -908,6 +916,7 @@ export class ItemCatalogRepository {
       categoryId: version.categoryId,
       description: version.description,
       rarity: version.rarity,
+      quality: version.quality ?? DEFAULT_ITEM_QUALITY,
       itemLevel: version.itemLevel,
       minimumLevel: version.minimumLevel,
       sellValue: version.sellValue,

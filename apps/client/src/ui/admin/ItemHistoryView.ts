@@ -178,6 +178,7 @@ const COMPARABLE_FIELDS: ReadonlyArray<keyof ItemDraftInput> = [
   "iconKey",
   "iconUrl",
   "rarity",
+  "quality",
   "itemLevel",
   "minimumLevel",
   "sellValue",

@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [WEB-MMORPG-0.1.19.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.19/WEB-MMORPG-0.1.19.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [WEB-MMORPG-0.1.20.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.20/WEB-MMORPG-0.1.20.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -45,6 +45,8 @@ Wersja 0.1.17 dodaje sześć jakości przedmiotów: „Zwykła” (szara), „No
 Wersja 0.1.18 zastępuje lewy slot pojemnika stałym plecakiem z 16 miejscami i nową grafiką. Każda postać otrzymuje go od początku i nie może go zdjąć ani zastąpić innym pojemnikiem. Pozostałe trzy sloty nadal służą zwykłym pojemnikom. Dotychczasowy pojemnik z lewego slotu pozostaje w ekwipunku jako niewyposażony i zachowuje swoją zawartość.
 
 Wersja 0.1.19 automatycznie odkłada zdobyte przedmioty najpierw do stałego plecaka, a następnie do wyposażonych pojemników w kolejności pozostałych trzech slotów. Gdy wszystkie są pełne, przedmioty pozostają zapisane w widoku „Oczekujące” i trafiają do pojemników po zwolnieniu miejsca. Dolna sekcja „Włóż do pojemnika” znika; kliknięcie przedmiotu otwiera menu przenoszenia lub zakładania. Pojemniki przechowywane w plecaku można przypisać do wolnych slotów, a przechowywane przedmioty nadal można przekazywać w handlu.
+
+Wersja 0.1.20 upraszcza sloty ekwipunku do ikon przedmiotów. Pełne informacje o wybranym przedmiocie są dostępne w osobnym oknie szczegółów, otwieranym z jego menu. Zmiana obejmuje również interfejs telefonu.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

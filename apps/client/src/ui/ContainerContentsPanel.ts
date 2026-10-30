@@ -1,7 +1,7 @@
 import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_INDEX, getPendingInventoryItems, type ContainerSlotIndex, type InventoryItem, type InventorySnapshot, type InventoryUpdateResult, type CharacterSnapshot } from "@web-mmorpg/shared";
-import { containerIcon } from "./ContainerIcon";
-import { equipmentDisabledReason, equipmentIcon, equipmentItemSummary } from "./EquipmentIcon";
-import { itemQualityText } from "./ItemQualityFrame";
+import { equipmentDisabledReason, equipmentItemSummary } from "./EquipmentIcon";
+import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
+import { inventoryItemIcon } from "./InventoryItemIcon";
 import { getAssignedContainers, getPermanentBackpack } from "./PermanentBackpack";
 import "./ContainerContentsPanel.css";
 const PLACES_PER_PAGE = 40;
@@ -64,7 +64,7 @@ export class ContainerContentsPanel {
       <div class="container-contents__grid" data-container-grid role="list" aria-label="Miejsca w pojemniku"></div>
       <nav class="container-contents__pagination" data-container-pagination aria-label="Strony pojemnika" hidden><button type="button" data-container-page-prev aria-label="Poprzednia strona pojemnika">‹</button><span data-container-page-label aria-live="polite"></span><button type="button" data-container-page-next aria-label="Następna strona pojemnika">›</button></nav>
       <p class="container-contents__feedback" data-container-contents-feedback role="status" aria-live="polite"></p><button type="button" class="container-contents__change" data-change-container>Zmień pojemnik</button>
-      <section class="container-contents__item-actions" data-container-item-actions role="dialog" aria-label="Opcje przedmiotu" hidden></section>`;
+      <section class="container-contents__item-actions" data-container-item-actions role="dialog" aria-labelledby="container-item-details-title" hidden></section>`;
         document.body.append(this.root);
         this.title = this.require("[data-container-contents-title]");
         this.capacity = this.require("[data-container-capacity]");
@@ -198,15 +198,12 @@ export class ContainerContentsPanel {
             const item = items[index];
             if (item) {
                 const button = this.itemButton(item);
-                cell.append(this.withEquipmentAction(item, button));
+                cell.append(button);
             }
             else {
                 cell.classList.add("container-contents__cell--empty");
                 cell.dataset.containerEmptyCell = "";
                 cell.setAttribute("aria-label", `Puste miejsce ${index + 1}`);
-                const label = node("span", String(index + 1));
-                label.setAttribute("aria-hidden", "true");
-                cell.append(label);
             }
             this.grid.append(cell);
         }
@@ -226,26 +223,37 @@ export class ContainerContentsPanel {
         button.type = "button";
         button.dataset.containerItem = item.instanceId;
         button.disabled = this.pending;
+        applyItemQualityFrame(button,item);
+        button.removeAttribute("role");
         button.setAttribute("aria-label", `Opcje: ${item.name} ×${item.quantity} · ${itemQualityText(item)}`);
         button.setAttribute("aria-haspopup", "dialog");
         button.title = `${item.name} ×${item.quantity} · ${itemQualityText(item)}${item.description ? ` — ${item.description}` : ""}`;
-        const text = node("span", "", "container-contents__item-text");
-        text.append(node("strong", item.name), node("span", `×${item.quantity}`, "container-contents__quantity"));
-        button.append(item.equipment ? equipmentIcon(item) : containerIcon(item), text);
-        button.addEventListener("click", () => { if (this.pending || !this.visibleItems().some(entry => entry.instanceId === item.instanceId))
-            return; if (this.selectedItemId === item.instanceId) {
-            this.closeSelection(true);
-            return;
-        } this.selectedItemId = item.instanceId; this.selectedTargetId = ""; this.renderPopover(); this.popover.querySelector<HTMLButtonElement>("[data-container-close-actions]")?.focus(); });
+        button.append(inventoryItemIcon(item));
+        if(item.quantity>1){const quantity=node("span",String(item.quantity),"container-contents__quantity");quantity.dataset.containerQuantity="";quantity.setAttribute("aria-hidden","true");button.append(quantity);}
+        button.addEventListener("click", () => {
+            if (this.pending || !this.visibleItems().some(entry => entry.instanceId === item.instanceId))
+                return;
+            if (this.selectedItemId === item.instanceId) {
+                this.closeSelection(true);
+                return;
+            }
+            this.feedback.textContent = "";
+            delete this.feedback.dataset.state;
+            this.selectedItemId = item.instanceId;
+            this.selectedTargetId = "";
+            this.renderPopover();
+            this.popover.scrollTop = 0;
+            this.popover.querySelector<HTMLButtonElement>("[data-container-close-actions]")?.focus();
+        });
         return button;
     }
-    private withEquipmentAction(item: InventoryItem, button: HTMLButtonElement): HTMLElement {
+    private equipmentAction(item: InventoryItem): HTMLButtonElement | null {
         if (!item.equipment || item.equippedSlot || !this.handlers.onEquipItem)
-            return button;
-        const row = node("div", "", "container-equipment-row");
+            return null;
         const equip = node("button", "Załóż", "container-equipment-action");
         equip.type = "button";
         equip.dataset.containerEquip = item.instanceId;
+        equip.dataset.containerFocus="equip";
         equip.setAttribute("aria-label", `Załóż ${item.name}`);
         const reason = equipmentDisabledReason(item, this.character, this.snapshot);
         equip.disabled = this.pending || !!reason;
@@ -253,8 +261,7 @@ export class ContainerContentsPanel {
             equip.title = reason;
         equip.addEventListener("click", () => { const current = this.visibleItems().find(entry => entry.instanceId === item.instanceId); if (!current || equipmentDisabledReason(current, this.character, this.snapshot) || !this.handlers.onEquipItem)
             return; void this.perform(() => this.handlers.onEquipItem!(current), "Założono przedmiot."); });
-        row.append(button, equip);
-        return row;
+        return equip;
     }
     private moveTargets(item: InventoryItem): Array<{
         item: InventoryItem;
@@ -285,14 +292,30 @@ export class ContainerContentsPanel {
         close.dataset.containerFocus = "close";
         close.setAttribute("aria-label", "Zamknij opcje przedmiotu");
         close.addEventListener("click", () => this.closeSelection(true));
-        header.append(node("strong", `${item.name} ×${item.quantity}`), close);
+        const identity=node("div","","container-contents__details-identity"),icon=inventoryItemIcon(item),name=node("h3",item.name);
+        icon.classList.add("container-contents__details-icon");applyItemQualityFrame(icon,item);name.id="container-item-details-title";identity.append(icon,name);
+        header.append(identity, close);
         this.popover.append(header, node("p", item.equipment ? equipmentItemSummary(item) : itemQualityText(item)));
+        const metadata=node("dl","","container-contents__details-meta");
+        const detail=(label:string,value:string):void=>{const row=node("div");row.append(node("dt",`${label} `),node("dd",value));metadata.append(row);};
+        detail("Ilość:",String(item.quantity));
+        const rarities={COMMON:"Pospolity",UNCOMMON:"Niepospolity",RARE:"Rzadki",EPIC:"Epicki",LEGENDARY:"Legendarny"};
+        detail("Rzadkość:",rarities[item.rarity]);
+        if(item.containerCapacity!==undefined)detail("Pojemność:",`${item.containerCapacity} miejsc`);
+        if(item.durability!==undefined)detail("Trwałość:",`${item.durability}${item.maxDurability===undefined?"":`/${item.maxDurability}`}`);
+        else if(item.maxDurability!==undefined)detail("Maksymalna trwałość:",String(item.maxDurability));
+        detail("Ulepszenie:",`+${item.upgradeLevel}`);
+        if(item.boundToPlayerId)detail("Przypisanie:","Przypisany do postaci");
+        if(item.consumableEffects?.healHp!==undefined)detail("Leczenie:",`${item.consumableEffects.healHp} HP`);
+        if(item.consumableEffects?.restoreAp!==undefined)detail("Odnawia:",`${item.consumableEffects.restoreAp} PA`);
+        this.popover.append(metadata);
         if (item.description)
             this.popover.append(node("p", item.description));
         if (item.category === "medical" || item.category === "consumable" || item.consumableEffects)
             this.popover.append(node("p", "Do użycia w walce."));
         if (item.category === CONTAINER_ITEM_CATEGORY)
             this.popover.append(node("p", "Ten pojemnik możesz założyć w jednym z trzech slotów panelu gry."));
+        const equip=this.equipmentAction(item);if(equip)this.popover.append(equip);
         const nonempty = item.category === CONTAINER_ITEM_CATEGORY && this.snapshot.items.some(entry => entry.containerInstanceId === item.instanceId), targets = this.moveTargets(item);
         const label = node("label", "Przenieś do"), select = node("select");
         select.dataset.containerMoveTarget = "";
@@ -324,7 +347,8 @@ export class ContainerContentsPanel {
             this.popover.append(node("p", "Ten pojemnik zawiera przedmioty i nie może trafić do innego pojemnika."));
         else if (!this.selectedTargetId)
             this.popover.append(node("p", "Brak wolnego miejsca w innych założonych pojemnikach."));
-        const anchor = [...this.grid.querySelectorAll<HTMLElement>("[data-container-item]")].find(element => element.dataset.containerItem === item.instanceId), rect = anchor?.getBoundingClientRect(), width = Math.min(320, Math.max(0, window.innerWidth - 24));
+        if(this.feedback.textContent){const status=node("p",this.feedback.textContent,"container-contents__details-status");status.setAttribute("role","status");if(this.feedback.dataset.state)status.dataset.state=this.feedback.dataset.state;this.popover.append(status);}
+        const anchor = [...this.grid.querySelectorAll<HTMLElement>("[data-container-item]")].find(element => element.dataset.containerItem === item.instanceId), rect = anchor?.getBoundingClientRect(), width = Math.min(360, Math.max(0, window.innerWidth - 24));
         this.popover.style.width = `${width}px`;
         this.popover.style.left = `${Math.max(12, Math.min(rect?.left ?? 12, window.innerWidth - width - 12))}px`;
         this.popover.style.top = `${Math.max(12, Math.min((rect?.bottom ?? 12) + 6, window.innerHeight - Math.min(this.popover.getBoundingClientRect().height || 260, window.innerHeight - 24) - 12))}px`;

@@ -1,0 +1,9 @@
+# Inventory icon slots
+
+The requested inventory grid shows only the item icon, a frame in its cosmetic quality color, and a bottom-right quantity when the stack contains more than one item. Names, descriptions and functional buttons belong in the item details dialog opened by a click or tap. Existing storage, equipment rules and combat-only consumable use remain unchanged.
+
+Reuse the existing body-level item dialog and guarded actions rather than adding another overlay or changing server APIs. Display all available item metadata there. Prefer catalog illustrations; use recognizable decorative symbols for categories and equipment when an illustration is missing or fails to load. Preserve accessible item labels and keyboard focus while removing visible grid labels and inline equipment buttons.
+
+Verification is limited locally to the affected inventory UI tests, client TypeScript/build, and native browser checks at desktop and phone sizes. Check stack counts, all quality colors, details, moving and equipping from the dialog, and touch layout. Required release CI still runs normally. Android 0.1.20/code21 is built from the final source after visual verification, then published with the exact deployed commit.
+
+Verified: `npm test -w @web-mmorpg/client -- tests/containerContentsPanel.test.ts` passed 10 cases; the existing WorldScene integration suite passed 13 cases. Final `npm run build -w @web-mmorpg/client` passed TypeScript and Vite. Native desktop verification showed all six quality borders, counts only above one, complete details, successful moving and equipping. Phone verification at 844×390 confirmed scrollable details, a successful move, cleared feedback when opening another item, and a new details window starting at scroll position zero. Browser viewport reset and temporary tab closed. No server or database schema changes.

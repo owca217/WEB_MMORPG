@@ -494,6 +494,18 @@ button {
   border-color: #a68b55;
 }
 
+.world-hud__container-slot.inventory-drop-target--valid {
+  outline: 3px solid #63d78a;
+  outline-offset: 2px;
+  background: #36533a;
+}
+
+.world-hud__container-slot.inventory-drop-target--invalid {
+  outline: 3px solid #e88476;
+  outline-offset: 2px;
+  background: #58312b;
+}
+
 .world-hud__container-slot.is-empty,
 .world-hud__container-slot.is-empty:hover {
   background: #000;

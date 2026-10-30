@@ -2,7 +2,8 @@ import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_
 import { equipmentDisabledReason, equipmentItemSummary } from "./EquipmentIcon";
 import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 import { inventoryItemIcon } from "./InventoryItemIcon";
-import { getAssignedContainers, getPermanentBackpack } from "./PermanentBackpack";
+import { getPermanentBackpack } from "./PermanentBackpack";
+import { InventoryDragController } from "./InventoryDragController";
 import "./ContainerContentsPanel.css";
 const PLACES_PER_PAGE = 40;
 interface ContainerContentsPanelHandlers {
@@ -35,6 +36,7 @@ export class ContainerContentsPanel {
     private readonly pageLabel: HTMLElement;
     private readonly popover: HTMLElement;
     private readonly portal: HTMLDivElement;
+    private readonly drag:InventoryDragController;
     private snapshot: InventorySnapshot = { items: [] };
     private character: CharacterSnapshot | undefined;
     private slotIndex: ContainerSlotIndex = 0;
@@ -45,7 +47,6 @@ export class ContainerContentsPanel {
     private requestVersion = 0;
     private dataVersion = 0;
     private selectedItemId: string | null = null;
-    private selectedTargetId = "";
     private returnFocus: HTMLElement | null = null;
     private readonly onOutsidePointer = (event: Event): void => {
         if (!this.selectedItemId || !(event.target instanceof Node) || this.popover.contains(event.target))
@@ -61,6 +62,7 @@ export class ContainerContentsPanel {
         this.root.setAttribute("aria-labelledby", "container-contents-title");
         this.root.innerHTML = `<div class="game-panel__header"><h2 id="container-contents-title" data-container-contents-title>Pojemnik</h2><div class="container-contents__header-actions"><button type="button" data-container-pending aria-pressed="false" hidden>Oczekujące</button><button type="button" data-close aria-label="Zamknij zawartość pojemnika">×</button></div></div>
       <p class="container-contents__capacity" data-container-capacity></p><p class="game-panel__empty" data-container-contents-empty hidden></p>
+      <p class="container-contents__drag-hint" id="container-drag-hint">Przeciągnij przedmiot nad wybrany plecak.</p>
       <div class="container-contents__grid" data-container-grid role="list" aria-label="Miejsca w pojemniku"></div>
       <nav class="container-contents__pagination" data-container-pagination aria-label="Strony pojemnika" hidden><button type="button" data-container-page-prev aria-label="Poprzednia strona pojemnika">‹</button><span data-container-page-label aria-live="polite"></span><button type="button" data-container-page-next aria-label="Następna strona pojemnika">›</button></nav>
       <p class="container-contents__feedback" data-container-contents-feedback role="status" aria-live="polite"></p><button type="button" class="container-contents__change" data-change-container>Zmień pojemnik</button>
@@ -81,6 +83,14 @@ export class ContainerContentsPanel {
         this.portal = node("div", "", "container-contents container-contents--portal");
         this.portal.append(this.popover);
         document.body.append(this.portal);
+        this.drag=new InventoryDragController(this.grid,{
+            snapshot:()=>this.snapshot,source:id=>this.visibleItems().find(item=>item.instanceId===id),
+            enabled:()=>!this.pending&&!this.destroyed&&!this.root.classList.contains("is-hidden"),
+            onStart:()=>{this.feedback.textContent="";delete this.feedback.dataset.state;this.closeSelection(false);},
+            onDrop:(id,target)=>{void this.perform(()=>this.handlers.onMoveItem(id,target),"Przeniesiono przedmiot.");},
+            onStateChange:()=>this.handlers.onTypingChange?.(),
+            onMessage:message=>{this.feedback.textContent=message;delete this.feedback.dataset.state;}
+        });
         for (const surface of [this.root, this.portal]) {
             for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click"])
                 surface.addEventListener(type, event => event.stopPropagation());
@@ -98,7 +108,7 @@ export class ContainerContentsPanel {
         this.changeButton.addEventListener("click", () => { if (this.pending || this.destroyed || this.slotIndex === PERMANENT_BACKPACK_SLOT_INDEX || this.assignedContainer()?.permanentContainer)
             return; this.hide(); this.handlers.onChangeContainer(this.slotIndex); });
         this.pendingButton.addEventListener("click", () => { if (this.pending)
-            return; this.pendingView = !this.pendingView; this.page = 0; this.closeSelection(false); this.render(); this.pendingButton.focus(); });
+            return; this.drag.cancel();this.pendingView = !this.pendingView; this.page = 0; this.closeSelection(false); this.render(); this.pendingButton.focus(); });
         this.previousButton.addEventListener("click", () => this.changePage(-1));
         this.nextButton.addEventListener("click", () => this.changePage(1));
     }
@@ -106,6 +116,7 @@ export class ContainerContentsPanel {
         if (this.destroyed)
             return;
         if (character && this.character?.playerId !== character.playerId) {
+            this.drag.cancel();
             this.requestVersion++;
             this.pending = false;
             this.closeSelection(false);
@@ -115,6 +126,7 @@ export class ContainerContentsPanel {
         this.dataVersion++;
         this.snapshot = structuredClone(snapshot);
         this.render();
+        this.drag.revalidate();
     }
     show(slotIndex: ContainerSlotIndex): void {
         if (this.destroyed || this.pending || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT)
@@ -124,6 +136,7 @@ export class ContainerContentsPanel {
             return;
         }
         this.slotIndex = slotIndex;
+        this.drag.cancel();
         this.page = 0;
         this.pendingView = false;
         this.closeSelection(false);
@@ -137,6 +150,7 @@ export class ContainerContentsPanel {
     hide(): void {
         if (this.destroyed)
             return;
+        this.drag.cancel();
         this.requestVersion++;
         this.pending = false;
         this.closeSelection(false);
@@ -149,12 +163,13 @@ export class ContainerContentsPanel {
         if (this.destroyed)
             return;
         this.hide();
+        this.drag.destroy();
         this.destroyed = true;
         document.removeEventListener("pointerdown", this.onOutsidePointer, true);
         this.root.remove();
         this.portal.remove();
     }
-    get isTyping(): boolean { return !this.root.classList.contains("is-hidden") && document.activeElement instanceof HTMLElement && (this.root.contains(document.activeElement) || this.portal.contains(document.activeElement)) && document.activeElement.matches("select,input,textarea"); }
+    get isTyping(): boolean { return this.drag.isDragging||(!this.root.classList.contains("is-hidden") && document.activeElement instanceof HTMLElement && (this.root.contains(document.activeElement) || this.portal.contains(document.activeElement)) && document.activeElement.matches("select,input,textarea")); }
     private assignedContainer(): InventoryItem | undefined {
         if (this.slotIndex === PERMANENT_BACKPACK_SLOT_INDEX)
             return getPermanentBackpack(this.snapshot);
@@ -227,6 +242,8 @@ export class ContainerContentsPanel {
         button.removeAttribute("role");
         button.setAttribute("aria-label", `Opcje: ${item.name} ×${item.quantity} · ${itemQualityText(item)}`);
         button.setAttribute("aria-haspopup", "dialog");
+        button.setAttribute("aria-describedby","container-drag-hint");
+        button.setAttribute("aria-keyshortcuts","Space");
         button.title = `${item.name} ×${item.quantity} · ${itemQualityText(item)}${item.description ? ` — ${item.description}` : ""}`;
         button.append(inventoryItemIcon(item));
         if(item.quantity>1){const quantity=node("span",String(item.quantity),"container-contents__quantity");quantity.dataset.containerQuantity="";quantity.setAttribute("aria-hidden","true");button.append(quantity);}
@@ -240,7 +257,6 @@ export class ContainerContentsPanel {
             this.feedback.textContent = "";
             delete this.feedback.dataset.state;
             this.selectedItemId = item.instanceId;
-            this.selectedTargetId = "";
             this.renderPopover();
             this.popover.scrollTop = 0;
             this.popover.querySelector<HTMLButtonElement>("[data-container-close-actions]")?.focus();
@@ -262,23 +278,6 @@ export class ContainerContentsPanel {
         equip.addEventListener("click", () => { const current = this.visibleItems().find(entry => entry.instanceId === item.instanceId); if (!current || equipmentDisabledReason(current, this.character, this.snapshot) || !this.handlers.onEquipItem)
             return; void this.perform(() => this.handlers.onEquipItem!(current), "Założono przedmiot."); });
         return equip;
-    }
-    private moveTargets(item: InventoryItem): Array<{
-        item: InventoryItem;
-        free: number;
-    }> {
-        const seen = new Set<string>(), targets: Array<{
-            item: InventoryItem;
-            free: number;
-        }> = [];
-        for (const target of getAssignedContainers(this.snapshot)) {
-            if (seen.has(target.instanceId) || target.instanceId === item.instanceId || target.instanceId === item.containerInstanceId)
-                continue;
-            seen.add(target.instanceId);
-            const used = this.snapshot.items.filter(entry => entry.containerInstanceId === target.instanceId && !entry.equippedSlot).length;
-            targets.push({ item: target, free: Math.max(0, target.containerCapacity! - used) });
-        }
-        return targets;
     }
     private renderPopover(): void {
         const item = this.visibleItems().find(entry => entry.instanceId === this.selectedItemId);
@@ -316,37 +315,6 @@ export class ContainerContentsPanel {
         if (item.category === CONTAINER_ITEM_CATEGORY)
             this.popover.append(node("p", "Ten pojemnik możesz założyć w jednym z trzech slotów panelu gry."));
         const equip=this.equipmentAction(item);if(equip)this.popover.append(equip);
-        const nonempty = item.category === CONTAINER_ITEM_CATEGORY && this.snapshot.items.some(entry => entry.containerInstanceId === item.instanceId), targets = this.moveTargets(item);
-        const label = node("label", "Przenieś do"), select = node("select");
-        select.dataset.containerMoveTarget = "";
-        select.dataset.containerFocus = "target";
-        for (const target of targets) {
-            const option = node("option", `${target.item.name} · wolne ${target.free}/${target.item.containerCapacity}`);
-            option.value = target.item.instanceId;
-            option.disabled = nonempty || target.free === 0;
-            select.append(option);
-        }
-        if (!targets.some(target => target.item.instanceId === this.selectedTargetId && target.free > 0))
-            this.selectedTargetId = nonempty ? "" : targets.find(target => target.free > 0)?.item.instanceId ?? "";
-        if (!targets.length)
-            select.append(node("option", "Brak wolnego miejsca"));
-        select.value = this.selectedTargetId;
-        select.disabled = this.pending || nonempty || !this.selectedTargetId;
-        select.addEventListener("change", () => { this.selectedTargetId = select.value; });
-        label.append(select);
-        const move = node("button", "Przenieś");
-        move.type = "button";
-        move.dataset.containerMove = "";
-        move.dataset.containerFocus = "move";
-        move.disabled = this.pending || nonempty || !this.selectedTargetId;
-        move.addEventListener("click", () => { const current = this.visibleItems().find(entry => entry.instanceId === item.instanceId), target = this.selectedTargetId; if (!current || !target || current.permanentContainer || (this.moveTargets(current).find(entry => entry.item.instanceId === target)?.free ?? 0) <= 0)
-            return; if (current.category === CONTAINER_ITEM_CATEGORY && this.snapshot.items.some(entry => entry.containerInstanceId === current.instanceId))
-            return; void this.perform(() => this.handlers.onMoveItem(current.instanceId, target), "Przeniesiono przedmiot."); });
-        this.popover.append(label, move);
-        if (nonempty)
-            this.popover.append(node("p", "Ten pojemnik zawiera przedmioty i nie może trafić do innego pojemnika."));
-        else if (!this.selectedTargetId)
-            this.popover.append(node("p", "Brak wolnego miejsca w innych założonych pojemnikach."));
         if(this.feedback.textContent){const status=node("p",this.feedback.textContent,"container-contents__details-status");status.setAttribute("role","status");if(this.feedback.dataset.state)status.dataset.state=this.feedback.dataset.state;this.popover.append(status);}
         const anchor = [...this.grid.querySelectorAll<HTMLElement>("[data-container-item]")].find(element => element.dataset.containerItem === item.instanceId), rect = anchor?.getBoundingClientRect(), width = Math.min(360, Math.max(0, window.innerWidth - 24));
         this.popover.style.width = `${width}px`;
@@ -356,14 +324,13 @@ export class ContainerContentsPanel {
     private closeSelection(restore: boolean): void {
         const id = this.selectedItemId;
         this.selectedItemId = null;
-        this.selectedTargetId = "";
         this.popover.hidden = true;
         if (restore && id)
             [...this.grid.querySelectorAll<HTMLButtonElement>("[data-container-item]")].find(button => button.dataset.containerItem === id)?.focus();
         this.handlers.onTypingChange?.();
     }
     private changePage(direction: number): void { if (this.pending || this.destroyed)
-        return; this.closeSelection(false); this.page += direction; this.render(); }
+        return; this.drag.cancel();this.closeSelection(false); this.page += direction; this.render(); }
     private async perform(action: () => Promise<InventoryUpdateResult>, success: string): Promise<void> {
         if (this.pending || this.destroyed)
             return;

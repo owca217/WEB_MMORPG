@@ -8,7 +8,12 @@ function inventory(items: InventoryItem[]): InventorySnapshot { return { items, 
 function button(selector: string): HTMLButtonElement { const value = document.querySelector<HTMLButtonElement>(selector); if (!value)
     throw new Error(`Missing ${selector}`); return value; }
 function inspect(id: string): void { button(`[data-container-item="${id}"]`).click(); }
-function move(): void { button("[data-container-move]").click(); }
+function move(instanceId="wood",containerId="bag"): void {
+    let target=document.querySelector<HTMLButtonElement>(`[data-container-drop-target="${containerId}"]`);
+    if(!target){target=document.createElement("button");target.dataset.containerDropTarget=containerId;document.body.append(target);}
+    button(`[data-container-item="${instanceId}"]`).dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true}));
+    target.focus();target.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));
+}
 const panels: ContainerContentsPanel[] = [];
 function panel(handlers: Partial<ConstructorParameters<typeof ContainerContentsPanel>[0]> = {}): ContainerContentsPanel { const value = new ContainerContentsPanel({ onMoveItem: vi.fn(), onInventoryChanged: vi.fn(), onChangeContainer: vi.fn(), ...handlers }); panels.push(value); return value; }
 beforeEach(() => document.body.replaceChildren());
@@ -28,7 +33,7 @@ it("renders only sixteen backpack cells and opens item actions without removing 
     expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("Ilość: 1");
     expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("30 HP");
     expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("2 PA");
-    expect(button("[data-container-move]").disabled).toBe(true);
+    expect(document.querySelector("[data-container-move]")).toBeNull();expect(document.querySelector("[data-container-move-target]")).toBeNull();
 });
 it("shows only framed icons and a bottom-corner count for stacks while retaining accessible item names",()=>{
     const value=panel();value.update(inventory([bag(),item("single",{containerInstanceId:"pack",quality:"GOOD"}),item("stack",{containerInstanceId:"pack",quantity:37,quality:"PERFECT"})]));value.show(0);
@@ -48,9 +53,9 @@ it("shows pending items in the header grid and returns when an acknowledged move
     button("[data-container-pending]").click();
     expect(document.querySelectorAll("[data-container-item]")).toHaveLength(1);
     inspect("wood");
-    move();
+    move("wood","pack");
     expect(onMoveItem).toHaveBeenCalledExactlyOnceWith("wood", "pack");
-    expect(button("[data-container-move]").disabled).toBe(true);
+    expect(button('[data-container-item="wood"]').disabled).toBe(true);
     const updated = inventory(initial.items.map(entry => entry.instanceId === "wood" ? { ...entry, containerInstanceId: "pack" } : entry));
     finish({ ok: true, inventory: updated });
     await vi.waitFor(() => expect(onInventoryChanged).toHaveBeenCalledWith(updated));
@@ -65,7 +70,7 @@ it("moves stored items only to an explicit equipped bag and retains them on fail
     value.update(initial);
     value.show(0);
     inspect("wood");
-    expect([...document.querySelector<HTMLSelectElement>("[data-container-move-target]")!.options].map(option => option.value)).toEqual(["bag"]);
+    expect(document.querySelector("[data-container-move-target]")).toBeNull();
     move();
     await vi.waitFor(() => expect(document.querySelector("[data-container-contents-feedback]")?.textContent).toContain("Brak wolnego miejsca"));
     expect(button('[data-container-item="wood"]')).toBeTruthy();
@@ -76,18 +81,17 @@ it("moves stored items only to an explicit equipped bag and retains them on fail
     expect(onMoveItem.mock.calls).toEqual([["wood", "bag"], ["wood", "bag"]]);
     inspect("stone");expect(document.querySelector('[data-container-item-actions]')?.textContent).not.toContain("Przeniesiono przedmiot.");expect(document.querySelector('[data-container-contents-feedback][data-state]')).toBeNull();
 });
-it("keeps overflow visible when all bags are full and forbids nonempty bag nesting", () => {
+it("keeps overflow visible when bags are full and leaves only metadata in ordinary item details", () => {
     const full = Array.from({ length: 16 }, (_, index) => item(`child-${index}`, { containerInstanceId: "pack" }));
     const value = panel();
     value.update(inventory([bag(), ...full, item("overflow"), bag("nested", 8), item("inside", { containerInstanceId: "nested" })]));
     value.show(0);
     button("[data-container-pending]").click();
     inspect("overflow");
-    expect(button("[data-container-move]").disabled).toBe(true);
-    expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("Brak wolnego miejsca");
+    expect(document.querySelector("[data-container-move]")).toBeNull();
     inspect("nested");
-    expect(button("[data-container-move]").disabled).toBe(true);
-    expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("zawiera przedmioty");
+    expect(document.querySelector("[data-container-item-actions]")?.textContent).toContain("Pojemność: 8 miejsc");
+    expect(document.querySelector("[data-container-move-target]")).toBeNull();
 });
 it("shows complete gear details and equips through the details action without moving it to hidden storage", async () => {
     const sword = item("sword", { category: "weapon", containerInstanceId: "pack",quality:"EXCELLENT",durability:4,maxDurability:9,boundToPlayerId:"hero",upgradeLevel:2,equipment: { slot: "mainHand", weaponFamily: "sword", twoHanded: false, minimumLevel: 1, modifiers: [{statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:6}] } }), equipped = { ...sword, equippedSlot: "mainHand" as const };

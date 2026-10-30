@@ -83,8 +83,14 @@ it("discards a delayed bag acknowledgement from before a gear change and applies
   transport.emit("playerState",state);
   document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   document.querySelector<HTMLButtonElement>('[data-container-pending]')!.click();
-  document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!.click();
-  document.querySelector<HTMLButtonElement>('[data-container-move]')!.click();
+  const moveWood = (): void => {
+    const source = document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!;
+    source.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    const target = document.querySelector<HTMLButtonElement>('[data-container-drop-target="bag"]')!;
+    target.focus();
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  };
+  moveWood();
   const equippedNew={...newWeapon,equippedSlot:"mainHand" as const},unequippedOld=weapon("old-sword");
   const fresh:PlayerStateSnapshot={...state,character:{...state.character,hp:77,equipment:{...emptyCharacterEquipment(),mainHand:equippedNew}},inventory:{...state.inventory,items:[bag,wood,unequippedOld,equippedNew],equipmentSlots:{...emptyEquipmentSlots(),mainHand:newWeapon.instanceId}}};
   transport.emit("playerState",fresh);
@@ -98,8 +104,7 @@ it("discards a delayed bag acknowledgement from before a gear change and applies
 
   const valid:InventorySnapshot={...fresh.inventory,items:[bag,{...wood,containerInstanceId:"bag"},unequippedOld,equippedNew]};
   vi.mocked(gameSocket.moveItemToContainer).mockResolvedValue({ok:true,inventory:valid});
-  document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!.click();
-  document.querySelector<HTMLButtonElement>('[data-container-move]')!.click();
+  moveWood();
   await vi.waitFor(()=>expect(playerStateStore.get()?.inventory).toEqual(valid));
   expect(refresh.mock.calls.length).toBe(previousCalls+1);
   expect(playerStateStore.get()?.character.equipment?.mainHand?.instanceId).toBe("new-sword");

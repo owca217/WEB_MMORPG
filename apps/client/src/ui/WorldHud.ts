@@ -3,7 +3,7 @@ import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { experienceProgressMarkup } from "./ExperienceProgress";
 import { itemQualityText } from "./ItemQualityFrame";
-import { getPermanentBackpack } from "./PermanentBackpack";
+import { getAssignedContainers, getPermanentBackpack } from "./PermanentBackpack";
 
 interface WorldHudHandlers {
   onInventory?: () => void;
@@ -144,10 +144,13 @@ export class WorldHud {
 
   updateInventory(inventory: InventorySnapshot): void {
     this.pendingCount=getPendingInventoryItems(inventory).length;this.togglePending.textContent=String(this.pendingCount);this.togglePending.hidden=this.pendingCount===0;this.updateVisibility();
+    const storageTargets = new Set(getAssignedContainers(inventory).map(item => item.instanceId));
     this.containerSlots.forEach((button, slotIndex) => {
       const instanceId = inventory.containerSlots?.[slotIndex];
       const permanentSlot=slotIndex===PERMANENT_BACKPACK_SLOT_INDEX;
       const item = permanentSlot ? getPermanentBackpack(inventory) : inventory.items.find((candidate) => candidate.instanceId === instanceId && candidate.category === CONTAINER_ITEM_CATEGORY && !candidate.containerInstanceId);
+      if (item && storageTargets.has(item.instanceId)) button.dataset.containerDropTarget = item.instanceId;
+      else delete button.dataset.containerDropTarget;
       const number = document.createElement("span");
       number.className = "world-hud__container-number";
       number.textContent = `${slotIndex + 1}`;

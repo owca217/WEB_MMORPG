@@ -18,6 +18,7 @@ it("opens the permanent backpack from the left HUD slot with the bundled icon an
   const waiting:InventoryItem={instanceId:"overflow",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0};
   hud.updateInventory({items:[backpack,waiting],containerSlots:["permanent",null,null,null]});
   const left=document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!;
+  expect(left.dataset.containerDropTarget).toBe("permanent");
   expect(left.getAttribute("aria-label")).toContain("Otwórz plecak");
   expect(left.title).toContain("16 miejsc");expect(left.title).toContain("na stałe");
   expect(left.querySelector("img")?.getAttribute("src")).toBe("/WEB_MMORPG/assets/items/permanent-backpack.png");
@@ -28,6 +29,7 @@ it("opens the permanent backpack from the left HUD slot with the bundled icon an
   left.querySelector("img")!.dispatchEvent(new Event("error"));
   expect(left.querySelector("svg")).not.toBeNull();expect(left.querySelector("[data-item-quality]")).not.toBeNull();
   for(const slot of document.querySelectorAll<HTMLButtonElement>('[data-container-slot]:not([data-container-slot="0"])')) {
+    expect(slot.hasAttribute("data-container-drop-target")).toBe(false);
     expect(slot.classList.contains("is-empty")).toBe(true);expect(slot.querySelector("img")).toBeNull();expect(slot.querySelector("[data-item-quality]")).toBeNull();
   }
   hud.destroy();
@@ -63,11 +65,12 @@ describe("WorldHud session controls", () => {
     const container: InventoryItem = {
       instanceId: "bag", itemId: "bag-definition", itemDefinitionId: "bag-definition",
       category: "container", name: "<img src=x onerror=alert(1)>", description: "", quantity: 1,
-      rarity: "COMMON", upgradeLevel: 0, iconUrl: "/missing-bag.png"
+      rarity: "COMMON", upgradeLevel: 0, iconUrl: "/missing-bag.png", containerCapacity: 8
     };
     hud.updateInventory({ items: [container], containerSlots: [null, "bag", null, null] });
 
     const equipped = document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!;
+    expect(equipped.dataset.containerDropTarget).toBe("bag");
     expect(equipped.textContent).toContain(container.name);
     expect(equipped.querySelectorAll("img")).toHaveLength(1);
     const icon = equipped.querySelector("img")!;
@@ -76,6 +79,7 @@ describe("WorldHud session controls", () => {
     expect(equipped.querySelector("[data-container-icon] svg")).not.toBeNull();
 
     hud.updateInventory({ items: [container], containerSlots: [null, null, null, null] });
+    expect(equipped.hasAttribute("data-container-drop-target")).toBe(false);
     expect(equipped.textContent?.trim()).toBe("");
     expect(equipped.getAttribute("aria-label")).toBe("Pojemnik 2: pusty. Wybierz pojemnik");
     hud.destroy();

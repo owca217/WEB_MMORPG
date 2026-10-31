@@ -28,3 +28,13 @@ Read-only production preflight: migration013,9accounts/9characters/25item instan
 Migration014 adds and backfills container positions and constraints. Old writers must be drained before migration; old-application rollback alone is unsafe afterward. Required release sequence: maintenance mode, restart/drain old instances, completed logical production export, deploy new server/migration, compare identity/count/position invariants, remove maintenance, verify live UI and logs. Use `[skip render]` while preparing source/CI so publishing code cannot bypass this migration gate.
 
 At preparation time the connected Render tools could read/preflight/trigger deploys but could not create exports or set maintenance mode. Dashboard access required the user's existing Google login. No production database mutation or deploy has occurred at this preparation stage.
+
+## Completed production release — 2026-10-31
+
+The user enabled maintenance, restarted the old service, and confirmed the completed downloaded database export. Render events confirmed maintenance and restarts before publication. The release was fast-forwarded to `feature/mvp-vertical-slice`; PR #18 is merged. Render recorded the expected skipped automatic deployment for `[skip render]`, followed by the explicitly triggered release.
+
+Production commit `3098cd0e286dada74d50b051447f02d76954f90d` became live in deploy `dep-dbirnch42hec73bb3b6g` at `2026-10-31T09:59:01Z`. Production migration 014 and its validated constraints were verified read-only. All 9 accounts, 9 characters, 25 item instances and 9 permanent backpacks were preserved; all 22 consistency anomaly counts were zero. The 11 authored starter weapons were published with the expected metadata, statistics and icons (catalog grew from 23 to 34).
+
+Maintenance is disabled. Public verification passed: official HTML and current JavaScript/CSS return HTTP 200, all five enemy PNGs load, an unauthenticated Socket.IO connection succeeds, and the session endpoint correctly returns HTTP 401 without authorization. The official login screen renders with the new theme and no browser errors. This production check did not create accounts or modify player inventories; gameplay interactions were covered by the earlier local tests and preview verification.
+
+Both production-branch workflows passed: Feature CI run 41190781306 and Android APK run 41190781400. Android 0.1.25/versionCode 26 remains the prepared APK for the official backend. Local release receipts and public verification results are retained under ignored `artifacts/release/`, with official UI proof under `artifacts/ui/`.

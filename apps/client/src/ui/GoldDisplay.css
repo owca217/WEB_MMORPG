@@ -1,0 +1,51 @@
+.gold-display {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  color: var(--rpg-text, #e8dfca);
+  font: inherit;
+}
+.gold-display .gold-display__button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 6px;
+  border: 1px solid #78603d55;
+  border-radius: 2px;
+  color: #b4ab92;
+  background: #171b1866;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.gold-display__label { min-width: 0; font-size: 11px; }
+.gold-display__value { flex-shrink: 0; color: #ddc084; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gold-display .gold-display__button:focus-visible { outline: 2px solid var(--rpg-focus, #eed39b); outline-offset: -2px; }
+.gold-display .gold-display__button:disabled { cursor: default; }
+.gold-display .gold-display__tooltip {
+  position: absolute;
+  z-index: 5;
+  inset-inline: 0;
+  bottom: calc(100% + 5px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 6px 7px;
+  border: 1px solid #a38a52;
+  border-radius: 3px;
+  color: #f0dfb5;
+  background: #191d17fa;
+  box-shadow: 0 3px 12px #0008;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.gold-display [hidden] { display: none !important; }

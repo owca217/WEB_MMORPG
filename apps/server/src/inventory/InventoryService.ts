@@ -19,7 +19,7 @@ import {
 } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 import { ensurePermanentBackpack } from "./permanentBackpack";
-import { autoStoreOwnedItems, getStorageDestinations } from "./autoStorage";
+import { autoStoreOwnedItems, ensureOwnedContainerPositions, getStorageDestinations } from "./autoStorage";
 import { isInventoryContainer, LEGACY_CAPACITY_COLUMN, resolveContainerCapacity, type ContainerCapacitySource } from "./containerCapacity";
 
 export interface InventoryReward {
@@ -61,6 +61,7 @@ interface InventoryRow extends ContainerCapacitySource {
   bound_to_player_id: string | null;
   container_slot: number | null;
   container_instance_id: string | null;
+  container_position: number | null;
   container_capacity: number | null;
   permanent_container: boolean;
   special_data: Record<string, unknown> | null;
@@ -84,6 +85,7 @@ interface ContainerAssignmentRow extends ContainerCapacitySource {
 }
 
 interface ContainerStorageRow extends ContainerAssignmentRow {
+  container_position: number | null;
   container_slot: number | null;
   container_capacity: number | null;
   special_data: Record<string, unknown> | null;
@@ -236,7 +238,7 @@ export class InventoryService {
       if (itemInstanceId !== null) {
         await client.query(
           `UPDATE item_instances
-           SET container_slot = $2, container_instance_id=NULL, updated_at = NOW()
+           SET container_slot = $2, container_instance_id=NULL, container_position=NULL, updated_at = NOW()
            WHERE id = $1 AND character_id = $3`,
           [itemInstanceId, slotIndex, characterId]
         );
@@ -256,12 +258,15 @@ export class InventoryService {
   async moveItemToContainer(
     characterId: string,
     itemInstanceId: string,
-    targetContainerInstanceId: string | null
+    targetContainerInstanceId: string | null,
+    targetPosition?: number,
+    assertCurrent: () => void = () => undefined
   ): Promise<InventorySnapshot> {
     if (!this.isInstanceId(itemInstanceId)) throw new Error("INVALID_ITEM_INSTANCE_ID");
     if (targetContainerInstanceId !== null && !this.isInstanceId(targetContainerInstanceId)) {
       throw new Error("INVALID_CONTAINER_INSTANCE_ID");
     }
+    if (targetPosition !== undefined && (!Number.isSafeInteger(targetPosition) || targetPosition < 0 || targetContainerInstanceId === null)) throw new Error("INVALID_CONTAINER_POSITION");
     itemInstanceId = itemInstanceId.toLowerCase();
     targetContainerInstanceId = targetContainerInstanceId?.toLowerCase() ?? null;
     if (itemInstanceId === targetContainerInstanceId) throw new Error("CONTAINER_CANNOT_STORE_SELF");
@@ -271,9 +276,10 @@ export class InventoryService {
       await client.query("BEGIN");
       const character = await client.query("SELECT id FROM characters WHERE id = $1 FOR UPDATE", [characterId]);
       if (!character.rowCount) throw new Error("CHARACTER_NOT_FOUND");
+      await ensureOwnedContainerPositions(client, characterId);
       const readOwned = async (id: string, missingCode: string): Promise<ContainerStorageRow> => {
         const result = await client.query<ContainerStorageRow>(
-          `SELECT instance.container_slot, instance.container_instance_id, instance.container_capacity, instance.equipment_slot, instance.permanent_container,
+          `SELECT instance.container_slot, instance.container_instance_id, instance.container_position, instance.container_capacity, instance.equipment_slot, instance.permanent_container,
              version.category_id, version.special_data, ${LEGACY_CAPACITY_COLUMN}
            FROM item_instances instance
            JOIN items item ON item.id = instance.item_id
@@ -293,6 +299,7 @@ export class InventoryService {
 
       const source = await readOwned(itemInstanceId, "INVENTORY_ITEM_NOT_OWNED");
       if(source.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
+      const destinations = await getStorageDestinations(client, characterId);
       if (targetContainerInstanceId !== null) {
         if(source.equipment_slot!==null)throw new Error("EQUIPMENT_ITEM_EQUIPPED");
         const target = await readOwned(targetContainerInstanceId, "CONTAINER_ITEM_NOT_OWNED");
@@ -300,6 +307,9 @@ export class InventoryService {
         if (target.container_instance_id !== null) throw new Error("CONTAINER_ITEM_STORED");
         const capacity = this.getContainerCapacity(target);
         if (capacity === undefined) throw new Error("CONTAINER_CAPACITY_INVALID");
+        if (!destinations.some(parent => parent.id === targetContainerInstanceId)) throw new Error("CONTAINER_NOT_ASSIGNED");
+        if (source.container_instance_id && !destinations.some(parent => parent.id === source.container_instance_id)) throw new Error("CONTAINER_ITEM_STORED");
+        if (targetPosition !== undefined && targetPosition >= capacity) throw new Error("INVALID_CONTAINER_POSITION");
         if (source.container_slot !== null) throw new Error("CONTAINER_ITEM_EQUIPPED");
 
         const children = await client.query(
@@ -307,24 +317,35 @@ export class InventoryService {
           [itemInstanceId]
         );
         if (children.rowCount) throw new Error("CONTAINER_NOT_EMPTY");
-        if (source.container_instance_id !== targetContainerInstanceId) {
-          const occupied = await client.query<{ count: number }>(
-            "SELECT COUNT(*)::int AS count FROM item_instances WHERE container_instance_id = $1",
-            [targetContainerInstanceId]
-          );
-          if ((occupied.rows[0]?.count ?? 0) >= capacity) throw new Error("CONTAINER_FULL");
-        }
-      }
-
-      if (source.container_instance_id !== targetContainerInstanceId) {
-        await client.query(
-          `UPDATE item_instances SET container_instance_id = $2, updated_at = NOW()
-           WHERE id = $1 AND character_id = $3`,
-          [itemInstanceId, targetContainerInstanceId, characterId]
+        const sameBag = source.container_instance_id === targetContainerInstanceId;
+        const occupied = await client.query<{ id: string; container_position: number }>(
+          "SELECT id,container_position FROM item_instances WHERE container_instance_id=$1 ORDER BY id FOR UPDATE", [targetContainerInstanceId]
         );
+        const occupiedPositions = new Set(occupied.rows.map(row => row.container_position));
+        const position = targetPosition ?? (sameBag ? source.container_position! : Array.from({ length: capacity }, (_, index) => index).find(index => !occupiedPositions.has(index)));
+        if (position === undefined) throw new Error("CONTAINER_FULL");
+        const occupant = occupied.rows.find(row => row.container_position === position && row.id !== itemInstanceId);
+        if (occupant && !sameBag) throw new Error("CONTAINER_POSITION_OCCUPIED");
+        if (occupant) {
+          await client.query("SET CONSTRAINTS item_instances_container_position_unique DEFERRED");
+          await client.query(
+            `UPDATE item_instances SET container_position=CASE WHEN id=$1 THEN $3::integer ELSE $4::integer END,updated_at=NOW()
+             WHERE character_id=$2 AND id=ANY($5::uuid[])`,
+            [itemInstanceId, characterId, position, source.container_position, [itemInstanceId, occupant.id]]
+          );
+        } else if (!sameBag || source.container_position !== position) {
+          await client.query(
+            "UPDATE item_instances SET container_instance_id=$2,container_position=$4,updated_at=NOW() WHERE id=$1 AND character_id=$3",
+            [itemInstanceId, targetContainerInstanceId, characterId, position]
+          );
+        }
+      } else if (source.container_instance_id !== null) {
+        if (!destinations.some(parent => parent.id === source.container_instance_id)) throw new Error("CONTAINER_ITEM_STORED");
+        await client.query("UPDATE item_instances SET container_instance_id=NULL,container_position=NULL,updated_at=NOW() WHERE id=$1 AND character_id=$2", [itemInstanceId, characterId]);
       }
-      await autoStoreOwnedItems(client,characterId);
+      if (source.container_instance_id !== targetContainerInstanceId) await autoStoreOwnedItems(client,characterId);
       const snapshot = await this.getSnapshotForOwner("character", characterId, client);
+      assertCurrent();
       await client.query("COMMIT");
       return snapshot;
     } catch (error) {
@@ -430,6 +451,7 @@ export class InventoryService {
         instance.bound_to_player_id,
         instance.container_slot,
         instance.container_instance_id,
+        instance.container_position,
         instance.container_capacity,
         instance.permanent_container,
         version.special_data,
@@ -617,6 +639,7 @@ export class InventoryService {
       ...(row.container_instance_id
         ? { containerInstanceId: row.container_instance_id }
         : {}),
+      ...(row.container_instance_id && row.container_position !== null ? { containerPosition: row.container_position } : {}),
       ...(row.bound_to_player_id
         ? { boundToPlayerId: row.bound_to_player_id }
         : {})

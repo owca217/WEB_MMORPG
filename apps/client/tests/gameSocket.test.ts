@@ -187,6 +187,25 @@ describe("GameSocket authentication lifecycle", () => {
     ]);
   });
 
+  it("forwards an explicit storage cell while preserving automatic-placement payloads", async () => {
+    const payloads: unknown[] = [];
+    const inventory = { items: [], containerSlots: ["pack", null, null, null] };
+    const game = await startServer((_token, ack, socket) => {
+      socket.on("moveItemToContainer", (payload, reply) => {
+        payloads.push(payload);
+        reply({ ok: true, inventory });
+      });
+      ack(authenticated);
+    });
+    await game.authenticate("session-token");
+    expect(await game.moveItemToContainer("wood", "pack", 5)).toEqual({ ok: true, inventory });
+    expect(await game.moveItemToContainer("wood", "side-bag")).toEqual({ ok: true, inventory });
+    expect(payloads).toEqual([
+      { itemInstanceId: "wood", targetContainerInstanceId: "pack", targetPosition: 5 },
+      { itemInstanceId: "wood", targetContainerInstanceId: "side-bag" }
+    ]);
+  });
+
   it("returns a usable rejection when a container acknowledgement times out", async () => {
     const game = await startServer((_token, ack) => ack(authenticated));
     await game.authenticate("session-token");

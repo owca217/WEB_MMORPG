@@ -68,3 +68,21 @@
   .social-widget__header h2 { font-size: 18px; }
   .social-widget__section { gap: 6px; padding: 8px 0; }
 }
+
+/* Party and trade share content styling without the friends modal's geometry. */
+.social-floating-window button { min-width: 44px; min-height: 44px; padding: 7px 9px; border: 1px solid var(--rpg-border, #806b48); border-radius: 3px; color: var(--rpg-text, #f0e6d0); background: linear-gradient(#43382a, #30281f); font: inherit; cursor: pointer; touch-action: manipulation; }
+.social-floating-window button:hover:enabled { border-color: var(--rpg-gold, #dec084); background: #4d412e; }
+.social-floating-window button:disabled { opacity: .55; cursor: default; }
+.social-floating-window :is(button, input, select):focus-visible { outline: 2px solid var(--rpg-focus, #f2d590); outline-offset: -2px; }
+.social-floating-window :is(h3, h4, p) { margin: 0; }
+.social-floating-window h3 { color: var(--rpg-gold, #dec084); font-size: 14px; }
+.social-floating-window h4 { color: var(--rpg-text, #f0e6d0); font-size: 13px; }
+.social-floating-window label { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; color: var(--rpg-muted, #bfb39b); font-size: 12px; }
+.social-floating-window :is(input, select) { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid var(--rpg-border, #806b48); border-radius: 3px; color: var(--rpg-text, #f0e6d0); background: var(--rpg-panel-inset, #151714); font-size: 16px; touch-action: auto; }
+.social-floating-window .social-widget__feedback { padding: 0 10px 8px; }
+.social-floating-window .social-widget__feedback:empty { display: none; }
+.social-floating-window .social-widget__hint { color: var(--rpg-muted, #bfb39b); }
+.social-floating-window .social-widget__offer-builder { grid-template-columns: minmax(0, 1fr) 64px; }
+.social-floating-window .social-widget__rules summary { min-height: 44px; display: flex; align-items: center; color: var(--rpg-gold, #dec084); cursor: pointer; }
+.social-floating-window .social-widget__rules summary::before { content: "▸"; margin-right: 6px; }
+.social-floating-window .social-widget__rules[open] summary::before { content: "▾"; }

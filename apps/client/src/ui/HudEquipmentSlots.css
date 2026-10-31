@@ -1,0 +1,65 @@
+.hud-equipment-slots {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: var(--rpg-slot-size, 36px) 82px var(--rpg-slot-size, 36px);
+  grid-template-rows: repeat(5, var(--rpg-slot-size, 36px));
+  grid-template-areas:
+    ". helmet ."
+    "chest portrait cloak"
+    "gloves portrait pants"
+    "mainHand portrait offHand"
+    ". boots .";
+  column-gap: 12px;
+  row-gap: 4px;
+  justify-items: center;
+  align-items: center;
+  width: max-content;
+  align-self: center;
+  pointer-events: auto;
+}
+.hud-equipment-slots > .world-hud__portrait { grid-area: portrait; justify-self: center; align-self: center; }
+.hud-equipment-slots [data-hud-equipment-slot="mainHand"] { grid-area: mainHand; }
+.hud-equipment-slots [data-hud-equipment-slot="offHand"] { grid-area: offHand; }
+.hud-equipment-slots [data-hud-equipment-slot="helmet"] { grid-area: helmet; }
+.hud-equipment-slots [data-hud-equipment-slot="chest"] { grid-area: chest; }
+.hud-equipment-slots [data-hud-equipment-slot="gloves"] { grid-area: gloves; }
+.hud-equipment-slots [data-hud-equipment-slot="pants"] { grid-area: pants; }
+.hud-equipment-slots [data-hud-equipment-slot="boots"] { grid-area: boots; }
+.hud-equipment-slots [data-hud-equipment-slot="cloak"] { grid-area: cloak; }
+.hud-equipment-slots button[data-hud-equipment-slot] {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--rpg-slot-size, 36px);
+  height: var(--rpg-slot-size, 36px);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--rpg-border-soft, #514a39);
+  border-radius: 3px;
+  color: var(--rpg-muted, #bfb39b);
+  background: radial-gradient(ellipse at 50% 30%, #454330, #121610 85%);
+  box-shadow: inset 0 0 6px #0008;
+  cursor: pointer;
+  touch-action: manipulation;
+  /* Keep only actionable slots visible when drag elevation hides the rail. */
+  visibility: visible;
+}
+.hud-equipment-slots button[data-hud-equipment-slot]:hover { border-color: var(--rpg-gold, #dec084); }
+.hud-equipment-slots button[data-hud-equipment-slot]:focus-visible { outline: 2px solid var(--rpg-focus, #f2d590); outline-offset: -2px; }
+.hud-equipment-slots button[data-hud-equipment-slot] > .equipment-icon {
+  width: 100%;
+  height: 100%;
+  flex: 0 0 auto;
+}
+.hud-equipment-slots button[data-hud-equipment-slot] > .hud-equipment-slots__empty-icon {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  opacity: .65;
+}
+.hud-equipment-slots button[data-hud-equipment-slot].is-blocked > .hud-equipment-slots__empty-icon { opacity: .3; }
+.hud-equipment-slots button.inventory-drop-target--valid { outline: 2px solid #63d78a; outline-offset: -2px; }
+.hud-equipment-slots button.inventory-drop-target--invalid { outline: 2px solid #e88476; outline-offset: -2px; }

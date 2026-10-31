@@ -44,23 +44,28 @@ describe("isometric battle geometry", () => {
   });
 });
 
-describe("battle arena beside the character panel", () => {
+describe("battle arena between the measured header, right details and action dock", () => {
   it.each([
-    { width: 1280, height: 720, hud: { x: 12, y: 12, width: 280, height: 696 },
-      insets: { top: 0, right: 0, bottom: 0, left: 0 }, minimumSize: 34 },
-    { width: 844, height: 390, hud: { x: 32, y: 12, width: 220, height: 354 },
-      insets: { top: 0, right: 20, bottom: 12, left: 20 }, minimumSize: 24 },
-    { width: 390, height: 844, hud: { x: 12, y: 24, width: 120, height: 790 },
+    { width: 1280, height: 720, hud: {
+      sidebar: { x: 988, y: 80, width: 280, height: 628 },
+      header: { x: 12, y: 12, width: 964, height: 92 }, actions: { x: 12, y: 596, width: 964, height: 112 } },
+      insets: { top: 0, right: 0, bottom: 0, left: 0 }, minimumSize: 30 },
+    { width: 844, height: 390, hud: {
+      header: { x: 32, y: 12, width: 780, height: 88 }, actions: { x: 32, y: 290, width: 780, height: 76 } },
+      insets: { top: 0, right: 20, bottom: 12, left: 20 }, minimumSize: 10 },
+    { width: 390, height: 844, hud: {
+      header: { x: 12, y: 24, width: 366, height: 126 }, actions: { x: 12, y: 654, width: 366, height: 160 } },
       insets: { top: 12, right: 0, bottom: 18, left: 0 }, minimumSize: 10 }
   ])("keeps all cells and unit labels within the available $width × $height viewport", ({
     width, height, hud, insets, minimumSize
   }) => {
     const layout = calculateBattleLayout(width, height, cells, hud, insets);
     const { arena, hexSize } = layout;
-    expect(arena.x).toBeGreaterThanOrEqual(hud.x + hud.width + 12);
+    expect(arena.x).toBeGreaterThanOrEqual(insets.left + 12);
+    if (hud.sidebar) expect(arena.x + arena.width).toBeLessThanOrEqual(hud.sidebar.x - 12);
     expect(arena.x + arena.width).toBeLessThanOrEqual(width - insets.right - 12);
-    expect(arena.y).toBeGreaterThanOrEqual(insets.top + 12);
-    expect(arena.y + arena.height).toBeLessThanOrEqual(height - insets.bottom - 12);
+    expect(arena.y).toBeGreaterThanOrEqual(hud.header.y + hud.header.height + 12);
+    expect(arena.y + arena.height).toBeLessThanOrEqual(hud.actions.y - 12);
     expect(hexSize).toBeGreaterThanOrEqual(minimumSize);
     for (const cell of cells) {
       const local = axialToPixel(cell, hexSize);
@@ -77,12 +82,12 @@ describe("battle arena beside the character panel", () => {
     }
   });
 
-  it("reserves a left panel before the HUD is measured and handles an empty arena", () => {
+  it("reserves compact header and dock before measurement and handles an empty arena", () => {
     const layout = calculateBattleLayout(844, 390, [], undefined);
-    expect(layout.sidebar.x).toBe(12);
-    expect(layout.sidebar.width).toBeGreaterThanOrEqual(200);
-    expect(layout.sidebar.width).toBeLessThanOrEqual(220);
-    expect(layout.arena.x).toBe(layout.sidebar.x + layout.sidebar.width + 12);
+    expect(layout.sidebar.width).toBe(0);
+    expect(layout.arena.x).toBe(12);
+    expect(layout.arena.y).toBe(layout.header.y + layout.header.height + 12);
+    expect(layout.arena.y + layout.arena.height).toBe(layout.actions.y - 12);
     expect(Number.isFinite(layout.centerX)).toBe(true);
     expect(Number.isFinite(layout.centerY)).toBe(true);
     expect(layout.hexSize).toBeGreaterThan(0);

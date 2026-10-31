@@ -76,7 +76,7 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
   const scale = Object.assign(scaleEvents, { width, height });
 
   Object.assign(scene, {
-    cameras: { main: { setBackgroundColor() {}, centerX: width / 2, centerY: height / 2, width, height } },
+    cameras: { main: { setBackgroundColor() {}, setViewport: vi.fn(), centerX: width / 2, centerY: height / 2, width, height } },
     scale,
     add: {
       graphics: drawable,
@@ -98,6 +98,30 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
 
 describe("BattleScene completion", () => {
   let transport: EventEmitter;
+
+  it("zooms graphics and hit cells together, resets to fit and reserves the full battle canvas", () => {
+    const cells = [{ q: 0, r: 0 }, { q: 1, r: 0 }];
+    const { scene, events, scale, zones, polygons } = createScene({ ...initialBattle, cells }, 844, 390);
+    expect(scene.cameras.main.setViewport).toHaveBeenLastCalledWith(0, 0, 844, 390);
+    const size = zones[0]!.width;
+    const edge = Math.hypot(polygons[0]![0]!.x - polygons[0]![1]!.x, polygons[0]![0]!.y - polygons[0]![1]!.y);
+    const zoom = document.querySelector<HTMLButtonElement>("[data-toggle-battle-zoom]")!;
+    zoom.click();
+    expect(zoom.getAttribute("aria-pressed")).toBe("true");
+    expect(zones.at(-2)!.width / size).toBeCloseTo(1.8);
+    const enlarged = polygons.at(-2)!;
+    const enlargedEdge = Math.hypot(enlarged[0]!.x - enlarged[1]!.x, enlarged[0]!.y - enlarged[1]!.y);
+    // The raised tile edge uses a one-pixel inset at both scales.
+    expect(enlargedEdge).toBeGreaterThan(edge * 1.7);
+    zoom.click();
+    expect(zones.at(-2)!.width).toBeCloseTo(size);
+    zoom.click();
+    scale.width = 1280; scale.height = 720; scale.emit("resize");
+    expect(zoom.getAttribute("aria-pressed")).toBe("false");
+    expect(scene.cameras.main.setViewport).toHaveBeenLastCalledWith(0, 0, 1280, 720);
+    events.emit("shutdown");
+    expect(document.querySelector("[data-battle-actions]")).toBeNull();
+  });
 
   it("returns to the world after reconnecting an abandoned automatic battle and removes the reconnect listener",()=>{
     let reauthenticated!:(result:{ok:true;characterId:string;locationId:string})=>void;
@@ -152,7 +176,7 @@ describe("BattleScene completion", () => {
     expect(bodies.map(body=>body.fill)).toEqual([0x5fa6e8,0x6fac75,0xcf6a61]);
     expect(document.querySelector('[data-team-member="hero:ally"]')?.textContent).toContain("Borys");
     zones[1]!.handlers.get("pointerup")!({wasTouch:true});
-    expect(commands).toEqual([]);expect(document.querySelector<HTMLElement>('[data-attack-preview]')?.hidden??true).toBe(true);
+    expect(commands).toEqual([]);expect(document.querySelector<HTMLButtonElement>('[data-confirm-attack]')?.hidden).toBe(true);
     expect(document.querySelector<HTMLSelectElement>('[data-battle-healing-target]')?.value).toBe(ally.id);
     let select=document.querySelector<HTMLSelectElement>('[data-battle-healing-target]')!;select.value=own.id;select.dispatchEvent(new Event("change",{bubbles:true}));
     expect(document.querySelector<HTMLButtonElement>('[data-action="heal-self"]')?.disabled).toBe(true);
@@ -247,17 +271,18 @@ describe("BattleScene completion", () => {
     expect(transport.listenerCount("battleEnded")).toBe(0);
   });
 
-  it("fits every cell and combatant beside a phone HUD and recalculates on resize", () => {
+  it("fits every cell and combatant between phone header and dock and recalculates on resize", () => {
     const cells = [];
     for (let q = -4; q <= 4; q += 1) {
       for (let r = -4; r <= 4; r += 1) {
         if (Math.abs(q + r) <= 4) cells.push({ q, r });
       }
     }
+    let viewportHeight = 380;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return DOMRect.fromRect(this.classList.contains("battle-hud")
-        ? { x: 12, y: 12, width: 220, height: 356 }
-        : {});
+      return DOMRect.fromRect(this.hasAttribute("data-battle-header")
+        ? { x: 12, y: 12, width: 816, height: 96 }
+        : this.hasAttribute("data-battle-actions") ? { x: 12, y: viewportHeight - 88, width: 816, height: 76 } : {});
     });
     const battle = { ...initialBattle, cells };
     const { events, polygons, bodies, zones, scale } = createScene(battle, 840, 380);
@@ -265,21 +290,24 @@ describe("BattleScene completion", () => {
       const points = polygons.slice(-61).flat();
       expect(points).toHaveLength(366);
       for (const point of points) {
-        expect(point.x).toBeGreaterThanOrEqual(244);
+        expect(point.x).toBeGreaterThanOrEqual(12);
         expect(point.x).toBeLessThanOrEqual(828);
-        expect(point.y).toBeGreaterThanOrEqual(12);
-        expect(point.y).toBeLessThanOrEqual(368);
+        expect(point.y).toBeGreaterThanOrEqual(120);
+        expect(point.y).toBeLessThanOrEqual(viewportHeight - 100);
       }
     };
     assertArenaFits();
     expect(bodies).toHaveLength(battle.combatants.length);
     expect(zones).toHaveLength(61);
-    expect(bodies[0]!.radius).toBeGreaterThanOrEqual(7);
+    expect(bodies[0]!.radius).toBeGreaterThanOrEqual(4);
 
+    const fittedZoneWidth = zones[0]!.width;
     polygons.length = 0;
     scale.height = 340;
+    viewportHeight = 340;
     scale.emit("resize");
     assertArenaFits();
+    expect(zones.at(-61)!.width).toBeLessThan(fittedZoneWidth);
     expect(Math.max(...polygons.flat().map((point) => point.y))).toBeLessThanOrEqual(328);
     events.emit("shutdown");
     expect(scale.listenerCount("resize")).toBe(0);

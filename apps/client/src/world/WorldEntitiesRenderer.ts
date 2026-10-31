@@ -18,6 +18,7 @@ import { getCharacterSkinTextureKey } from "../characters/characterSkinAssets";
 import { getCharacterWalkAnimationKey } from "../characters/characterSkinSprites";
 import { getNpcSkinAsset, getNpcSkinTextureKey } from "../characters/npcSkinAssets";
 import { encounterAvailable, encounterLabel, encounterStatusText } from "./encounterPresentation";
+import { isPrimaryMovementPointer, shouldInteractWithPointer } from "../ui/interactionPreferences";
 
 interface EncounterView {
   container:Phaser.GameObjects.Container;
@@ -55,6 +56,7 @@ export class WorldEntitiesRenderer {
   onNpcSelected?: (npcId: string) => void;
   onEncounterSelected?: (encounterId: string) => void;
   onTeleportSelected?: (point:{x:number;y:number})=>void;
+  onPlayerSelected?: (playerId: string) => void;
 
   private readonly playerViews = new Map<PlayerId, PlayerView>();
   private readonly pendingSpeechBubbles = new Map<PlayerId, PendingSpeechBubble>();
@@ -190,6 +192,14 @@ export class WorldEntitiesRenderer {
       targetY: player.y
     };
     this.setPlayerSkin(view, resolveCharacterSkin(player.appearance).id, local);
+    if (!local) {
+      container.setSize(54, 80).setInteractive({ useHandCursor: true });
+      container.on("pointerup", (pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+        if (!this.onPlayerSelected || !shouldInteractWithPointer(pointer)) return;
+        event?.stopPropagation();
+        this.onPlayerSelected(player.id);
+      });
+    }
     return view;
   }
 
@@ -322,7 +332,11 @@ export class WorldEntitiesRenderer {
     }).setOrigin(0.5);
     container.add(label);
     container.setSize(54, 68).setInteractive({ useHandCursor: true });
-    container.on("pointerup", () => this.onNpcSelected?.(npc.id));
+    container.on("pointerup", (pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+      if (!this.onNpcSelected || !shouldInteractWithPointer(pointer)) return;
+      event?.stopPropagation();
+      this.onNpcSelected(npc.id);
+    });
     return container;
   }
 
@@ -382,7 +396,11 @@ export class WorldEntitiesRenderer {
     container.add([shadow, ...wolves, label]);
     container.setSize(110, 70).setInteractive({ useHandCursor: true });
     const view={container,label,encounter:{...encounter}};
-    container.on("pointerup", () => {if(encounterAvailable(view.encounter))this.onEncounterSelected?.(encounter.id);});
+    container.on("pointerup", (pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+      if (!this.onEncounterSelected || !encounterAvailable(view.encounter) || !shouldInteractWithPointer(pointer)) return;
+      event?.stopPropagation();
+      this.onEncounterSelected(encounter.id);
+    });
     return view;
   }
 
@@ -399,7 +417,11 @@ export class WorldEntitiesRenderer {
       const label=this.scene.add.text(edgeRight ? -zone.width/2-10 : zone.width/2+10,25,zone.label,{fontFamily:"Georgia, serif",fontSize:"15px",color:"#f0edcf",backgroundColor:"#16251ddd",padding:{x:7,y:5}}).setOrigin(edgeRight ? 1 : 0,0.5);
       view.add([area,arrow,label]);
       view.setSize(zone.width,zone.height).setInteractive({useHandCursor:true});
-      view.on("pointerup",()=>this.onTeleportSelected?.(center));
+      view.on("pointerup", (pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+        if (!this.onTeleportSelected || !isPrimaryMovementPointer(pointer)) return;
+        event?.stopPropagation();
+        this.onTeleportSelected(center);
+      });
       this.teleportViews.set(zone.id,view);
     }
   }

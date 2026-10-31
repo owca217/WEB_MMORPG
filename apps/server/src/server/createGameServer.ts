@@ -53,6 +53,10 @@ interface OwnerStateOperations {
 }
 
 const CONTAINER_SLOT_ERRORS: Readonly<Record<string, string>> = {
+  INVALID_CONTAINER_POSITION: "Nieprawidłowe miejsce w pojemniku.",
+  CONTAINER_POSITION_OCCUPIED: "To miejsce w innym pojemniku jest już zajęte.",
+  CONTAINER_NOT_ASSIGNED: "Najpierw załóż pojemnik w slocie.",
+  SESSION_REPLACED: "Połączenie zostało zastąpione. Połącz się ponownie.",
   PERMANENT_BACKPACK_FIXED: "Plecak podróżnika jest na stałe. Nie można go zdjąć, zastąpić ani przenieść.",
   INVALID_CONTAINER_SLOT: "Wybierz jeden z czterech slotów.",
   INVALID_CONTAINER_INSTANCE_ID: "Nieprawidłowy przedmiot.",
@@ -964,8 +968,14 @@ export function createGameServer(
         ack({ ok: false, code: "INVALID_CONTAINER_INSTANCE_ID", message: CONTAINER_SLOT_ERRORS.INVALID_CONTAINER_INSTANCE_ID! });
         return;
       }
+      if (payload.targetPosition !== undefined && (!Number.isSafeInteger(payload.targetPosition) || payload.targetPosition < 0 || payload.targetContainerInstanceId === null)) {
+        ack({ ok: false, code: "INVALID_CONTAINER_POSITION", message: CONTAINER_SLOT_ERRORS.INVALID_CONTAINER_POSITION! });
+        return;
+      }
       try {
-        const updatedInventory = await inventory.moveItemToContainer(currentCharacterId, payload.itemInstanceId, payload.targetContainerInstanceId);
+        const updatedInventory = await inventory.moveItemToContainer(currentCharacterId, payload.itemInstanceId, payload.targetContainerInstanceId, payload.targetPosition, () => {
+          if (!ownsCharacter(currentCharacterId, currentCharacterVersion)) throw new Error("SESSION_REPLACED");
+        });
         const character = characters.getSnapshot(currentCharacterId);
         if (!character || !ownsCharacter(currentCharacterId, currentCharacterVersion)) {
           ack({ ok: false, code: "SESSION_REPLACED", message: "Połączenie zostało zastąpione. Połącz się ponownie." });

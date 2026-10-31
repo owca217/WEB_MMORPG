@@ -84,7 +84,7 @@ export class EquipmentService {
       if(instanceId!==null) {
         const item=rows.find(row=>row.id===instanceId)!;
         await client.query(
-          `UPDATE item_instances SET equipment_slot=$2,container_instance_id=NULL,container_slot=NULL,
+          `UPDATE item_instances SET equipment_slot=$2,container_instance_id=NULL,container_position=NULL,container_slot=NULL,
              bound_to_player_id=CASE WHEN $4::boolean THEN $3::uuid ELSE bound_to_player_id END,updated_at=NOW()
            WHERE id=$1 AND character_id=$3`,
           [instanceId,slot,characterId,item.soulbound==="ON_EQUIP"||item.soulbound==="ON_PICKUP"]

@@ -14,6 +14,12 @@ export interface SafeInsets {
   left: number;
 }
 
+export interface BattleHudRegions {
+  header?: LayoutRect;
+  sidebar?: LayoutRect;
+  actions?: LayoutRect;
+}
+
 interface BattlePoint {
   x: number;
   y: number;
@@ -47,34 +53,45 @@ export function battleHexBounds(hexSize: number): LayoutRect {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
-/** Fit the projected arena beside the left character panel, with room for labels. */
+/** Fit the ground between measured HUD regions, including a persistent target/action dock. */
 export function calculateBattleLayout(
   width: number,
   height: number,
   cells: readonly HexCoord[],
-  hud: LayoutRect | undefined,
-  insets: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 }
+  hud: BattleHudRegions | LayoutRect | undefined,
+  insets: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 },
+  zoom = 1
 ) {
-  const left = insets.left + 12;
-  const y = insets.top + 12;
-  const right = Math.max(left + 1, width - insets.right - 12);
-  const bottom = Math.max(y + 1, height - insets.bottom - 12);
+  const finite = (value: number) => Number.isFinite(value) ? Math.max(0, value) : 0;
+  const left = finite(insets.left) + 12;
+  const top = finite(insets.top) + 12;
+  const right = Math.max(left + 1, finite(width) - finite(insets.right) - 12);
+  const bottom = Math.max(top + 1, finite(height) - finite(insets.bottom) - 12);
   const availableWidth = right - left;
-  // These fallbacks match the left HUD before its first DOM measurement arrives.
-  const fallbackWidth = width > height
-    ? height <= 500 ? Math.min(220, availableWidth * 0.29) : Math.min(280, availableWidth * 0.23)
-    : Math.min(180, availableWidth * 0.31);
-  const requestedWidth = hud && hud.width > 0 ? hud.x + hud.width - left : fallbackWidth;
-  const gutter = Math.min(12, availableWidth * 0.04);
-  const sidebar: LayoutRect = {
-    x: left,
-    y,
-    width: Math.max(0, Math.min(requestedWidth, availableWidth - gutter - 1)),
-    height: bottom - y
+  const compact = width < 1100 || height < 600;
+  const portrait = width < 600;
+  const regions: BattleHudRegions = hud && "width" in hud ? { sidebar: hud } : hud ?? {};
+  const measured = (rect: LayoutRect | undefined): rect is LayoutRect => Boolean(rect
+    && [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width > 0 && rect.height > 0);
+  // Match the fixed CSS footprints until ResizeObserver delivers real rectangles.
+  const sidebar = measured(regions.sidebar) ? regions.sidebar : {
+    x: compact ? right : Math.max(left, right - 280),
+    y: top + 68,
+    width: compact ? 0 : Math.min(280, availableWidth),
+    height: Math.max(1, bottom - top - 68)
   };
-  const x = sidebar.x + sidebar.width + gutter;
+  const arenaRight = Math.max(left + 1, Math.min(right, sidebar.width > 0 ? sidebar.x - 12 : right));
+  const header = measured(regions.header) ? regions.header : {
+    x: left, y: top, width: arenaRight - left, height: compact ? portrait ? 134 : 96 : 92
+  };
+  const dockHeight = compact ? portrait ? 160 : 76 : 112;
+  const actions = measured(regions.actions) ? regions.actions : {
+    x: left, y: Math.max(top, bottom - dockHeight), width: arenaRight - left, height: dockHeight
+  };
+  const arenaBottom = Math.max(top + 1, Math.min(bottom, actions.y - 12));
+  const y = Math.min(arenaBottom - 1, Math.max(top, header.y + header.height + 12));
   const arena: LayoutRect = {
-    x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y)
+    x: left, y, width: arenaRight - left, height: Math.max(1, arenaBottom - y)
   };
   const points = (cells.length ? cells : [{ q: 0, r: 0 }]).map((cell) => axialToPixel(cell, 1));
   const hexBounds = battleHexBounds(1);
@@ -83,20 +100,28 @@ export function calculateBattleLayout(
   const minY = Math.min(...points.map((point) => point.y)) + hexBounds.y;
   const maxY = Math.max(...points.map((point) => point.y)) + hexBounds.y + hexBounds.height;
   const sidePadding = Math.min(12, arena.width * 0.08);
-  const topPadding = Math.min(40, arena.height * 0.2);
-  const bottomPadding = Math.min(12, arena.height * 0.08);
+  const topPadding = Math.min(40, Math.max(0, arena.height - 1));
+  const bottomPadding = Math.min(12, arena.height * 0.08, (arena.height - topPadding) * 0.2);
   const groundHeight = arena.height - topPadding - bottomPadding;
-  const hexSize = Math.min(
+  const fitHexSize = Math.min(
     44,
     (arena.width - 2 * sidePadding) / (maxX - minX),
     groundHeight / (maxY - minY)
   );
+  const zoomScale = Number.isFinite(zoom) ? Math.max(1, Math.min(1.8, zoom)) : 1;
+  const hexSize = fitHexSize * zoomScale;
+  const arenaCenterX = arena.x + arena.width / 2;
+  const arenaCenterY = arena.y + arena.height / 2;
+  const fitCenterX = arenaCenterX - (minX + maxX) * fitHexSize / 2;
+  const fitCenterY = y + topPadding + groundHeight / 2 - (minY + maxY) * fitHexSize / 2;
   return {
     arena,
     sidebar,
+    header,
+    actions,
     hexSize,
-    centerX: x + arena.width / 2 - (minX + maxX) * hexSize / 2,
-    centerY: y + topPadding + groundHeight / 2 - (minY + maxY) * hexSize / 2,
+    centerX: arenaCenterX + (fitCenterX - arenaCenterX) * zoomScale,
+    centerY: arenaCenterY + (fitCenterY - arenaCenterY) * zoomScale,
     labelFontSize: Math.max(10, Math.min(13, Math.round(hexSize * 13 / 34)))
   };
 }

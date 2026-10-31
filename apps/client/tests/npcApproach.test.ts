@@ -40,6 +40,27 @@ beforeEach(()=>{
 });
 afterEach(()=>{for(const events of scenes.splice(0))events.emit("shutdown");vi.restoreAllMocks();document.body.replaceChildren();});
 
+it("blocks map clicks in chrome and cancels queued movement while the HUD menu is open", () => {
+  const move=vi.spyOn(gameSocket,"sendMoveIntent"),{world,input,cursors,step,scene}=setup();world();
+  input.emit("pointerdown",{x:100,y:20,worldX:700,worldY:420});step();
+  expect(move).not.toHaveBeenCalled();
+  input.emit("pointerdown",{x:100,y:180,worldX:700,worldY:420});step();
+  expect(move).toHaveBeenCalled();move.mockClear();
+  document.querySelector<HTMLButtonElement>("[data-hud-menu-toggle]")!.click();cursors.right.isDown=true;step();
+  expect(move).not.toHaveBeenCalled();expect(scene).toMatchObject({pointerTarget:null,navigationPath:[],pendingNpcAction:null});
+  document.querySelector<HTMLButtonElement>("[data-menu-close]")!.click();step();expect(move).toHaveBeenCalled();
+});
+
+it("keeps desktop map movement available with persistent inline backpack contents", () => {
+  vi.stubGlobal("matchMedia", () => ({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const move=vi.spyOn(gameSocket,"sendMoveIntent"),{world,input,step}=setup();world();
+  transport.emit("playerState",{character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory:{items:[{instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16}],containerSlots:["permanent",null,null,null]}});
+  expect(document.querySelector('.world-hud [data-container-contents]')?.getAttribute("role")).toBe("region");
+  input.emit("pointerdown",{x:100,y:180,worldX:700,worldY:420});step();
+  expect(move).toHaveBeenLastCalledWith({x:322,y:420,locationId:"forest-settlement-01"});
+  vi.unstubAllGlobals();
+});
+
 it.each(["talk","shop"] as const)("walks before %s, keeps sending the endpoint, and acts once only after confirmed arrival",async action=>{
   const talk=vi.spyOn(gameSocket,"interactNpc"),shop=vi.spyOn(gameSocket,"requestMerchantShop").mockResolvedValue({ok:true,shop:{npcId:miro.id,npcName:miro.name,gold:100,offers:[]}});
   const moves:Array<{x:number;y:number;locationId?:string}>=[];transport.on("moveIntent",position=>moves.push({...position}));

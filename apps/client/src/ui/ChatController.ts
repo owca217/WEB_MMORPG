@@ -7,6 +7,7 @@ interface ChatControllerOptions {
   nearbyAvailable: boolean;
   onNearbyMessage?: (message: ChatMessage) => void;
   onTypingChange?: (typing: boolean) => void;
+  onStatusChange?: (status: { opened: boolean; unread: number }) => void;
 }
 
 /** A scene owns the window/listeners; the authenticated socket owns the bounded transcript. */
@@ -18,7 +19,7 @@ export class ChatController {
   private typing = false;
   private destroyed = false;
   constructor(private readonly options: ChatControllerOptions) {
-    this.widget=new ChatWidget({onSend:(channel,text)=>gameSocket.sendChatMessage(channel,text),onOpen:()=>{void gameSocket.requestChatHistory();}});
+    this.widget=new ChatWidget({onSend:(channel,text)=>gameSocket.sendChatMessage(channel,text),onOpen:()=>{void gameSocket.requestChatHistory();},...(options.onStatusChange ? {onStatusChange:options.onStatusChange} : {})});
     this.cleanups.push(chatStateStore.subscribe(()=>this.render()));
     this.cleanups.push(gameSocket.onChatMessage(message=>{
       if(message.channel==="nearby" && options.nearbyAvailable) options.onNearbyMessage?.(message);
@@ -42,6 +43,7 @@ export class ChatController {
     this.render();
   }
   get isTyping(): boolean { return this.widget.isTyping; }
+  toggle(): void { this.widget.toggle(); }
   updateViewport(viewport: ChatViewport): void {
     if(!Number.isFinite(viewport.width) || !Number.isFinite(viewport.height) || viewport.width<=0 || viewport.height<=0) return;
     if(this.viewport?.width===viewport.width && this.viewport.height===viewport.height) return;

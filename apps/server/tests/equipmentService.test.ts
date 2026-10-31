@@ -14,7 +14,7 @@ import { TradeService } from "../src/social/TradeService";
 
 const url=process.env.DATABASE_URL;
 const target=url ? new URL(url) : null;
-const local=target && ["localhost","127.0.0.1"].includes(target.hostname) && target.pathname==="/web_mmorpg_test";
+const local=target && ["localhost","127.0.0.1"].includes(target.hostname) && ["/web_mmorpg_test","/web_mmorpg_slot_order_tests"].includes(target.pathname);
 const describeDb=local ? describe : describe.skip;
 
 describeDb("persistent real equipment",()=>{

@@ -4,10 +4,12 @@ import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 import { inventoryItemIcon } from "./InventoryItemIcon";
 import { getPermanentBackpack } from "./PermanentBackpack";
 import { InventoryDragController } from "./InventoryDragController";
+import { inventoryPositions } from "./inventoryPositions";
 import "./ContainerContentsPanel.css";
+import "./ItemPanels.css";
 const PLACES_PER_PAGE = 40;
 interface ContainerContentsPanelHandlers {
-    onMoveItem: (itemInstanceId: string, targetContainerInstanceId: string) => Promise<InventoryUpdateResult>;
+    onMoveItem: (itemInstanceId: string, targetContainerInstanceId: string, targetPosition?: number) => Promise<InventoryUpdateResult>;
     onSetContainerSlot?: (slotIndex: ContainerSlotIndex, itemInstanceId: string) => Promise<InventoryUpdateResult>;
     onInventoryChanged: (inventory: InventorySnapshot) => void;
     onChangeContainer: (slotIndex: ContainerSlotIndex) => void;
@@ -44,11 +46,17 @@ export class ContainerContentsPanel {
     private pendingView = false;
     private page = 0;
     private pending = false;
+    private inline = false;
     private destroyed = false;
     private requestVersion = 0;
     private dataVersion = 0;
     private selectedItemId: string | null = null;
     private returnFocus: HTMLElement | null = null;
+    private readonly onBack = (event: Event): void => {
+        if (!event.cancelable || !this.inline || !this.drag.isDragging) return;
+        this.cancelInteraction();
+        event.preventDefault();
+    };
     private readonly onOutsidePointer = (event: Event): void => {
         if (!this.selectedItemId || !(event.target instanceof Node) || this.popover.contains(event.target))
             return;
@@ -57,7 +65,7 @@ export class ContainerContentsPanel {
         this.closeSelection(false);
     };
     constructor(private readonly handlers: ContainerContentsPanelHandlers) {
-        this.root = node("div", "", "game-panel container-contents is-hidden");
+        this.root = node("div", "", "game-panel container-contents item-panel is-hidden");
         this.root.dataset.containerContents = "";
         this.root.setAttribute("role", "dialog");
         this.root.setAttribute("aria-labelledby", "container-contents-title");
@@ -88,7 +96,7 @@ export class ContainerContentsPanel {
             snapshot:()=>this.snapshot,source:id=>this.visibleItems().find(item=>item.instanceId===id),
             enabled:()=>!this.pending&&!this.destroyed&&!this.root.classList.contains("is-hidden"),
             onStart:()=>{this.feedback.textContent="";delete this.feedback.dataset.state;this.closeSelection(false);},
-            onDrop:(id,target)=>{void this.perform(()=>this.handlers.onMoveItem(id,target),"Przeniesiono przedmiot.");},
+            onDrop:(id,target,position)=>{void this.perform(()=>position === undefined ? this.handlers.onMoveItem(id,target) : this.handlers.onMoveItem(id,target,position),"Przeniesiono przedmiot.");},
             ...(this.handlers.onSetContainerSlot ? {onAssignContainer:(id:string,slot:ContainerSlotIndex)=>{
                 void this.perform(()=>this.handlers.onSetContainerSlot!(slot,id),"Założono pojemnik.");
             }} : {}),
@@ -106,13 +114,14 @@ export class ContainerContentsPanel {
             surface.addEventListener("focusin", () => this.handlers.onTypingChange?.());
             surface.addEventListener("focusout", () => queueMicrotask(() => { if (!this.destroyed)
                 this.handlers.onTypingChange?.(); }));
-            surface.addEventListener("keydown", event => { if (event.key !== "Escape")
-                return; event.stopPropagation(); if (this.selectedItemId)
-                this.closeSelection(true);
-            else
-                this.hide(); });
+            surface.addEventListener("keydown", event => {
+                if (event.key !== "Escape") return;
+                if (this.selectedItemId) { event.stopPropagation(); this.closeSelection(true); }
+                else if (!this.inline) { event.stopPropagation(); this.hide(); }
+            });
         }
         document.addEventListener("pointerdown", this.onOutsidePointer, true);
+        document.addEventListener("game-ui-back", this.onBack, true);
         this.require<HTMLButtonElement>("[data-close]").addEventListener("click", () => this.hide());
         this.changeButton.addEventListener("click", () => { if (this.pending || this.destroyed || this.slotIndex === PERMANENT_BACKPACK_SLOT_INDEX || this.assignedContainer()?.permanentContainer)
             return; this.hide(); this.handlers.onChangeContainer(this.slotIndex); });
@@ -137,10 +146,40 @@ export class ContainerContentsPanel {
         this.render();
         this.drag.revalidate();
     }
+    /** Reuse the authoritative contents controller inside the world rail. */
+    mountInline(host: HTMLElement): void {
+        if (this.destroyed) return;
+        this.hide();
+        this.inline = true;
+        this.returnFocus = null;
+        this.root.classList.remove("game-panel", "item-panel", "is-hidden");
+        this.root.classList.add("container-contents--inline");
+        this.root.setAttribute("role", "region");
+        this.require<HTMLButtonElement>("[data-close]").hidden = true;
+        host.append(this.root);
+        this.render();
+    }
+    get isBusy(): boolean { return this.pending || this.drag.isDragging; }
+    /** Collapsing the rail cancels gestures, without invalidating a live ACK. */
+    cancelInteraction(): void {
+        this.drag.cancel();
+        this.closeSelection(false);
+    }
+    showPending(): void {
+        if (this.destroyed || this.isBusy || !getPermanentBackpack(this.snapshot)) return;
+        this.show(PERMANENT_BACKPACK_SLOT_INDEX);
+        this.pendingView = getPendingInventoryItems(this.snapshot).length > 0;
+        this.render();
+    }
     show(slotIndex: ContainerSlotIndex): void {
-        if (this.destroyed || this.pending || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT)
+        if (this.destroyed || this.pending || (this.inline && this.drag.isDragging) || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= CONTAINER_SLOT_COUNT)
             return;
         if (slotIndex === PERMANENT_BACKPACK_SLOT_INDEX && !getPermanentBackpack(this.snapshot)) {
+            if (this.inline) {
+                this.slotIndex = slotIndex;
+                this.pendingView = false;
+                this.page = 0;
+            }
             this.hide();
             return;
         }
@@ -149,12 +188,12 @@ export class ContainerContentsPanel {
         this.page = 0;
         this.pendingView = false;
         this.closeSelection(false);
-        this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        if (!this.inline) this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         this.feedback.textContent = "";
         delete this.feedback.dataset.state;
         this.root.classList.remove("is-hidden");
         this.render();
-        this.require<HTMLButtonElement>("[data-close]").focus();
+        if (!this.inline) this.require<HTMLButtonElement>("[data-close]").focus();
     }
     hide(): void {
         if (this.destroyed)
@@ -162,10 +201,14 @@ export class ContainerContentsPanel {
         this.drag.cancel();
         this.requestVersion++;
         this.pending = false;
-        this.closeSelection(false);
-        this.root.classList.add("is-hidden");
-        if (this.returnFocus?.isConnected)
-            this.returnFocus.focus();
+        this.closeSelection(this.inline && this.popover.contains(document.activeElement));
+        if (this.inline) {
+            if (this.feedback.dataset.state === "pending") { this.feedback.textContent = ""; delete this.feedback.dataset.state; }
+            this.render();
+        } else {
+            this.root.classList.add("is-hidden");
+            if (this.returnFocus?.isConnected) this.returnFocus.focus();
+        }
         this.handlers.onTypingChange?.();
     }
     destroy(): void {
@@ -175,6 +218,7 @@ export class ContainerContentsPanel {
         this.drag.destroy();
         this.destroyed = true;
         document.removeEventListener("pointerdown", this.onOutsidePointer, true);
+        document.removeEventListener("game-ui-back", this.onBack, true);
         this.root.remove();
         this.portal.remove();
     }
@@ -213,16 +257,22 @@ export class ContainerContentsPanel {
         this.changeButton.disabled = this.pending || this.changeButton.hidden;
         this.root.setAttribute("aria-busy", String(this.pending));
         this.grid.replaceChildren();
-        if (container && !this.pendingView) this.grid.dataset.containerDropTarget = container.instanceId;
-        else delete this.grid.dataset.containerDropTarget;
+        delete this.grid.dataset.containerDropTarget;
         this.grid.hidden = !this.pendingView && !container;
+        const positions = this.pendingView ? undefined : inventoryPositions(items, capacity);
         const start = this.page * PLACES_PER_PAGE, end = Math.min(start + PLACES_PER_PAGE, capacity);
         for (let index = start; index < end; index++) {
             const cell = node("div", "", "container-contents__cell");
             cell.dataset.storageCell = String(index + 1);
             cell.setAttribute("role", "listitem");
-            const item = items[index];
+            const item = positions ? positions.get(index) : items[index];
+            if (container && !this.pendingView) {
+                cell.dataset.containerDropTarget = container.instanceId;
+                cell.dataset.containerPosition = String(index);
+                cell.tabIndex = this.pending ? -1 : 0;
+            }
             if (item) {
+                cell.setAttribute("aria-label", `Miejsce ${index + 1}: ${item.name} ×${item.quantity}`);
                 const button = this.itemButton(item);
                 cell.append(button);
             }
@@ -299,6 +349,7 @@ export class ContainerContentsPanel {
         const header = node("div", "", "container-contents__actions-header"), close = node("button", "×");
         close.type = "button";
         close.dataset.containerCloseActions = "";
+        close.dataset.close = "";
         close.dataset.containerFocus = "close";
         close.setAttribute("aria-label", "Zamknij opcje przedmiotu");
         close.addEventListener("click", () => this.closeSelection(true));

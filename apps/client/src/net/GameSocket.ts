@@ -285,9 +285,12 @@ export class GameSocket {
     }
   }
 
-  async moveItemToContainer(itemInstanceId: string, targetContainerInstanceId: string | null): Promise<InventoryUpdateResult> {
+  async moveItemToContainer(itemInstanceId: string, targetContainerInstanceId: string | null, targetPosition?: number): Promise<InventoryUpdateResult> {
     try {
-      return await this.connect().timeout(10_000).emitWithAck("moveItemToContainer", { itemInstanceId, targetContainerInstanceId });
+      return await this.connect().timeout(10_000).emitWithAck("moveItemToContainer", {
+        itemInstanceId, targetContainerInstanceId,
+        ...(targetPosition === undefined ? {} : { targetPosition })
+      });
     } catch {
       return {
         ok: false, code: "CONTAINER_ITEM_MOVE_FAILED",

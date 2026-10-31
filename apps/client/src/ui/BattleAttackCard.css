@@ -1,34 +1,40 @@
 .battle-attack-card {
-  position: fixed;
-  z-index: 1010;
   display: grid;
-  gap: 6px;
-  width: 216px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 40%);
+  align-content: center;
+  align-items: center;
+  gap: 5px 12px;
+  width: 100%;
+  height: 100%;
   box-sizing: border-box;
-  padding: 11px;
-  border: 1px solid #c4aa70;
-  border-radius: 10px;
-  background: #171b19f5;
-  color: #f1e8d1;
-  font: 13px/1.35 system-ui, sans-serif;
-  box-shadow: 0 7px 24px #0009;
+  color: var(--rpg-text, #f1e8d1);
+  font: 12px/1.25 "Trebuchet MS", sans-serif;
   pointer-events: auto;
 }
-.battle-attack-card[hidden] { display: none; }
-.battle-attack-card strong { color: #ead19b; overflow-wrap: anywhere; }
+.battle-attack-card strong { overflow: hidden; color: var(--rpg-gold, #ead19b); font: 700 16px/1.2 Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
 .battle-attack-card button {
+  grid-column: 2;
+  grid-row: 1 / 4;
   min-height: 44px;
-  padding: 5px 8px;
-  border: 1px solid #ad8f57;
-  border-radius: 7px;
-  color: #fff4d5;
-  background: #65502c;
+  padding: 8px;
+  border: 1px solid var(--rpg-border, #ad8f57);
+  border-radius: 3px;
+  color: var(--rpg-text, #fff4d5);
+  background: linear-gradient(#796238, #4a3d28);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  touch-action: manipulation;
 }
+.battle-attack-card button:hover:enabled { border-color: var(--rpg-gold, #dfbe78); }
 .battle-attack-card button:disabled { opacity: .5; cursor: default; }
-.battle-attack-card button:focus-visible { outline: 2px solid #ffdf8d; outline-offset: 2px; }
-.battle-attack-card small { color: #e7aa94; }
-.battle-attack-card small:empty { display: none; }
-@media (max-height: 500px) { .battle-attack-card { gap: 4px; padding: 9px; font-size: 12px; } }
+.battle-attack-card button:focus-visible { outline: 2px solid var(--rpg-gold, #ffdf8d); outline-offset: 2px; }
+.battle-attack-card [data-hit-chance], .battle-attack-card [data-average-damage] { grid-column: 1; color: var(--rpg-muted, #c5c0ae); font-size: 11px; }
+.battle-attack-card small { grid-column: 1 / -1; color: #e7aa94; font-size: 10px; }
+.battle-attack-card small:empty, .battle-attack-card [hidden] { display: none; }
+.battle-attack-card[data-empty="true"] { grid-template-columns: 1fr; }
+.battle-attack-card[data-empty="true"] strong { font-size: 14px; }
+.battle-hud[data-compact="true"] .battle-attack-card { gap: 4px 8px; font-size: 11px; }
+.battle-hud[data-compact="true"] .battle-attack-card strong { font-size: 14px; }
+.battle-hud[data-portrait="true"] .battle-attack-card { grid-template-columns: minmax(0, 1fr) 142px; }
+.battle-hud[data-portrait="true"] .battle-attack-card[data-empty="true"] { grid-template-columns: 1fr; }

@@ -2,6 +2,8 @@ import "./style.css";
 import { GameApp } from "./game/GameApp";
 import { getGitHubPagesRedirectUrl } from "./hosting";
 import { initializeNativeClient } from "./native/nativeLifecycle";
+import "./ui/gameTheme.css";
+import "./ui/itemSlots.css";
 
 const redirectUrl = getGitHubPagesRedirectUrl(window.location.href);
 if (redirectUrl) {

@@ -1,10 +1,12 @@
 import {
  getCharacterStatistics,getWeaponProficiency,normalizeWeaponTraining,WEAPON_FAMILIES,MAX_CHARACTER_LEVEL,
- EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,
+ EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,resolveCharacterSkin,
  type CharacterSnapshot,type EquipmentSlot,type EquipmentUpdateRequest,type EquipmentUpdateResult,type InventoryItem,type InventorySnapshot,type InjuryKind
 } from "@web-mmorpg/shared";
 import { experienceProgressMarkup } from "./ExperienceProgress";
 import {equipmentDisabledReason,equipmentIcon,equipmentItemSummary} from "./EquipmentIcon";
+import { CHARACTER_SKIN_ATLASES, getCharacterSkinFrame } from "../characters/characterSkinAssets";
+import "./ItemPanels.css";
 const INJURY_LABELS:Record<InjuryKind,string>={brokenArm:"Złamana ręka",legTrauma:"Uraz nogi",bleeding:"Krwawienie",concussion:"Wstrząśnienie",chestWound:"Rana klatki piersiowej",burn:"Oparzenie",poison:"Zatrucie"};
 type CharacterTab="statistics"|"proficiency"|"equipment";
 interface CharacterPanelHandlers {
@@ -23,17 +25,18 @@ export class CharacterPanel {
  private dataVersion=0;
  private destroyed=false;
  private status="";
+ private returnFocus:HTMLElement|null=null;
  constructor(private readonly handlers?:CharacterPanelHandlers){
-  this.root=document.createElement("div");this.root.className="game-panel game-panel--character is-hidden";this.root.dataset.characterSheet="";
-  this.root.setAttribute("role","dialog");this.root.setAttribute("aria-label","Postać");
-  this.root.innerHTML=`<div class="game-panel__header"><h2>Postać</h2><button type="button" data-close aria-label="Zamknij">×</button></div>
+  this.root=document.createElement("div");this.root.className="game-panel game-panel--character item-panel is-hidden";this.root.dataset.characterSheet="";
+  this.root.setAttribute("role","dialog");this.root.setAttribute("aria-labelledby","character-panel-title");
+  this.root.innerHTML=`<div class="game-panel__header"><h2 id="character-panel-title">Postać</h2><button type="button" data-close aria-label="Zamknij">×</button></div>
    <nav class="character-tabs" role="tablist" aria-label="Postać">
     <button type="button" role="tab" id="character-tab-statistics" data-character-tab="statistics" aria-controls="character-panel-statistics">Statystyki</button>
     <button type="button" role="tab" id="character-tab-proficiency" data-character-tab="proficiency" aria-controls="character-panel-proficiency">Władanie</button>
     <button type="button" role="tab" id="character-tab-equipment" data-character-tab="equipment" aria-controls="character-panel-equipment">Uzbrojenie</button>
    </nav><div class="character-sheet" data-content></div>`;
   document.body.append(this.root);this.content=this.require<HTMLDivElement>("[data-content]");
-  for(const type of["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend"])this.root.addEventListener(type,event=>event.stopPropagation());
+  for(const type of["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend","click"])this.root.addEventListener(type,event=>event.stopPropagation());
   this.require<HTMLButtonElement>("[data-close]").addEventListener("click",()=>this.hide());
   for(const button of this.root.querySelectorAll<HTMLButtonElement>("[data-character-tab]")){
    button.addEventListener("click",()=>this.selectTab(button.dataset.characterTab as CharacterTab));
@@ -64,7 +67,7 @@ export class CharacterPanel {
   const training=normalizeWeaponTraining(character.weaponTraining),statistics=character.statistics??getCharacterStatistics(character.level),currentBase=getCharacterStatistics(character.level),next=getCharacterStatistics(character.level+1);
   const growth=character.level>=MAX_CHARACTER_LEVEL?"Osiągnięto maksymalny poziom.":`Poziom ${character.level+1}: +${next.strength-currentBase.strength} STR, +${next.dexterity-currentBase.dexterity} DEX, +${next.vitality-currentBase.vitality} VIT, +${next.maxHp-currentBase.maxHp} HP, +${next.meleeDamage-currentBase.meleeDamage} obrażeń wręcz, +${next.rangedDamage-currentBase.rangedDamage} obrażeń dystansowych, +${next.armor-currentBase.armor} pancerza${next.maxAp>currentBase.maxAp?`, +${next.maxAp-currentBase.maxAp} AP`:""}${next.initiative>currentBase.initiative?`, +${next.initiative-currentBase.initiative} inicjatywy`:""}.`;
   this.content.innerHTML=`<section role="tabpanel" id="character-panel-statistics" aria-labelledby="character-tab-statistics" data-character-panel="statistics">
-   <dl class="character-sheet__stats"><div><dt>Imię</dt><dd data-name></dd></div><div><dt>Poziom</dt><dd>${character.level}</dd></div><div><dt>HP</dt><dd data-stat="hp">${character.hp}/${character.maxHp}</dd></div><div><dt>AP na turę</dt><dd data-stat="maxAp">${character.maxAp}</dd></div><div><dt>Inicjatywa</dt><dd data-stat="initiative">${character.initiative}</dd></div><div><dt>Stan</dt><dd>${character.severelyInjured?"Ciężko ranny":"Stabilny"}</dd></div></dl>
+   <div class="character-sheet__identity"><div class="character-sheet__portrait" data-character-portrait role="img"><span class="character-sheet__sprite" data-character-sprite aria-hidden="true"></span></div><section class="character-sheet__resources" aria-label="Zasoby postaci"><h3 data-name></h3><p class="character-sheet__level">Poziom ${character.level}</p><dl class="character-sheet__stats"><div><dt>HP</dt><dd data-stat="hp">${character.hp}/${character.maxHp}</dd></div><div><dt>AP na turę</dt><dd data-stat="maxAp">${character.maxAp}</dd></div><div><dt>Inicjatywa</dt><dd data-stat="initiative">${character.initiative}</dd></div><div><dt>Stan</dt><dd>${character.severelyInjured?"Ciężko ranny":"Stabilny"}</dd></div></dl></section></div>
    ${experienceProgressMarkup(character)}<section class="character-sheet__section"><h3>Atrybuty i walka</h3><dl class="character-sheet__stats">
    ${([['strength','Siła (STR)'],['dexterity','Zręczność (DEX)'],['vitality','Żywotność (VIT)'],['meleeDamage','Obrażenia wręcz'],['rangedDamage','Obrażenia dystansowe'],['armor','Pancerz']] as const).map(([stat,label])=>`<div><dt>${label}</dt><dd data-stat="${stat}">${statistics[stat]}</dd></div>`).join("")}
    ${statistics.healingPower?`<div><dt>Moc leczenia</dt><dd data-stat="healingPower">${statistics.healingPower} HP</dd></div>`:""}${statistics.blockPercent?`<div><dt>Redukcja tarczy</dt><dd data-stat="blockPercent">${new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(statistics.blockPercent)}%</dd></div>`:""}</dl><p>STR zwiększa obrażenia wręcz, DEX obrażenia dystansowe, a VIT maksymalne HP. Pancerz zmniejsza otrzymywane obrażenia.</p><p>Obrażenia podano przed pancerzem celu i wpływem urazów.</p></section>
@@ -73,6 +76,9 @@ export class CharacterPanel {
    ${WEAPON_FAMILIES.map(family=>{const skill=getWeaponProficiency(training.experience[family.id]);const format=(value:number)=>new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(value);const bonus=family.mode==="defense"?`+${format(skill.level*0.15)}% redukcji`:`+${format(skill.damageBonusPercent)}% ${family.mode==="support"?"leczenia":"obrażeń"}`;return`<div class="weapon-proficiency" data-weapon-family="${family.id}"><div class="weapon-proficiency__summary"><strong>${family.label}</strong><span data-weapon-level>${skill.level}/100</span><span data-weapon-bonus>${bonus}</span></div><div class="weapon-proficiency__bar" role="progressbar" aria-label="Biegłość: ${family.label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${skill.percentage}"><span style="width:${skill.percentage}%"></span></div><small>${skill.level===100?"Maksymalna biegłość":`${skill.current} / ${skill.required} punktów do kolejnego poziomu`}</small></div>`;}).join("")}</div></section>
    <section role="tabpanel" id="character-panel-equipment" aria-labelledby="character-tab-equipment" data-character-panel="equipment"><p>Załóż przedmioty, aby korzystać z ich obrażeń i ochrony. Broń dwuręczna zajmuje obie ręce i zdejmuje tarczę. Uzbrojenie zmienisz poza walką.</p><div class="equipment-slots" data-equipment-slots></div><h3>Przedmioty do założenia</h3><div class="equipment-candidates" data-equipment-candidates></div><p role="status" aria-live="polite" data-equipment-status></p></section>`;
   this.require("[data-name]").textContent=character.nickname;this.require("[data-injuries]").textContent=character.injuries.length?character.injuries.map(injury=>INJURY_LABELS[injury]).join(", "):"Brak";
+  const skin=resolveCharacterSkin(character.appearance),atlas=CHARACTER_SKIN_ATLASES[skin.id],frame=getCharacterSkinFrame(skin.id,0),sprite=this.require("[data-character-sprite]"),scale=.42;
+  sprite.style.backgroundImage=`url("${atlas.url}")`;sprite.style.backgroundSize=`${atlas.columns*atlas.frameWidth*scale}px ${atlas.rows*atlas.frameHeight*scale}px`;sprite.style.backgroundPosition=`${-frame.x*scale}px ${-frame.y*scale}px`;sprite.style.width=`${frame.width*scale}px`;sprite.style.height=`${frame.height*scale}px`;
+  this.require("[data-character-portrait]").setAttribute("aria-label",`Wygląd postaci: ${skin.name}`);
   const equipment=character.equipment??getCharacterEquipment(this.inventory,character.level),slots=this.require("[data-equipment-slots]");
   for(const slot of EQUIPMENT_SLOTS){const row=document.createElement("article");row.className="equipment-slot";row.dataset.equipmentSlot=slot;const label=document.createElement("strong");label.textContent=EQUIPMENT_SLOT_LABELS[slot];row.append(label);const item=equipment[slot];if(item){row.append(this.itemIdentity(item));const remove=document.createElement("button");remove.type="button";remove.textContent="Zdejmij";remove.dataset.equipmentUnequip=slot;remove.dataset.equipmentAction=`unequip:${slot}`;remove.setAttribute("aria-label",`Zdejmij ${item.name}`);remove.disabled=this.saving||!this.handlers;remove.addEventListener("click",()=>{void this.changeEquipment({slot,itemInstanceId:null});});row.append(remove);}else{const empty=document.createElement("span");empty.className="equipment-slot__empty";empty.textContent=slot==="offHand"&&equipment.mainHand?.equipment?.twoHanded?"Zajęte przez broń dwuręczną":"Puste miejsce";row.append(empty);}slots.append(row);}
   const list=this.require("[data-equipment-candidates]"),candidates=this.inventory.items.filter(item=>item.equipment&&!item.equippedSlot);
@@ -93,8 +99,14 @@ export class CharacterPanel {
   this.render();
  }
  get isTyping():boolean{const active=document.activeElement;return!this.root.classList.contains("is-hidden")&&active instanceof HTMLElement&&this.root.contains(active)&&active.matches("select,input,textarea");}
- show():void{if(this.character)this.render();this.root.classList.remove("is-hidden");this.syncTabs();}
- hide():void{this.root.classList.add("is-hidden");this.requestVersion++;this.saving=false;this.syncTabs();if(document.activeElement instanceof HTMLElement&&this.root.contains(document.activeElement))document.activeElement.blur();this.handlers?.onTypingChange?.();}
+ show():void{if(this.destroyed)return;const opening=this.root.classList.contains("is-hidden");if(opening)this.returnFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;if(this.character)this.render();this.root.classList.remove("is-hidden");this.syncTabs();if(opening)this.require<HTMLButtonElement>("[data-close]").focus();}
+ showEquipment(slot?:EquipmentSlot):void {
+  if(this.destroyed)return;
+  this.show();this.selectTab("equipment");
+  const target=slot?[...this.root.querySelectorAll<HTMLElement>("[data-equipment-slot]")].find(row=>row.dataset.equipmentSlot===slot):undefined;
+  if(target?.tabIndex===0)target.focus();
+ }
+ hide():void{const visible=!this.root.classList.contains("is-hidden");this.root.classList.add("is-hidden");this.requestVersion++;this.saving=false;this.syncTabs();if(document.activeElement instanceof HTMLElement&&this.root.contains(document.activeElement))document.activeElement.blur();if(visible&&this.returnFocus?.isConnected)this.returnFocus.focus();this.handlers?.onTypingChange?.();}
  toggle():void{if(this.root.classList.contains("is-hidden"))this.show();else this.hide();}
  destroy():void{this.hide();this.destroyed=true;this.root.remove();}
  private require<T extends HTMLElement=HTMLElement>(selector:string):T{const element=this.root.querySelector<T>(selector);if(!element)throw new Error(`Character panel element missing: ${selector}`);return element;}

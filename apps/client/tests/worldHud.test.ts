@@ -10,6 +10,33 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
+it("places the numeric level before the name, mounts gear slots and shows abbreviated gold beside plain AP",()=>{
+  const onEquipment=vi.fn(),hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onEquipment});
+  hud.update({character:{playerId:"hero",nickname:"Yuna",level:7,hp:55,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:emptyCharacterEquipment()},inventory:{items:[]},gold:50_999_999});
+  const heading=document.querySelector<HTMLElement>(".world-hud__rail-heading")!;
+  expect(heading.textContent?.replace(/\s+/g," ").trim()).toBe("7 Yuna");
+  expect(document.querySelector(".world-hud__eyebrow")).toBeNull();
+  expect(document.querySelector("[data-ap-pips]")).toBeNull();
+  expect(document.querySelectorAll("[data-hud-equipment-slot]")).toHaveLength(8);
+  expect(document.querySelector("[data-gold]")?.textContent).toBe("50kk");
+  expect(document.querySelector(".world-hud__ap-gold-row")?.contains(document.querySelector("[data-gold]"))).toBe(true);
+  document.querySelector<HTMLButtonElement>('[data-hud-equipment-slot="offHand"]')!.click();
+  expect(onEquipment).toHaveBeenCalledExactlyOnceWith("offHand");
+  hud.destroy();expect(document.querySelector("[data-gold]")).toBeNull();
+});
+
+it("opens options and independent party/trade windows from Menu, closing the menu first", () => {
+  const onOptions=vi.fn(),onParty=vi.fn(),onTrade=vi.fn();
+  const hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onOptions,onParty,onTrade});
+  for(const [selector,callback] of [["[data-options]",onOptions],["[data-party]",onParty],["[data-trade]",onTrade]] as const) {
+    document.querySelector<HTMLButtonElement>("[data-hud-menu-toggle]")!.click();
+    document.querySelector<HTMLButtonElement>(selector)!.click();
+    expect(document.querySelector<HTMLElement>("[data-hud-menu]")!.hidden).toBe(true);
+    expect(callback).toHaveBeenCalledTimes(1);
+  }
+  hud.destroy();
+});
+
 it("opens the permanent backpack from the left HUD slot with the bundled icon and retains three ordinary empty slots",()=>{
   vi.stubEnv("BASE_URL","/WEB_MMORPG/");
   vi.stubGlobal("matchMedia",()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
@@ -44,7 +71,8 @@ describe("WorldHud session controls", () => {
     const slots = document.querySelectorAll<HTMLButtonElement>(".world-hud [data-container-slot]");
 
     expect(slots).toHaveLength(4);
-    expect(document.querySelector(".world-hud [data-inventory]")).toBeNull();
+    expect(document.querySelector(".world-hud [data-open-inventory]")).toBeNull();
+    expect(document.querySelector(".world-hud [data-manage-bag]")).toBeNull();
     expect([...document.querySelectorAll(".world-hud button")].some((button) => button.textContent === "Ekwipunek")).toBe(false);
     expect([...slots].map((slot) => slot.getAttribute("aria-label"))).toEqual([
       "Ładowanie plecaka. Odśwież plecak", "Pojemnik 2: pusty. Wybierz pojemnik",
@@ -104,7 +132,6 @@ describe("WorldHud session controls", () => {
     const content = document.querySelector<HTMLElement>("[data-hud-content]")!;
 
     expect(toggle.hidden).toBe(false);
-    toggle.click();
     expect(content.hidden).toBe(true);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.getAttribute("aria-label")).toBe("Rozwiń panel gry");
@@ -176,6 +203,46 @@ describe("WorldHud session controls", () => {
     expect(onLogout).toHaveBeenCalledTimes(1);
     hud.destroy();
   });
+});
+
+it("keeps compact resources visible, closes its rail with native Back and routes footer notifications", () => {
+  vi.stubGlobal("matchMedia", () => ({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const onChat=vi.fn(),onSocial=vi.fn(),onLayoutChange=vi.fn();
+  const hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onChat,onSocial,onLayoutChange});
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(true);
+  expect(document.querySelector("[data-compact-hp]")).not.toBeNull();
+  document.querySelector<HTMLButtonElement>("[data-hud-toggle]")!.click();
+  expect(hud.isPanelOpen).toBe(true);
+  const back=new Event("game-ui-back",{cancelable:true});document.dispatchEvent(back);
+  expect(back.defaultPrevented).toBe(true);expect(hud.isPanelOpen).toBe(false);
+  hud.setLocation("Gęsty Las");expect(document.querySelector("[data-location-name]")?.textContent).toBe("Gęsty Las");
+  hud.updateChatStatus({opened:true,unread:7});hud.updateSocialStatus({opened:false,notifications:3});
+  expect(document.querySelector("[data-hud-chat]")?.getAttribute("aria-expanded")).toBe("true");
+  expect(document.querySelector("[data-chat-count]")?.textContent).toBe("7");
+  expect(document.querySelector("[data-social-count]")?.textContent).toBe("3");
+  document.querySelector<HTMLButtonElement>("[data-hud-chat]")!.click();document.querySelector<HTMLButtonElement>("[data-hud-social]")!.click();
+  expect(onChat).toHaveBeenCalledOnce();expect(onSocial).toHaveBeenCalledOnce();
+  expect(onLayoutChange).toHaveBeenCalled();hud.destroy();
+});
+
+it("exposes an empty inline contents host and only selects a bag after the scene accepts it", () => {
+  vi.stubGlobal("matchMedia", () => ({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const onContainerSlot=vi.fn(),hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onContainerSlot});
+  const backpack:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const bag:InventoryItem={...backpack,instanceId:"bag",itemId:"bag",permanentContainer:false,containerCapacity:40};
+  hud.updateInventory({items:[backpack,bag],containerSlots:["permanent","bag",null,null]});
+  expect(hud.containerContentsHost.closest("[data-hud-content]")).not.toBeNull();
+  expect(hud.containerContentsHost.children).toHaveLength(0);
+  expect(document.querySelector("[data-bag-preview]")).toBeNull();
+  const first=document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!,second=document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!;
+  expect(first.getAttribute("aria-haspopup")).toBeNull();expect(second.getAttribute("aria-haspopup")).toBeNull();
+  expect(document.querySelector('[data-container-slot="2"]')?.getAttribute("aria-haspopup")).toBe("dialog");
+  hud.showContainerSlot(0);second.click();
+  expect(onContainerSlot).toHaveBeenLastCalledWith(1);
+  expect(first.classList.contains("is-selected")).toBe(true);expect(second.classList.contains("is-selected")).toBe(false);
+  hud.showContainerSlot(1);expect(hud.isPanelOpen).toBe(true);expect(second.classList.contains("is-selected")).toBe(true);
+  hud.updateInventory({items:[backpack,bag],containerSlots:["permanent","bag",null,null]});
+  expect(second.classList.contains("is-selected")).toBe(true);hud.destroy();
 });
 
 it("offers healing only for a usable equipped staff and positive authoritative healing power",()=>{

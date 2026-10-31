@@ -2,6 +2,7 @@ import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_
 import { containerIcon } from "./ContainerIcon";
 import { itemQualityText } from "./ItemQualityFrame";
 import { getAssignedContainers } from "./PermanentBackpack";
+import "./ItemPanels.css";
 
 interface ContainerPickerHandlers {
   onSetContainerSlot: (slotIndex: ContainerSlotIndex, itemInstanceId: string | null) => Promise<SetContainerSlotResult>;
@@ -25,7 +26,7 @@ export class ContainerPicker {
 
   constructor(private readonly handlers: ContainerPickerHandlers) {
     this.root = document.createElement("div");
-    this.root.className = "game-panel game-panel--containers is-hidden";
+    this.root.className = "game-panel game-panel--containers item-panel is-hidden";
     this.root.dataset.containerPicker = "";
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-labelledby", "container-picker-title");
@@ -104,6 +105,7 @@ export class ContainerPicker {
       button.className = "container-picker__choice";
       button.dataset.containerInstance = item.instanceId;
       button.disabled = this.pending || selected;
+      button.setAttribute("aria-pressed",String(selected));
       const content = document.createElement("span");
       content.className = "container-picker__content";
       const name = document.createElement("strong");
@@ -114,7 +116,8 @@ export class ContainerPicker {
       const action = document.createElement("span");
       action.className = "container-picker__action";
       action.textContent = selected ? "Założony tutaj" : equippedIndex >= 0 ? `Przenieś ze slotu ${equippedIndex + 1}` : "Załóż tutaj";
-      content.append(name, description, action);
+      const capacity=document.createElement("span");capacity.className="container-picker__capacity";capacity.textContent=`${item.containerCapacity ?? 0} miejsc`;
+      content.append(name, capacity, description, action);
       button.append(containerIcon(item), content);
       button.addEventListener("click", () => { void this.setSlot(item.instanceId); });
       this.list.appendChild(button);

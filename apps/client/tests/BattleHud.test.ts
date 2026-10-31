@@ -46,6 +46,42 @@ function handlers(onUseItem: (instanceId: string) => Promise<InventoryUpdateResu
 
 beforeEach(() => document.body.replaceChildren());
 
+it("keeps healing in the compact dock while Back closes details and preserves real turn order", () => {
+  const hud = new BattleHud({ ...handlers(), onHealSelf: vi.fn(), onSelectHealingTarget: vi.fn() });
+  const healer = { ...hero, combatStats: { ...hero.combatStats!, healingPower: 20, blockPercent: 10 } };
+  const ally = { ...healer, id: "ally", name: "Borys" };
+  hud.update(healer, true, { items: [] }, character, { available: true, amount: 20, apCost: 3 },
+    { members: [healer, ally], activeCombatantId: ally.id, healingTargetId: ally.id });
+  hud.setBattleContext({ id: "battle", round: 4, activeCombatantId: ally.id, turnOrder: [ally.id, healer.id],
+    combatants: [healer, ally], cells: [], blockedCells: [], coverCells: [], finished: false });
+  hud.setViewport(390, 844);
+  hud.getLayoutRegions();
+  expect(document.body.style.getPropertyValue("--battle-ui-dock-height")).toBe("228px");
+  const measuredDock = vi.spyOn(document.querySelector<HTMLElement>("[data-battle-actions]")!, "getBoundingClientRect")
+    .mockReturnValue(DOMRect.fromRect({ x: 12, y: 580, width: 366, height: 240 }));
+  hud.getLayoutRegions();
+  expect(document.body.style.getPropertyValue("--battle-ui-dock-height")).toBe("240px");
+  measuredDock.mockRestore();
+  expect(text("[data-battle-round]")).toBe("Runda 4");
+  expect([...document.querySelectorAll("[data-turn-combatant]")].map(row => row.getAttribute("data-turn-combatant"))).toEqual([ally.id, healer.id]);
+  expect(document.querySelector('[data-turn-combatant="ally"]')?.getAttribute("aria-current")).toBe("true");
+  const dock = document.querySelector("[data-battle-actions]")!;
+  expect(dock.contains(button('[data-action="heal-self"]'))).toBe(true);
+  expect(dock.contains(document.querySelector("[data-battle-healing-target]"))).toBe(true);
+  button("[data-toggle-battle-details]").click();
+  expect(document.querySelector<HTMLElement>("[data-battle-sidebar]")?.hidden).toBe(false);
+  const back = new Event("game-ui-back", { cancelable: true });
+  document.dispatchEvent(back);
+  expect(back.defaultPrevented).toBe(true);
+  expect(document.querySelector<HTMLElement>("[data-battle-sidebar]")?.hidden).toBe(true);
+  expect(button('[data-action="heal-self"]').hidden).toBe(false);
+  hud.setBattleContext(undefined, true);
+  expect(button('[data-action="heal-self"]').disabled).toBe(true);
+  hud.destroy();
+  expect(document.body.classList.contains("has-battle-hud")).toBe(false);
+  expect(document.body.style.getPropertyValue("--battle-ui-dock-height")).toBe("");
+});
+
 it("shows automatic control and blocks manual actions until the player takes over",()=>{
   const callbacks={...handlers(),onToggleAuto:vi.fn()};
   const hud=new BattleHud(callbacks);hud.update(hero,true,{items:[medicine()]});

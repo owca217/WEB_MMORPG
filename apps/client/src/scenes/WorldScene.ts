@@ -1,4 +1,4 @@
-import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
 import { EQUIPMENT_SLOTS, PERMANENT_BACKPACK_SLOT_INDEX, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
@@ -18,9 +18,14 @@ import { DialoguePanel } from "../ui/DialoguePanel";
 import { MerchantPanel } from "../ui/ShopPanel";
 import { EncounterMenu } from "../ui/EncounterMenu";
 import { NpcMenu } from "../ui/NpcMenu";
+import { PlayerContextMenu } from "../ui/PlayerContextMenu";
+import { OptionsPanel } from "../ui/OptionsPanel";
+import { isPrimaryMovementPointer } from "../ui/interactionPreferences";
 import { ContainerPicker } from "../ui/ContainerPicker";
 import { ContainerContentsPanel } from "../ui/ContainerContentsPanel";
 import { WorldHud } from "../ui/WorldHud";
+import { calculateWorldLayout, type WorldInsets, type WorldRect } from "../ui/worldLayout";
+import { isGameWindowOpen } from "../ui/gameWindows";
 import { getPermanentBackpack } from "../ui/PermanentBackpack";
 import { ChatController } from "../ui/ChatController";
 import { SocialController } from "../ui/SocialController";
@@ -66,6 +71,8 @@ export class WorldScene extends Phaser.Scene {
   private hud: WorldHud | undefined;
   private containerPicker: ContainerPicker | undefined;
   private containerContents: ContainerContentsPanel | undefined;
+  private selectedContainerSlot: ContainerSlotIndex = PERMANENT_BACKPACK_SLOT_INDEX;
+  private inlineContainerSelected = false;
   private healingPanel:HealingPanel|undefined;
   private characterPanel: CharacterPanel | undefined;
   private playerStateRevision=0;
@@ -85,7 +92,21 @@ export class WorldScene extends Phaser.Scene {
   private adminPanel: AdminPanel | undefined;
   private chat: ChatController | undefined;
   private social:SocialController|undefined;
-  private readonly onChatResize = () => this.updateChatViewport();
+  private optionsPanel:OptionsPanel|undefined;
+  private playerMenu:PlayerContextMenu|undefined;
+  private worldPlayers:WorldPlayerSnapshot[]=[];
+  private selectedPlayerId:string|null=null;
+  private mapViewport: WorldRect | undefined;
+  private readonly onChatResize = () => { this.containerContents?.cancelInteraction(); this.updateWorldViewport(); };
+  private readonly onFormFocus = () => { queueMicrotask(() => { if (this.hud) this.updateKeyboardCapture(); }); };
+  private readonly onUiShortcut = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey || this.isTyping()) return;
+    if (event.code !== "KeyI" && event.code !== "KeyC") return;
+    event.preventDefault();
+    this.cancelMovement();
+    if (event.code === "KeyI") this.openContainerSlot(PERMANENT_BACKPACK_SLOT_INDEX);
+    else { this.hud?.closeMenu(); this.characterPanel?.toggle(); }
+  };
   private readonly cleanups: Array<() => void> = [];
 
   constructor() {
@@ -105,7 +126,9 @@ export class WorldScene extends Phaser.Scene {
     this.encounters=[];this.selectedEncounterId=null;
     this.npcs=[];this.selectedNpcId=null;this.pendingDialogueNpcId=null;
     this.pendingNpcAction=null;
+    this.worldPlayers=[];this.selectedPlayerId=null;
     this.playerStateRevision=0;this.equipmentRequestVersion++;this.equipmentPending=false;
+    this.selectedContainerSlot=PERMANENT_BACKPACK_SLOT_INDEX;this.inlineContainerSelected=false;
   }
 
   preload(): void {
@@ -157,6 +180,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.entitiesRenderer = new WorldEntitiesRenderer(this, this.playerId);
     this.entitiesRenderer.onTeleportSelected=point=>{
+      this.dismissPlayerMenu();
       this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
       this.pointerTarget={...point};
     };
@@ -176,6 +200,7 @@ export class WorldScene extends Phaser.Scene {
       this.resolvePendingNpcAction();
     }});
     this.entitiesRenderer.onNpcSelected = (npcId) => {
+      this.dismissPlayerMenu();
       this.encounterMenu?.hide();this.selectedEncounterId=null;
       this.dismissNpcWindows();
       this.pointerTarget = null;
@@ -185,6 +210,7 @@ export class WorldScene extends Phaser.Scene {
       this.npcMenu?.show(npc,this.worldAnchor(npc));
     };
     this.entitiesRenderer.onEncounterSelected = (encounterId) => {
+      this.dismissPlayerMenu();
       this.dismissNpcWindows();
       this.pointerTarget = null;
       const encounter=this.encounters.find(item=>item.id===encounterId);
@@ -193,6 +219,20 @@ export class WorldScene extends Phaser.Scene {
       this.selectedEncounterId=encounterId;
       this.encounterMenu?.show(encounter,anchor,this.serverNow());
     };
+    this.playerMenu=new PlayerContextMenu({
+      onParty:playerId=>{if(this.worldPlayers.some(player=>player.id===playerId && player.id!==this.playerId))this.social?.inviteToParty(playerId);},
+      onTrade:playerId=>{if(this.worldPlayers.some(player=>player.id===playerId && player.id!==this.playerId))this.social?.requestTrade(playerId);}
+    });
+    this.entitiesRenderer.onPlayerSelected=playerId=>{
+      const player=this.worldPlayers.find(item=>item.id===playerId && item.id!==this.playerId);
+      if(!player)return;
+      this.cancelMovement();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
+      this.selectedPlayerId=playerId;
+      this.playerMenu?.show(player,this.worldAnchor(player));
+    };
+    this.optionsPanel=new OptionsPanel({onChange:()=>{
+      this.cancelMovement();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
+    }});
 
     this.containerPicker = new ContainerPicker({
       onSetContainerSlot: (slotIndex, itemInstanceId) => gameSocket.setContainerSlot(slotIndex, itemInstanceId),
@@ -200,7 +240,9 @@ export class WorldScene extends Phaser.Scene {
       onRefresh:()=>gameSocket.requestPlayerState()
     });
     this.containerContents = new ContainerContentsPanel({
-      onMoveItem: (itemInstanceId, targetContainerInstanceId) => gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId),
+      onMoveItem: (itemInstanceId, targetContainerInstanceId, targetPosition) => targetPosition === undefined
+        ? gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId)
+        : gameSocket.moveItemToContainer(itemInstanceId, targetContainerInstanceId, targetPosition),
       onSetContainerSlot: (slotIndex, itemInstanceId) => gameSocket.setContainerSlot(slotIndex, itemInstanceId),
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
       onRefresh:()=>gameSocket.requestPlayerState(),
@@ -251,8 +293,15 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.hud = new WorldHud({
-      onContainerSlot: (slotIndex) => this.openContainerSlot(slotIndex),
-      onCharacter: () => this.characterPanel?.toggle(),
+      onContainerSlot: (slotIndex) => { this.cancelMovement(); this.openContainerSlot(slotIndex); },
+      onCharacter: () => { this.hud?.closeMenu(); this.cancelMovement(); this.characterPanel?.toggle(); },
+      onEquipment:slot=>{this.hud?.closeMenu();this.cancelMovement();this.characterPanel?.showEquipment(slot);},
+      onChat: () => { this.hud?.closePanel(); this.cancelMovement(); this.chat?.toggle(); },
+      onSocial: () => { this.hud?.closePanel(); this.cancelMovement(); this.social?.toggle(); },
+      onOptions:()=>{this.cancelMovement();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;this.optionsPanel?.show();},
+      onParty:()=>this.social?.openParty(),
+      onTrade:()=>this.social?.openTrade(),
+      onLayoutChange: () => { this.cancelMovement(); if (!this.hud?.isPanelOpen) this.containerContents?.cancelInteraction(); this.updateWorldViewport(); },
       onHealing:()=>{this.pointerTarget=null;this.pendingNpcAction=null;this.dismissNpcWindows();this.characterPanel?.hide();void this.healingPanel?.show();},
       onAdmin: () => {
         if (this.adminPanel) void this.adminPanel.showCatalog();
@@ -261,17 +310,22 @@ export class WorldScene extends Phaser.Scene {
         void this.logout(serverUrl);
       }
     });
+    this.containerContents.mountInline(this.hud.containerContentsHost);
     this.hud.updateSession(session?.accountRole ?? "PLAYER");
     if (this.battleResult) this.hud.showBattleResult(this.battleResult);
 
     this.chat = new ChatController({
       nearbyAvailable: true,
+      onStatusChange: status => this.hud?.updateChatStatus(status),
       onNearbyMessage: (message) => this.entitiesRenderer?.showSpeechBubble(message.senderId, message.text),
       onTypingChange: () => this.updateKeyboardCapture()
     });
-    this.social=new SocialController({inBattle:false,onTypingChange:()=>this.updateKeyboardCapture(),onInventoryChanged:inventory=>this.applyInventoryUpdate(inventory)});
-    this.updateChatViewport();
+    this.social=new SocialController({inBattle:false,onStatusChange:status=>this.hud?.updateSocialStatus(status),onTypingChange:()=>this.updateKeyboardCapture(),onInventoryChanged:inventory=>this.applyInventoryUpdate(inventory)});
+    this.updateWorldViewport();
     this.scale?.on("resize", this.onChatResize);
+    document.addEventListener("focusin", this.onFormFocus);
+    document.addEventListener("focusout", this.onFormFocus);
+    document.addEventListener("keydown", this.onUiShortcut);
 
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -282,12 +336,23 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (!isPrimaryMovementPointer(pointer)) return;
+      if (this.isMovementBlocked()) return;
+      const map = this.mapViewport;
+      if (map && Number.isFinite(pointer.x) && Number.isFinite(pointer.y)
+        && (pointer.x < map.x || pointer.y < map.y || pointer.x >= map.x + map.width || pointer.y >= map.y + map.height)) return;
       this.pendingNpcAction=null;
       this.pointerTarget = {
         x: Phaser.Math.Clamp(pointer.worldX, 0, this.worldBounds.width),
         y: Phaser.Math.Clamp(pointer.worldY, 0, this.worldBounds.height)
       };
     });
+    const canvas=this.game?.canvas;
+    if(canvas) {
+      const preventCanvasMenu=(event:Event):void=>event.preventDefault();
+      canvas.addEventListener("contextmenu",preventCanvasMenu);
+      this.cleanups.push(()=>canvas.removeEventListener("contextmenu",preventCanvasMenu));
+    }
 
     this.cleanups.push(
       gameSocket.onWorldState((snapshot) => this.renderWorld(snapshot)),
@@ -295,7 +360,7 @@ export class WorldScene extends Phaser.Scene {
       gameSocket.onNpcInteraction((payload) => this.showNpcDialogue(payload)),
       gameSocket.onConnectionState((state) => {
         this.hud?.setConnectionState(state);
-        if(state!=="connected"){this.pointerTarget=null;this.clearNavigation();this.pendingFinalIntent=false;this.healingPanel?.hide();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
+        if(state!=="connected"){this.pointerTarget=null;this.clearNavigation();this.pendingFinalIntent=false;this.healingPanel?.hide();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
       }),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.pendingDialogueNpcId=null;
@@ -313,8 +378,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const typing = Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.containerContents?.isTyping);
-    if (typing) {this.pointerTarget=null;this.pendingNpcAction=null;this.clearNavigation();this.pendingFinalIntent=false;}
+    const typing = this.isMovementBlocked();
+    if (typing) this.cancelMovement();
     const keyboardIntent = resolveKeyboardIntent({
       left: !typing && Boolean(this.cursors?.left.isDown || this.wasd?.A.isDown),
       right: !typing && Boolean(this.cursors?.right.isDown || this.wasd?.D.isDown),
@@ -388,6 +453,8 @@ export class WorldScene extends Phaser.Scene {
     }
     const selectedNpc=this.npcs.find(item=>item.id===this.selectedNpcId);
     if(selectedNpc)this.npcMenu?.reposition(this.worldAnchor(selectedNpc));
+    const selectedPlayer=this.worldPlayers.find(item=>item.id===this.selectedPlayerId);
+    if(selectedPlayer)this.playerMenu?.reposition(this.worldAnchor(selectedPlayer));
 
     if ((hadMovementIntent || this.pendingFinalIntent) && this.time.now - this.lastIntentSentAt >= 50) {
       this.lastIntentSentAt = this.time.now;
@@ -399,6 +466,14 @@ export class WorldScene extends Phaser.Scene {
   private clearNavigation():void {
     this.navigationKey=null;
     this.navigationPath=[];
+  }
+
+  private cancelMovement(): void {
+    this.pointerTarget=null;this.pendingNpcAction=null;this.clearNavigation();this.pendingFinalIntent=false;
+  }
+
+  private dismissPlayerMenu():void {
+    this.playerMenu?.hide();this.selectedPlayerId=null;
   }
 
   private followNavigation(target:WorldPoint,travel:number,arrivalRadius:number,kind:string):void {
@@ -428,20 +503,37 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private openContainerSlot(slotIndex: ContainerSlotIndex): void {
+    if (this.containerContents?.isBusy) return;
     const state = playerStateStore.get();
     const inventory = state?.character.playerId === this.playerId ? state.inventory : undefined;
+    this.selectedContainerSlot=slotIndex;
+    this.hud?.showContainerSlot(slotIndex);
     if(slotIndex===PERMANENT_BACKPACK_SLOT_INDEX && (!inventory||!getPermanentBackpack(inventory))) {
-      this.containerContents?.hide();this.containerPicker?.hide();gameSocket.requestPlayerState();return;
+      this.inlineContainerSelected=false;
+      this.containerContents?.show(PERMANENT_BACKPACK_SLOT_INDEX);this.containerPicker?.hide();gameSocket.requestPlayerState();return;
     }
     const instanceId = inventory?.containerSlots?.[slotIndex];
     const container = inventory?.items.find((item) => item.instanceId === instanceId);
     if (container && (container.containerCapacity ?? 0) > 0) {
       this.containerPicker?.hide();
       this.containerContents?.show(slotIndex);
+      this.inlineContainerSelected=true;
     } else {
-      this.containerContents?.hide();
+      this.inlineContainerSelected=false;
+      this.containerContents?.show(slotIndex);
       this.containerPicker?.show(slotIndex);
     }
+  }
+
+  private syncInlineContainer(inventory: InventorySnapshot): void {
+    const container = this.selectedContainerSlot === PERMANENT_BACKPACK_SLOT_INDEX ? getPermanentBackpack(inventory)
+      : inventory.items.find(item => item.instanceId === inventory.containerSlots?.[this.selectedContainerSlot] && (item.containerCapacity ?? 0) > 0);
+    if (!container) { this.inlineContainerSelected=false; return; }
+    if (this.inlineContainerSelected || this.containerContents?.isBusy) return;
+    this.containerContents?.show(this.selectedContainerSlot);
+    this.hud?.showContainerSlot(this.selectedContainerSlot, false);
+    this.containerPicker?.hide();
+    this.inlineContainerSelected=true;
   }
 
   private showNpcDialogue(payload:NpcInteractionPayload):void {
@@ -501,6 +593,7 @@ export class WorldScene extends Phaser.Scene {
     playerStateStore.set(state);this.hud?.update(state);
     this.containerPicker?.update(state.inventory);
     this.containerContents?.update(state.inventory,state.character);
+    this.syncInlineContainer(state.inventory);
     this.characterPanel?.update(state.character,state.inventory);
     if(state.character.equipment?.mainHand?.equipment?.weaponFamily!=="staff")this.healingPanel?.hide();
     if(state.gold!==undefined)this.merchantPanel?.updateGold(state.gold);
@@ -541,6 +634,7 @@ export class WorldScene extends Phaser.Scene {
     this.hud?.updateInventory(inventory);
     this.containerPicker?.update(inventory);
     this.containerContents?.update(inventory,state?.character.playerId===this.playerId?state.character:undefined);
+    this.syncInlineContainer(inventory);
     if(state?.character.playerId===this.playerId)this.characterPanel?.update(state.character,inventory);
   }
 
@@ -569,12 +663,15 @@ export class WorldScene extends Phaser.Scene {
       this.hud?.setLocation(snapshot.location?.name??"Osada Zielony Brzeg");
     }
     if(changed) {
+      this.dismissPlayerMenu();
       this.pointerTarget=null;this.authoritativePosition=null;
       this.clearNavigation();this.pendingFinalIntent=false;
       this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
       this.characterPanel?.hide();this.healingPanel?.hide();this.containerPicker?.hide();this.containerContents?.hide();
       this.cameras.main.stopFollow?.();this.cameraFollowing=false;
     }
+    this.worldPlayers=snapshot.players.map(player=>({...player}));
+    if(this.selectedPlayerId && !this.worldPlayers.some(player=>player.id===this.selectedPlayerId))this.dismissPlayerMenu();
     this.npcs=snapshot.npcs.map(item=>({...item}));
     if(this.selectedNpcId && !this.npcs.some(item=>item.id===this.selectedNpcId))this.dismissNpcWindows();
     if(this.pendingDialogueNpcId && !this.npcs.some(item=>item.id===this.pendingDialogueNpcId))this.pendingDialogueNpcId=null;
@@ -632,9 +729,15 @@ export class WorldScene extends Phaser.Scene {
     this.merchantRequestVersion+=1;
     this.merchantPanel?.destroy();this.merchantPanel=undefined;
     this.scale?.off("resize", this.onChatResize);
+    document.removeEventListener("focusin", this.onFormFocus);
+    document.removeEventListener("focusout", this.onFormFocus);
+    document.removeEventListener("keydown", this.onUiShortcut);
     this.chat?.destroy();
     this.chat = undefined;
     this.social?.destroy();this.social=undefined;
+    this.optionsPanel?.destroy();this.optionsPanel=undefined;
+    this.playerMenu?.destroy();this.playerMenu=undefined;
+    this.worldPlayers=[];this.selectedPlayerId=null;
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.adminPanel?.destroy();
     this.hud?.destroy();
@@ -652,11 +755,24 @@ export class WorldScene extends Phaser.Scene {
     this.dialoguePanel = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;
+    this.cameras.main?.setViewport?.(0, 0, this.scale?.width ?? window.innerWidth, this.scale?.height ?? window.innerHeight);
+    this.mapViewport = undefined;
+  }
+
+  private updateWorldViewport(): void {
+    const styles = getComputedStyle(document.documentElement);
+    const insets = Object.fromEntries(["top", "right", "bottom", "left"].map(edge =>
+      [edge, Number.parseFloat(styles.getPropertyValue(`--safe-area-${edge}`)) || 0]
+    )) as unknown as WorldInsets;
+    const { map } = calculateWorldLayout(this.scale?.width ?? window.innerWidth, this.scale?.height ?? window.innerHeight, insets);
+    this.mapViewport = map;
+    this.cameras.main?.setViewport?.(map.x, map.y, map.width, map.height);
+    this.updateChatViewport();
   }
 
   private updateChatViewport(): void {
-    const zoom = this.cameras.main.zoom || 1;
-    this.chat?.updateViewport({width: (this.scale?.width ?? window.innerWidth) / zoom, height: (this.scale?.height ?? window.innerHeight) / zoom});
+    const zoom = this.cameras.main?.zoom || 1;
+    this.chat?.updateViewport({width: (this.mapViewport?.width ?? this.scale?.width ?? window.innerWidth) / zoom, height: (this.mapViewport?.height ?? this.scale?.height ?? window.innerHeight) / zoom});
   }
   private worldAnchor(encounter:{x:number;y:number}):{x:number;y:number} {
     const camera=this.cameras.main;
@@ -670,9 +786,19 @@ export class WorldScene extends Phaser.Scene {
     this.pointerTarget=null;
     this.clearNavigation();this.pendingFinalIntent=false;
     const keyboard=this.input.keyboard;if(!keyboard)return;
-    const typing=Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.containerContents?.isTyping);
+    const typing=this.isTyping();
     if(typing)this.pendingNpcAction=null;
     keyboard.resetKeys?.();keyboard.enabled=!typing;
     if(typing)keyboard.disableGlobalCapture?.();else keyboard.enableGlobalCapture?.();
+  }
+
+  private isTyping(): boolean {
+    const active=document.activeElement;
+    return Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.containerContents?.isTyping
+      || (active instanceof HTMLElement && (active.matches("input, textarea, select") || active.isContentEditable)));
+  }
+
+  private isMovementBlocked(): boolean {
+    return this.isTyping() || Boolean(this.hud?.isPanelOpen) || isGameWindowOpen();
   }
 }

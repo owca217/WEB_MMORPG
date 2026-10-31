@@ -9,6 +9,7 @@ import "./ChatWidget.css";
 interface ChatWidgetHandlers {
   onSend: (channel: ChatChannel, text: string) => Promise<ChatSendResult>;
   onOpen?: () => void;
+  onStatusChange?: (status: { opened: boolean; unread: number }) => void;
 }
 
 type ConnectionState = "connected" | "connecting" | "disconnected";
@@ -35,7 +36,7 @@ function channelState(): ChannelState {
 export class ChatWidget {
   private readonly root: HTMLDivElement;
   private readonly panel: HTMLElement;
-  private readonly toggle: HTMLButtonElement;
+  private readonly launcher: HTMLButtonElement;
   private readonly transcript: HTMLDivElement;
   private readonly input: HTMLTextAreaElement;
   private readonly sendButton: HTMLButtonElement;
@@ -55,6 +56,7 @@ export class ChatWidget {
   private receivedUpdate = false;
   private opened = false;
   private destroyed = false;
+  private returnFocus: HTMLElement | null = null;
 
   constructor(private readonly handlers: ChatWidgetHandlers) {
     const id = `game-chat-${++nextWidgetId}`;
@@ -88,7 +90,7 @@ export class ChatWidget {
     `;
     document.body.appendChild(this.root);
     this.panel = this.require("[data-chat-panel]");
-    this.toggle = this.require<HTMLButtonElement>("[data-chat-toggle]");
+    this.launcher = this.require<HTMLButtonElement>("[data-chat-toggle]");
     this.transcript = this.require<HTMLDivElement>("[data-chat-messages]");
     this.input = this.require<HTMLTextAreaElement>("[data-chat-input]");
     this.sendButton = this.require<HTMLButtonElement>("[data-chat-send]");
@@ -96,7 +98,7 @@ export class ChatWidget {
     this.feedback = this.require("[data-chat-feedback]");
     this.connectionLabel = this.require("[data-chat-connection]");
     this.counter = this.require("[data-chat-counter]");
-    this.toggle.addEventListener("click", () => this.opened ? this.close() : this.open());
+    this.launcher.addEventListener("click", () => this.toggle());
     this.require("[data-close]").addEventListener("click", () => this.close());
     for (const channel of CHANNELS) {
       this.require<HTMLButtonElement>(`[data-chat-tab="${channel}"]`).addEventListener("click", () => this.selectChannel(channel));
@@ -124,12 +126,20 @@ export class ChatWidget {
     window.addEventListener("resize", this.updateViewport);
     this.viewport?.addEventListener("resize", this.updateViewport);
     this.viewport?.addEventListener("scroll", this.updateViewport);
+    document.addEventListener("game-ui-back", this.onBack);
     this.updateViewport();
     this.render();
   }
 
   get isTyping(): boolean {
     return !this.destroyed && this.opened && !this.input.disabled && document.activeElement === this.input;
+  }
+
+  /** Shared by the world menu and the independent battle launcher. */
+  toggle(): void {
+    if (this.destroyed) return;
+    if (this.opened) this.close();
+    else this.open();
   }
 
   update(messages: readonly ChatMessage[], connection: ConnectionState, nearbyAvailable: boolean): void {
@@ -160,18 +170,23 @@ export class ChatWidget {
     window.removeEventListener("resize", this.updateViewport);
     this.viewport?.removeEventListener("resize", this.updateViewport);
     this.viewport?.removeEventListener("scroll", this.updateViewport);
+    document.removeEventListener("game-ui-back", this.onBack);
     this.root.remove();
   }
 
   private open(): void {
     if (this.destroyed) return;
+    const active = document.activeElement;
+    this.returnFocus = active instanceof HTMLElement && active !== document.body && !this.panel.contains(active) ? active : this.launcher;
     this.opened = true;
     this.panel.classList.remove("is-hidden");
-    this.toggle.setAttribute("aria-expanded", "true");
+    this.launcher.setAttribute("aria-expanded", "true");
     this.states[this.channel].unread = 0;
     this.render();
     this.scrollToBottom();
-    if (this.input.disabled) this.require<HTMLButtonElement>(`[data-chat-tab="${this.channel}"]`).focus();
+    const compactOrTouch = window.innerWidth < 1100 || window.innerHeight < 600
+      || window.matchMedia?.("(pointer: coarse)").matches;
+    if (this.input.disabled || compactOrTouch) this.require<HTMLButtonElement>(`[data-chat-tab="${this.channel}"]`).focus({ preventScroll: true });
     else this.input.focus();
     this.handlers.onOpen?.();
   }
@@ -181,8 +196,8 @@ export class ChatWidget {
     this.states[this.channel].scrollTop = this.transcript.scrollTop;
     this.opened = false;
     this.panel.classList.add("is-hidden");
-    this.toggle.setAttribute("aria-expanded", "false");
-    this.toggle.focus();
+    this.launcher.setAttribute("aria-expanded", "false");
+    (this.returnFocus?.isConnected ? this.returnFocus : this.launcher).focus({ preventScroll: true });
     this.renderBadges();
   }
 
@@ -317,7 +332,8 @@ export class ChatWidget {
     const badge = this.require("[data-chat-unread-total]");
     badge.textContent = total > 99 ? "99+" : String(total);
     badge.hidden = total === 0;
-    this.toggle.setAttribute("aria-label", `${this.opened ? "Zamknij" : "Otwórz"} czat${total ? `, nieprzeczytane: ${total}` : ""}`);
+    this.launcher.setAttribute("aria-label", `${this.opened ? "Zamknij" : "Otwórz"} czat${total ? `, nieprzeczytane: ${total}` : ""}`);
+    this.handlers.onStatusChange?.({ opened: this.opened, unread: total });
   }
 
   private async send(): Promise<void> {
@@ -369,6 +385,13 @@ export class ChatWidget {
     this.root.style.setProperty("--chat-viewport-height", `${height}px`);
     this.root.style.setProperty("--chat-viewport-top", `${this.viewport?.offsetTop ?? 0}px`);
     this.root.dataset.compact = String(height <= 330);
+  };
+
+  private readonly onBack = (event: Event): void => {
+    if (!this.opened || this.destroyed || event.defaultPrevented) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.close();
   };
 
   private require<T extends HTMLElement = HTMLElement>(selector: string): T {

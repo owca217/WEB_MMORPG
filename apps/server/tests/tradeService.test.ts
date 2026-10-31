@@ -96,7 +96,7 @@ describe("trade consent and presence", () => {
 });
 
 const databaseUrl = process.env.DATABASE_URL;
-const testDatabase = databaseUrl && new URL(databaseUrl).pathname === "/web_mmorpg_test";
+const testDatabase = databaseUrl && ["/web_mmorpg_test", "/web_mmorpg_slot_order_tests"].includes(new URL(databaseUrl).pathname);
 const describeDatabase = testDatabase ? describe : describe.skip;
 
 describeDatabase("atomic item barter", () => {
@@ -181,7 +181,7 @@ describeDatabase("atomic item barter", () => {
     const recipientBackpack=rows.find(row=>row.character_id===bob&&row.permanent_container)!;
     const clone = rows.find(row => row.character_id === bob && !row.permanent_container && row.item_id===before.item_id)!;
     expect(recipientBackpack).toMatchObject({container_slot:0,container_capacity:16});
-    expect(clone).toMatchObject({ ...before, id: expect.any(String), player_id: null, character_id: bob, quantity: 4,container_instance_id:recipientBackpack.id, updated_at: expect.any(Date) });
+    expect(clone).toMatchObject({ ...before, id: expect.any(String), player_id: null, character_id: bob, quantity: 4,container_instance_id:recipientBackpack.id,container_position:0, updated_at: expect.any(Date) });
     expect(clone.id).not.toBe(stack);
     await Promise.all([service.confirm(alice, trade.id, trade.revision), service.confirm(bob, trade.id, trade.revision)]);
     expect(await inventoryRows()).toEqual(rows);

@@ -82,7 +82,8 @@ describeDatabase("additive account auth migration", () => {
       { migration_name: "010_encounter_respawns" },
       { migration_name: "011_equipment_slots" },
       { migration_name: "012_item_quality" },
-      { migration_name: "013_permanent_backpack" }
+      { migration_name: "013_permanent_backpack" },
+      { migration_name: "014_container_positions" }
     ]);
   });
 

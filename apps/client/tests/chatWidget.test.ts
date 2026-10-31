@@ -30,8 +30,50 @@ function tab(channel: ChatChannel): void { button(`[data-chat-tab="${channel}"]`
 function type(text: string): void { input().value = text; input().dispatchEvent(new Event("input", { bubbles: true })); }
 function send(): void { button("[data-chat-send]").click(); }
 
-beforeEach(() => document.body.replaceChildren());
-afterEach(() => { for (const instance of widgets.splice(0)) instance.destroy(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  document.body.replaceChildren();
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 720);
+});
+afterEach(() => { for (const instance of widgets.splice(0)) instance.destroy(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it.each([
+  { name: "portrait world menu", width: 390, height: 844, nearby: true },
+  { name: "landscape battle launcher", width: 844, height: 390, nearby: false }
+])("opens mobile chat without entering typing mode from the $name", ({ width, height, nearby }) => {
+  vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("innerHeight", height);
+  const instance = new ChatWidget({ onSend: vi.fn() });
+  widgets.push(instance);
+  instance.update([], "connected", nearby);
+  const invoker = nearby ? document.createElement("button") : button("[data-chat-toggle]");
+  if (nearby) document.body.append(invoker);
+  invoker.focus();
+  if (nearby) instance.toggle(); else open();
+
+  expect(document.activeElement).toBe(button(`[data-chat-tab="${nearby ? "nearby" : "global"}"]`));
+  expect(instance.isTyping).toBe(false);
+  // Explicitly focusing the composer (as a browser does on a tap) still starts editing.
+  input().focus();
+  expect(instance.isTyping).toBe(true);
+  type("Szkic na telefonie");
+  const back = new Event("game-ui-back", { cancelable: true });
+  document.dispatchEvent(back);
+  expect(back.defaultPrevented).toBe(true);
+  expect(instance.isTyping).toBe(false);
+  expect(document.activeElement).toBe(invoker);
+  instance.toggle();
+  expect(instance.isTyping).toBe(false);
+  expect(input().value).toBe("Szkic na telefonie");
+});
+
+it("avoids opening the keyboard for a coarse primary pointer even with a desktop-sized viewport", () => {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(pointer: coarse)" })));
+  const instance = widget();
+  open();
+  expect(document.activeElement).toBe(button('[data-chat-tab="nearby"]'));
+  expect(instance.isTyping).toBe(false);
+});
 
 it("opens an accessible two-channel panel, renders text safely and keeps separate drafts", () => {
   const instance = widget();

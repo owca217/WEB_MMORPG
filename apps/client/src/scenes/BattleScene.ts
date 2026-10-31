@@ -38,6 +38,7 @@ export class BattleScene extends Phaser.Scene {
   private attackCard: BattleAttackCard | null = null;
   private selectedHealingTargetId:string|null=null;
   private selectedTargetId: string | null = null;
+  private boardZoomed = false;
   private layout: ReturnType<typeof calculateBattleLayout> | null = null;
   private pendingCommand = false;
   private pendingItem = false;
@@ -63,6 +64,7 @@ export class BattleScene extends Phaser.Scene {
     this.playerId = data.playerId;
     this.snapshot = data.snapshot;
     this.selectedTargetId = null;
+    this.boardZoomed = false;
     this.selectedHealingTargetId=null;
     this.pendingCommand = false;
     this.pendingItem = false;
@@ -80,16 +82,17 @@ export class BattleScene extends Phaser.Scene {
       onHealSelf: () => this.requestHealSelf(),
       onSelectHealingTarget: id=>this.selectHealingTarget(id),
       onTypingChange:()=>this.updateKeyboardCapture(),
-      onToggleAuto:()=>{void this.toggleAuto();}
+      onToggleAuto:()=>{void this.toggleAuto();},
+      onToggleZoom: () => { this.boardZoomed = !this.boardZoomed; this.renderSnapshot(); },
+      onLayoutChanged: this.onResize
     });
-    this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId));
+    this.attackCard = new BattleAttackCard((targetId) => this.requestAttack(targetId), this.hud.attackCardHost);
     this.chat = new ChatController({nearbyAvailable:false,onTypingChange:()=>this.updateKeyboardCapture()});
     this.social=new SocialController({inBattle:true,onTypingChange:()=>this.updateKeyboardCapture(),onInventoryChanged:inventory=>this.applyInventory(inventory)});
     this.scale.on("resize", this.onResize);
-    const hudElement = document.querySelector<HTMLElement>(".battle-hud");
-    if (hudElement && typeof ResizeObserver !== "undefined") {
+    if (typeof ResizeObserver !== "undefined") {
       this.hudObserver = new ResizeObserver(this.onResize);
-      this.hudObserver.observe(hudElement);
+      for (const element of this.hud.layoutElements) this.hudObserver.observe(element);
     }
 
     this.unsubscribeState = gameSocket.onBattleState((snapshot) => {
@@ -147,17 +150,22 @@ export class BattleScene extends Phaser.Scene {
       this.chat = null;
       this.social?.destroy();this.social=null;
       this.layout = null;
+      this.boardZoomed = false;
       this.clearRenderObjects();
     });
   }
 
   private renderSnapshot(): void {
     const snapshot = this.snapshot;
-    if (!snapshot) return;
+    if (!snapshot || this.disposed) return;
 
+    this.cameras.main.setViewport(0, 0, this.scale.width, this.scale.height);
+    this.hud?.setViewport(this.scale.width, this.scale.height);
+    const compact = this.scale.width < 1100 || this.scale.height < 600;
+    if (!compact) this.boardZoomed = false;
+    this.hud?.setBoardZoomed(this.boardZoomed);
     this.refreshHud();
     this.clearRenderObjects();
-    const hud = document.querySelector<HTMLElement>(".battle-hud")?.getBoundingClientRect();
     const styles = getComputedStyle(document.documentElement);
     const insets = Object.fromEntries(
       ["top", "right", "bottom", "left"].map((edge) => [
@@ -166,7 +174,7 @@ export class BattleScene extends Phaser.Scene {
     ) as unknown as SafeInsets;
     const layout = calculateBattleLayout(
       this.scale.width, this.scale.height, snapshot.cells,
-      hud?.width ? hud : undefined, insets
+      this.hud?.getLayoutRegions(), insets, this.boardZoomed ? 1.8 : 1
     );
     this.layout = layout;
     const { centerX, centerY, hexSize } = layout;
@@ -338,6 +346,7 @@ export class BattleScene extends Phaser.Scene {
     this.hud.update(own, ownedTurn, state?.inventory ?? { items: [] }, state?.character,
       own ? getBattleHealingPreview(snapshot,own.id,this.selectedHealingTargetId??own.id) : undefined,
       {members,activeCombatantId:snapshot.activeCombatantId,healingTargetId:this.selectedHealingTargetId??""});
+    this.hud.setBattleContext(snapshot, this.pendingCommand || this.pendingItem);
     this.hud.setAutoBattle(Boolean(snapshot.autoBattle),this.modePending);
   }
 

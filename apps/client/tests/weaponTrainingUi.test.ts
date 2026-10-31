@@ -7,6 +7,26 @@ const sword:InventoryItem={instanceId:"sword",itemId:"sword",itemDefinitionId:"s
 function click(selector:string){document.querySelector<HTMLButtonElement>(selector)!.click();}
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>{resolve=done;});return{promise,resolve};}
 afterEach(()=>document.body.replaceChildren());
+it("opens from another window, keeps tab focus through updates and returns to its launcher",()=>{
+ const launcher=document.createElement("button");document.body.append(launcher);launcher.focus();
+ const panel=new CharacterPanel();panel.update(hero);panel.show();
+ expect(document.activeElement).toBe(document.querySelector('[data-character-sheet] [data-close]'));
+ const training=document.querySelector<HTMLButtonElement>('[data-character-tab="proficiency"]')!;training.focus();training.click();
+ panel.update({...hero,hp:80});panel.show();
+ expect(document.activeElement).toBe(training);
+ training.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
+ expect(document.querySelector('[data-character-sheet]')?.classList.contains("is-hidden")).toBe(true);
+ expect(document.activeElement).toBe(launcher);panel.destroy();
+});
+it("renders the character's current skin portrait without treating its name as markup",()=>{
+ const panel=new CharacterPanel();panel.update({...hero,nickname:"<img src=x>",appearance:{gender:"female",skinId:"female-scout"}});panel.show();
+ const portrait=document.querySelector<HTMLElement>('[data-character-portrait]');
+ expect(portrait?.getAttribute("aria-label")).toContain("Wygląd postaci");
+ expect(document.querySelector<HTMLElement>('[data-character-sprite]')?.style.backgroundImage).toContain("female-scout.png");
+ expect(document.querySelector('[data-name]')?.textContent).toBe("<img src=x>");expect(document.querySelector('[data-name] img')).toBeNull();
+ panel.update({...hero,appearance:{gender:"male",skinId:"male-guard"}});
+ expect(document.querySelector<HTMLElement>('[data-character-sprite]')?.style.backgroundImage).toContain("male-guard.png");panel.destroy();
+});
 it("has three accessible tabs, preserves selection and removes free style choices",()=>{
  const panel=new CharacterPanel();panel.update(hero,{items:[sword]});panel.show();
  expect([...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent)).toEqual(["Statystyki","Władanie","Uzbrojenie"]);
@@ -23,6 +43,22 @@ it("exposes labelled focusable equipment drop targets only for a visible editabl
  expect(targets.every(row=>row.tabIndex===0&&row.tagName==="ARTICLE"&&!row.hasAttribute("role"))).toBe(true);
  panel.hide();expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(0);panel.show();expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(8);
  click('[data-character-tab="statistics"]');expect(document.querySelectorAll('[data-equipment-drop-target]')).toHaveLength(0);panel.destroy();
+});
+it("opens the equipment tab from a HUD slot and focuses its existing editable row",()=>{
+ const launcher=document.createElement("button");document.body.append(launcher);launcher.focus();
+ const panel=new CharacterPanel({onSetEquipmentSlot:vi.fn()});panel.update(hero,{items:[sword]});panel.show();
+ expect(document.querySelector('[data-character-tab="statistics"]')?.getAttribute("aria-selected")).toBe("true");
+ panel.hide();launcher.focus();panel.showEquipment("offHand");
+ expect(document.querySelector('[data-character-sheet]')?.classList.contains("is-hidden")).toBe(false);
+ expect(document.querySelector('[data-character-tab="equipment"]')?.getAttribute("aria-selected")).toBe("true");
+ expect(document.querySelector<HTMLElement>('[data-character-panel="equipment"]')!.hidden).toBe(false);
+ expect(document.querySelector<HTMLElement>('[data-character-panel="statistics"]')!.hidden).toBe(true);
+ const target=document.querySelector<HTMLElement>('[data-equipment-slot="offHand"]')!;
+ expect(target.tabIndex).toBe(0);expect(target.dataset.equipmentDropTarget).toBe("offHand");expect(document.activeElement).toBe(target);
+ click('[data-character-tab="statistics"]');panel.showEquipment();
+ expect(document.querySelector('[data-character-tab="equipment"]')?.getAttribute("aria-selected")).toBe("true");
+ panel.hide();expect(document.activeElement).toBe(launcher);panel.destroy();panel.showEquipment("mainHand");
+ expect(document.querySelector('[data-character-sheet]')).toBeNull();
 });
 it("keeps game pointer events inside the panel",()=>{
  const panel=new CharacterPanel();panel.update(hero);panel.show();const listener=vi.fn();document.addEventListener("pointerdown",listener);

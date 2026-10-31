@@ -10,7 +10,7 @@ import { MerchantService } from "../src/merchant/MerchantService";
 import { TradeService } from "../src/social/TradeService";
 
 const url=process.env.DATABASE_URL,target=url?new URL(url):undefined;
-const describeDatabase=target&&["localhost","127.0.0.1"].includes(target.hostname)&&target.pathname==="/web_mmorpg_test"?describe:describe.skip;
+const describeDatabase=target&&["localhost","127.0.0.1"].includes(target.hostname)&&["/web_mmorpg_test","/web_mmorpg_slot_order_tests"].includes(target.pathname)?describe:describe.skip;
 describeDatabase("automatic owned item storage",()=>{
  const pool=createPool(url??"postgresql://unused/unused"),inventory=new InventoryService(pool);
  let alice:string,bob:string;
@@ -107,7 +107,7 @@ describeDatabase("automatic owned item storage",()=>{
  it("organizes old loose items on startup without flattening full bags and rejects a foreign stored-bag parent",async()=>{
   const backpack=await pack(),old=(await give("rag-bag"))[0]!,child=(await give("training-dagger"))[0]!;
   await inventory.setContainerSlot(alice,1,old.instanceId);await inventory.moveItemToContainer(alice,child.instanceId,old.instanceId);await inventory.setContainerSlot(alice,1,null);
-  const loose=(await give("training-sword"))[0]!;await pool.query("UPDATE item_instances SET container_instance_id=NULL WHERE id=$1",[loose.instanceId]);
+  const loose=(await give("training-sword"))[0]!;await pool.query("UPDATE item_instances SET container_instance_id=NULL,container_position=NULL WHERE id=$1",[loose.instanceId]);
   expect((await inventory.getSnapshot(alice)).items.find(item=>item.instanceId===loose.instanceId)?.containerInstanceId).toBeUndefined();
   await seedItemMetadata(pool);
   const organized=await inventory.getSnapshot(alice);

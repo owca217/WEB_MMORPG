@@ -5,7 +5,7 @@ import { emptyCharacterEquipment, emptyEquipmentSlots, type InventoryItem, type 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({ default: {
-  Scene: class {}, Scenes: { Events: { SHUTDOWN: "shutdown" } }
+  Scene: class {}, Scenes: { Events: { SHUTDOWN: "shutdown" } }, Math: {Clamp:(value:number,min:number,max:number)=>Math.min(max,Math.max(min,value))}
 } }));
 // These renderers only draw the map; keep the scene lifecycle, transport and DOM HUD real.
 vi.mock("../src/world/ForestSettlementRenderer", () => ({ ForestSettlementRenderer: class {
@@ -22,8 +22,74 @@ import { gameSocket } from "../src/net/GameSocket";
 import { WorldScene } from "../src/scenes/WorldScene";
 import { playerStateStore } from "../src/state/PlayerStateStore";
 import { socialStateStore } from "../src/state/SocialStateStore";
+import { SocialController } from "../src/ui/SocialController";
 
 let transport: EventEmitter;
+
+it("uses primary map clicks for movement, suppresses native canvas context menus, and leaves other page menus alone",()=>{
+  const scene=new WorldScene(),events=new EventEmitter(),input=new EventEmitter(),canvas=document.createElement("canvas");
+  document.body.append(canvas);
+  Object.assign(scene,{events,input,game:{canvas},cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false}});
+  scene.init({playerId:"hero"});scene.create();
+  input.emit("pointerdown",{button:2,x:120,y:150,worldX:300,worldY:350});
+  expect(scene).toMatchObject({pointerTarget:null});
+  input.emit("pointerdown",{button:1,x:120,y:150,worldX:300,worldY:350});
+  expect(scene).toMatchObject({pointerTarget:null});
+  input.emit("pointerdown",{button:0,x:120,y:150,worldX:300,worldY:350});
+  expect(scene).toMatchObject({pointerTarget:{x:300,y:350}});
+  const menu=new MouseEvent("contextmenu",{bubbles:true,cancelable:true});canvas.dispatchEvent(menu);expect(menu.defaultPrevented).toBe(true);
+  const outside=new MouseEvent("contextmenu",{bubbles:true,cancelable:true});document.body.dispatchEvent(outside);expect(outside.defaultPrevented).toBe(false);
+  events.emit("shutdown");
+  const after=new MouseEvent("contextmenu",{cancelable:true});canvas.dispatchEvent(after);expect(after.defaultPrevented).toBe(false);
+});
+
+it("routes selected player actions, rejects self and absent players, and clears a departed player's menu",()=>{
+  const party=vi.spyOn(SocialController.prototype,"inviteToParty").mockImplementation(()=>{}),trade=vi.spyOn(SocialController.prototype,"requestTrade").mockImplementation(()=>{});
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const players=[{id:"hero",nickname:"Hero",x:480,y:420},{id:"other",nickname:"Ala",x:530,y:420}];
+  transport.emit("worldState",{locationId:"forest-settlement-01",players,npcs:[],encounters:[]});
+  const renderer=(scene as unknown as {entitiesRenderer:{onPlayerSelected:(id:string)=>void}}).entitiesRenderer;
+  renderer.onPlayerSelected("hero");expect(document.querySelector<HTMLElement>("[data-player-menu]")?.hidden).toBe(true);
+  renderer.onPlayerSelected("missing");expect(document.querySelector<HTMLElement>("[data-player-menu]")?.hidden).toBe(true);
+  renderer.onPlayerSelected("other");expect(document.querySelector<HTMLElement>("[data-player-menu]")?.hidden).toBe(false);
+  document.querySelector<HTMLButtonElement>('[data-player-action="party"]')!.click();expect(party).toHaveBeenCalledExactlyOnceWith("other");
+  renderer.onPlayerSelected("other");document.querySelector<HTMLButtonElement>('[data-player-action="trade"]')!.click();expect(trade).toHaveBeenCalledExactlyOnceWith("other");
+  renderer.onPlayerSelected("other");
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:players.slice(0,1),npcs:[],encounters:[]});
+  expect(document.querySelector<HTMLElement>("[data-player-menu]")?.hidden).toBe(true);
+  document.querySelector<HTMLButtonElement>("[data-hud-menu-toggle]")!.click();document.querySelector<HTMLButtonElement>("[data-options]")!.click();
+  expect(document.querySelector<HTMLElement>("[data-options-panel]")?.hidden).toBe(false);
+  events.emit("shutdown");expect(document.querySelector("[data-options-panel]")).toBeNull();expect(document.querySelector("[data-player-menu]")).toBeNull();
+});
+
+it("keeps the same primary click's movement when it dismisses a player menu opened after using the HUD",async()=>{
+  const scene=new WorldScene(),events=new EventEmitter(),input=new EventEmitter(),canvas=document.createElement("canvas");
+  document.body.append(canvas);
+  Object.assign(scene,{events,input,game:{canvas},cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false}});
+  scene.init({playerId:"hero"});scene.create();
+  transport.emit("worldState",{locationId:"forest-settlement-01",players:[{id:"hero",nickname:"Hero",x:480,y:420},{id:"other",nickname:"Ala",x:530,y:420}],npcs:[],encounters:[]});
+  document.querySelector<HTMLButtonElement>("[data-hud-menu-toggle]")!.focus();
+  (scene as unknown as {entitiesRenderer:{onPlayerSelected:(id:string)=>void}}).entitiesRenderer.onPlayerSelected("other");
+  await Promise.resolve();
+  canvas.dispatchEvent(new MouseEvent("pointerdown",{button:0,bubbles:true}));
+  input.emit("pointerdown",{button:0,x:150,y:160,worldX:600,worldY:420});
+  await Promise.resolve();
+  expect(document.querySelector<HTMLElement>("[data-player-menu]")?.hidden).toBe(true);
+  expect(scene).toMatchObject({pointerTarget:{x:600,y:420}});
+  events.emit("shutdown");
+});
+
+it("reserves the map viewport and safely shuts down after Phaser destroys its camera", () => {
+  const scene=new WorldScene(),events=new EventEmitter();
+  const camera={setBackgroundColor:vi.fn(),setBounds:vi.fn(),setViewport:vi.fn()};
+  Object.assign(scene,{events,scale:{width:1280,height:720,on:vi.fn(),off:vi.fn()},cameras:{main:camera},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  expect(camera.setViewport).toHaveBeenLastCalledWith(0,40,1000,628);
+  Object.assign(scene,{cameras:{main:undefined}});
+  expect(()=>events.emit("shutdown")).not.toThrow();
+});
 
 it("switches location bounds, discards old movement and snaps prediction at the forest entrance",()=>{
   const scene=new WorldScene(),events=new EventEmitter();
@@ -69,6 +135,7 @@ it("keeps newer player state when an older equipment acknowledgement arrives and
 });
 
 it("discards a delayed bag acknowledgement from before a gear change and applies a compatible bag update",async()=>{
+  vi.stubGlobal("matchMedia", () => ({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
   let finishMove!:(value:InventoryUpdateResult)=>void;
   vi.spyOn(gameSocket,"moveItemToContainer").mockImplementation(()=>new Promise(resolve=>{finishMove=resolve;}));
   const refresh=vi.spyOn(gameSocket,"requestPlayerState");
@@ -83,6 +150,7 @@ it("discards a delayed bag acknowledgement from before a gear change and applies
   transport.emit("playerState",state);
   document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   document.querySelector<HTMLButtonElement>('[data-container-pending]')!.click();
+  expect(document.querySelector(".world-hud [data-container-contents] [data-container-item=wood]")).not.toBeNull();
   const moveWood = (): void => {
     const source = document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!;
     source.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
@@ -138,11 +206,11 @@ it("releases captured movement keys while typing chat and restores them when the
   Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){},keyboard}});
   scene.init({playerId:"hero"});scene.create();
   document.querySelector<HTMLButtonElement>("[data-chat-toggle]")!.click();
+  document.querySelector<HTMLTextAreaElement>("[data-chat-input]")!.focus();
   await Promise.resolve();
   expect(keyboard.enabled).toBe(false);expect(keyboard.disableGlobalCapture).toHaveBeenCalled();
   socialStateStore.set({selfId:"hero",onlinePlayers:[],friends:[],incomingFriendRequests:[],outgoingFriendRequests:[],party:null,partyInvites:[],trade:null});
   document.querySelector<HTMLButtonElement>("[data-social-toggle]")!.click();
-  document.querySelector<HTMLButtonElement>('[data-social-tab="friends"]')!.click();
   document.querySelector<HTMLInputElement>("[data-friend-nickname]")!.focus();
   await Promise.resolve();expect(keyboard.enabled).toBe(false);
   document.querySelector<HTMLTextAreaElement>("[data-chat-input]")!.focus();
@@ -223,6 +291,27 @@ it("ignores delayed shop and dialogue responses after selecting a different NPC"
   events.emit("shutdown");
 });
 
+it("forwards a chosen cell from the mounted backpack and renders the acknowledged empty gap", async () => {
+  vi.stubGlobal("matchMedia", () => ({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const backpack:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const wood:InventoryItem={instanceId:"wood",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:2,rarity:"COMMON",upgradeLevel:0,containerInstanceId:"permanent",containerPosition:0};
+  const inventory:InventorySnapshot={items:[backpack,wood],containerSlots:["permanent",null,null,null]};
+  const acknowledged:InventorySnapshot={...inventory,items:[backpack,{...wood,containerPosition:5}]};
+  const move=vi.spyOn(gameSocket,"moveItemToContainer").mockResolvedValue({ok:true,inventory:acknowledged});
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  transport.emit("playerState",{character:{playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory});
+  document.querySelector<HTMLButtonElement>('[data-container-item="wood"]')!.dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true}));
+  const cell=document.querySelector<HTMLElement>('[data-container-contents] [data-container-position="5"]')!;
+  cell.focus();cell.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await vi.waitFor(()=>expect(move).toHaveBeenCalledExactlyOnceWith("wood","permanent",5));
+  await vi.waitFor(()=>expect(playerStateStore.get()?.inventory).toEqual(acknowledged));
+  expect(document.querySelector('[data-container-contents] [data-container-position="0"] [data-container-item]')).toBeNull();
+  expect(document.querySelector('[data-container-contents] [data-container-position="5"] [data-container-item="wood"]')).not.toBeNull();
+  events.emit("shutdown");
+});
+
 beforeEach(() => {
   document.body.replaceChildren();
   transport = new EventEmitter();
@@ -233,6 +322,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
@@ -311,7 +401,7 @@ it("opens the HUD container slot and applies the acknowledged inventory to the H
   expect(document.querySelector("[data-container-picker]")).toBeNull();
 });
 
-it("opens eight-place contents for an equipped bag and can switch to the container chooser", () => {
+it("selects equipped contents inline and retains the container chooser for empty slots", () => {
   const scene = new WorldScene();
   const events = new EventEmitter();
   Object.assign(scene, {
@@ -327,13 +417,18 @@ it("opens eight-place contents for an equipped bag and can switch to the contain
   };
   scene.init({ playerId: "hero" }); scene.create(); transport.emit("playerState", state);
   document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
-  const contents = document.querySelector<HTMLElement>('[data-container-contents]');
+  const contents = document.querySelector<HTMLElement>('.world-hud [data-container-contents]');
+  expect(contents?.getAttribute("role")).toBe("region");
+  expect(document.querySelector('body > [data-container-contents]')).toBeNull();
   expect(contents?.classList.contains("is-hidden")).toBe(false);
   expect(contents?.textContent).toContain("Szmaciany worek");
   expect(contents?.querySelectorAll("[data-storage-cell]")).toHaveLength(8);
   document.querySelector<HTMLButtonElement>('[data-container-slot="2"]')!.click();
-  expect(contents?.classList.contains("is-hidden")).toBe(true);
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(false);
+  document.querySelector<HTMLButtonElement>("[data-container-picker] [data-close]")!.click();
+  expect(document.querySelector('[data-container-slot="2"]')?.classList.contains("is-selected")).toBe(true);
+  expect(contents?.querySelectorAll("[data-storage-cell]")).toHaveLength(0);
+  expect(contents?.querySelector("[data-container-drop-target]")).toBeNull();
   document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   expect(contents?.classList.contains("is-hidden")).toBe(false);
   expect(document.querySelector("[data-container-picker]")?.classList.contains("is-hidden")).toBe(true);
@@ -355,8 +450,23 @@ it("opens only a real sixteen-place permanent backpack in slot zero and refreshe
   expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
   expect(document.querySelector<HTMLButtonElement>("[data-change-container]")?.hidden).toBe(true);
   expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(true);
+  document.querySelector<HTMLButtonElement>('[data-hud-close]')!.click();
+  document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyI",key:"i",bubbles:true}));
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(false);
+  expect(document.querySelector('[data-container-contents]')?.classList.contains("is-hidden")).toBe(false);
+  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
   document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
   expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(false);
+
+  const ordinary:InventoryItem={...backpack,instanceId:"ordinary",permanentContainer:false,containerCapacity:8};
+  transport.emit("playerState",{character,inventory:{items:[ordinary],containerSlots:[null,"ordinary",null,null]}});
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
+  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(8);
+  const beforeMissing=refresh.mock.calls.length;
+  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  expect(refresh.mock.calls.length).toBe(beforeMissing+1);
+  expect(document.querySelectorAll("[data-storage-cell]")).toHaveLength(0);
+  expect(document.querySelector('[data-container-contents] [data-container-drop-target]')).toBeNull();
 
   const oldBag={...backpack,permanentContainer:false,containerCapacity:8};
   const invalid:InventorySnapshot[]=[{items:[oldBag],containerSlots:["permanent",null,null,null]},{items:[],containerSlots:[null,null,null,null]},{items:[{...backpack,containerCapacity:8}],containerSlots:["permanent",null,null,null]}];
@@ -365,8 +475,112 @@ it("opens only a real sixteen-place permanent backpack in slot zero and refreshe
     document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
     expect(refresh.mock.calls.length).toBe(before+1);
     expect(document.querySelector('[data-container-picker]')?.classList.contains("is-hidden")).toBe(true);
-    expect(document.querySelector('[data-container-contents]')?.classList.contains("is-hidden")).toBe(true);
+    expect(document.querySelector('[data-container-contents]')?.getAttribute("role")).toBe("region");
     expect(playerStateStore.get()?.inventory).toEqual(inventory);
   }
+  events.emit("shutdown");
+});
+
+
+it("initializes permanent contents inline and preserves selected bag and pending view through snapshots", () => {
+  vi.stubGlobal("matchMedia", () => ({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const character:PlayerStateSnapshot["character"]={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+  const permanent:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const bag:InventoryItem={...permanent,instanceId:"bag",itemId:"bag",name:"Duża torba",permanentContainer:false,containerCapacity:30};
+  const pending:InventoryItem={instanceId:"wood",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0};
+  const inventory:InventorySnapshot={items:[permanent,bag,pending],containerSlots:["permanent","bag",null,null]};
+  transport.emit("playerState",{character,inventory});
+  const contents=document.querySelector<HTMLElement>(".world-hud [data-container-contents]")!;
+  expect(contents?.getAttribute("role")).toBe("region");expect(contents?.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
+  expect(document.querySelector('body > [data-container-contents]')).toBeNull();
+  document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();
+  expect(contents.querySelectorAll("[data-storage-cell]")).toHaveLength(30);
+  transport.emit("playerState",{character:{...character,hp:80},inventory});
+  expect(contents.querySelectorAll("[data-storage-cell]")).toHaveLength(30);
+  expect(document.querySelector('[data-container-slot="1"]')?.classList.contains("is-selected")).toBe(true);
+  document.querySelector<HTMLButtonElement>('[data-container-slot="0"]')!.click();
+  contents.querySelector<HTMLButtonElement>("[data-container-pending]")!.click();
+  expect(contents.querySelector('[data-container-item="wood"]')).not.toBeNull();
+  transport.emit("playerState",{character,inventory});
+  expect(contents.querySelector('[data-container-pending]')?.getAttribute("aria-pressed")).toBe("true");
+  expect(contents.querySelector('[data-container-item="wood"]')).not.toBeNull();events.emit("shutdown");
+});
+
+it("keeps inline selection while a move is awaiting acknowledgement", async () => {
+  vi.stubGlobal("matchMedia", () => ({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  let finish!:(value:InventoryUpdateResult)=>void;
+  vi.spyOn(gameSocket,"moveItemToContainer").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const character:PlayerStateSnapshot["character"]={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
+  const permanent:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const bag:InventoryItem={...permanent,instanceId:"bag",itemId:"bag",permanentContainer:false,containerCapacity:8};
+  const wood:InventoryItem={instanceId:"wood",itemId:"wood",itemDefinitionId:"wood",name:"Drewno",category:"material",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,containerInstanceId:"permanent"};
+  const inventory:InventorySnapshot={items:[permanent,bag,wood],containerSlots:["permanent","bag",null,null]};transport.emit("playerState",{character,inventory});
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(true);
+  document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyI",key:"i",bubbles:true}));
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(false);
+  const contents=document.querySelector<HTMLElement>(".world-hud [data-container-contents]")!;
+  contents.querySelector('[data-container-item="wood"]')!.dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true}));
+  const target=document.querySelector<HTMLButtonElement>('[data-container-drop-target="bag"]')!;target.focus();target.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  target.click();expect(contents.querySelectorAll("[data-storage-cell]")).toHaveLength(16);
+  expect(document.querySelector('[data-container-slot="0"]')?.classList.contains("is-selected")).toBe(true);
+  document.dispatchEvent(new Event("game-ui-back",{cancelable:true}));
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(true);
+  finish({ok:true,inventory:{...inventory,items:[permanent,bag,{...wood,containerInstanceId:"bag"}]}});
+  await vi.waitFor(()=>expect(playerStateStore.get()?.inventory.items.find(item=>item.instanceId==="wood")?.containerInstanceId).toBe("bag"));
+  document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyI",key:"i",bubbles:true}));
+  target.click();expect(contents.querySelectorAll("[data-storage-cell]")).toHaveLength(8);events.emit("shutdown");
+});
+
+it("keeps compact bags visible through character actions and equips by keyboard drag from the inline grid", async () => {
+  vi.stubGlobal("matchMedia", () => ({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const character:PlayerStateSnapshot["character"]={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:emptyCharacterEquipment()};
+  const permanent:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const weapon:InventoryItem={instanceId:"sword",itemId:"sword",itemDefinitionId:"sword",name:"Miecz",category:"weapon",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,containerInstanceId:"permanent",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[]}};
+  const equipped:InventoryItem={...weapon,equippedSlot:"mainHand"};delete equipped.containerInstanceId;
+  const equippedCharacter={...character,equipment:{...emptyCharacterEquipment(),mainHand:equipped}};
+  vi.spyOn(gameSocket,"setEquipmentSlot").mockResolvedValue({ok:true,character:equippedCharacter,inventory:{items:[permanent,equipped],containerSlots:["permanent",null,null,null]}});
+  transport.emit("playerState",{character,inventory:{items:[permanent,weapon],containerSlots:["permanent",null,null,null]}});
+  document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyI",key:"i",bubbles:true}));
+  document.querySelector<HTMLButtonElement>("[data-character]")!.click();
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(false);
+  document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyC",key:"c",bubbles:true}));
+  document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyC",key:"c",bubbles:true}));
+  expect(document.querySelector<HTMLElement>("[data-hud-content]")?.hidden).toBe(false);
+  document.querySelector<HTMLButtonElement>('[data-character-tab="equipment"]')!.click();
+  document.querySelector('.world-hud [data-container-item="sword"]')!.dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true}));
+  const target=document.querySelector<HTMLButtonElement>('[data-equipment-drop-target="mainHand"]')!;
+  target.focus();target.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await vi.waitFor(()=>expect(playerStateStore.get()?.character.equipment?.mainHand?.instanceId).toBe("sword"));
+  expect(gameSocket.setEquipmentSlot).toHaveBeenCalledWith({slot:"mainHand",itemInstanceId:"sword"});events.emit("shutdown");
+});
+
+it("opens equipment from a HUD slot and equips from the inline backpack onto that slot",async()=>{
+  vi.stubGlobal("matchMedia",()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+  const scene=new WorldScene(),events=new EventEmitter();
+  Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});
+  scene.init({playerId:"hero"});scene.create();
+  const character:PlayerStateSnapshot["character"]={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:emptyCharacterEquipment()};
+  const permanent:InventoryItem={instanceId:"permanent",itemId:"permanent-backpack",itemDefinitionId:"permanent-backpack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const weapon:InventoryItem={instanceId:"sword",itemId:"sword",itemDefinitionId:"sword",name:"Miecz",category:"weapon",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,containerInstanceId:"permanent",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[]}};
+  const equipped:InventoryItem={...weapon,equippedSlot:"mainHand"};delete equipped.containerInstanceId;
+  const equippedCharacter={...character,equipment:{...emptyCharacterEquipment(),mainHand:equipped}};
+  vi.spyOn(gameSocket,"setEquipmentSlot").mockResolvedValue({ok:true,character:equippedCharacter,inventory:{items:[permanent,equipped],containerSlots:["permanent",null,null,null]}});
+  transport.emit("playerState",{character,inventory:{items:[permanent,weapon],containerSlots:["permanent",null,null,null]}});
+  const slot=document.querySelector<HTMLButtonElement>('[data-hud-equipment-slot="mainHand"]')!;
+  slot.click();expect(document.querySelector('[data-character-tab="equipment"]')?.getAttribute("aria-selected")).toBe("true");
+  document.querySelector<HTMLButtonElement>('[data-character-sheet] [data-close]')!.click();
+  document.querySelector('.world-hud [data-container-item="sword"]')!.dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true}));
+  slot.focus();slot.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));
+  await vi.waitFor(()=>expect(playerStateStore.get()?.character.equipment?.mainHand?.instanceId).toBe("sword"));
+  expect(slot.title).toContain("Miecz");expect(gameSocket.setEquipmentSlot).toHaveBeenCalledExactlyOnceWith({slot:"mainHand",itemInstanceId:"sword"});
   events.emit("shutdown");
 });

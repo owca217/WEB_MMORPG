@@ -54,6 +54,10 @@ const MIGRATIONS = [
   {
     name: "013_permanent_backpack",
     url: new URL("./migrations/013_permanent_backpack.sql", import.meta.url)
+  },
+  {
+    name: "014_container_positions",
+    url: new URL("./migrations/014_container_positions.sql", import.meta.url)
   }
 ] as const;
 

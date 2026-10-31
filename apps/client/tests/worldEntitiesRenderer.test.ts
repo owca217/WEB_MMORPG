@@ -1,6 +1,7 @@
 import type { WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
 import type Phaser from "phaser";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setRightClickInteractions } from "../src/ui/interactionPreferences";
 
 vi.mock("phaser", () => ({ default: {
   Math: { Linear: (start: number, end: number, amount: number) => start + (end - start) * amount },
@@ -21,7 +22,7 @@ class DisplayObject {
   width = 0;
   height = 0;
   interactive = false;
-  handlers = new Map<string, () => void>();
+  handlers = new Map<string, (...args: any[]) => void>();
 
   constructor(public kind: string, public x = 0, public y = 0) {}
   setDepth(depth: number) { this.depth = depth; return this; }
@@ -33,7 +34,7 @@ class DisplayObject {
   setInteractive() { this.interactive = true; return this; }
   disableInteractive() { this.interactive = false; return this; }
   setAlpha() { return this; }
-  on(event: string, callback: () => void) { this.handlers.set(event, callback); return this; }
+  on(event: string, callback: (...args: any[]) => void) { this.handlers.set(event, callback); return this; }
   add(objects: DisplayObject | DisplayObject[]) {
     for (const object of Array.isArray(objects) ? objects : [objects]) {
       object.parent = this;
@@ -123,6 +124,7 @@ function createScene(loadedNpcIds: string[] = []) {
 }
 
 const hero: WorldPlayerSnapshot = { id: "hero", nickname: "Bohater", x: 100, y: 200 };
+afterEach(()=>setRightClickInteractions(true));
 const friend: WorldPlayerSnapshot = { id: "friend", nickname: "Przyjaciel", x: 300, y: 400 };
 function snapshot(players: WorldPlayerSnapshot[]): WorldStateSnapshot {
   return { locationId: "forest-settlement", players, npcs: [], encounters: [] };
@@ -139,22 +141,31 @@ it("updates a defeated encounter in place and waits for server confirmation befo
   expect(label.destroyed).toBe(false);
   expect(container.interactive).toBe(false);
   expect(label.text).toContain("03:00");
-  container.handlers.get("pointerup")?.();expect(selected).not.toHaveBeenCalled();
+  container.handlers.get("pointerup")?.({button:2});expect(selected).not.toHaveBeenCalled();
   renderer.updateEncounters(182000);
   expect(container.interactive).toBe(false);
   renderer.render({...snapshot([]),serverTime:182000,encounters:[{...boar,status:"alive"}]});
   expect(container.interactive).toBe(true);
-  container.handlers.get("pointerup")?.();expect(selected).toHaveBeenCalledWith("boar");
+  container.handlers.get("pointerup")?.({button:2});expect(selected).toHaveBeenCalledWith("boar");
   renderer.destroy();
 });
 
-it("makes an edge portal walkable by click and removes it on leaving the location",()=>{
+it("walks into an edge portal only with the primary pointer in either preference mode",()=>{
   const fake=createScene(),renderer=new WorldEntitiesRenderer(fake.scene,hero.id),walk=vi.fn();
   renderer.onTeleportSelected=walk;
   renderer.render({...snapshot([]),teleports:[{id:"east",label:"Do lasu",x:1510,y:350,width:90,height:200,destinationLocationId:"eastern-forest-01"}]});
   const label=fake.text("Do lasu")!;
-  label.parent?.handlers.get("pointerup")?.();
-  expect(walk).toHaveBeenCalledExactlyOnceWith({x:1555,y:450});
+  const pointerup=label.parent!.handlers.get("pointerup")!,stopPropagation=vi.fn();
+  for (const preference of [true,false]) {
+    setRightClickInteractions(preference);
+    const previous=walk.mock.calls.length;
+    pointerup({button:2},0,0,{stopPropagation});
+    expect(walk).toHaveBeenCalledTimes(previous);expect(stopPropagation).toHaveBeenCalledTimes(previous);
+    pointerup({button:0},0,0,{stopPropagation});
+    expect(walk).toHaveBeenLastCalledWith({x:1555,y:450});expect(walk).toHaveBeenCalledTimes(previous+1);
+    pointerup({button:0,wasTouch:true},0,0,{stopPropagation});
+    expect(walk).toHaveBeenCalledTimes(previous+2);expect(stopPropagation).toHaveBeenCalledTimes(previous+2);
+  }
   renderer.render(snapshot([]));
   expect(label.destroyed).toBe(true);
   renderer.destroy();
@@ -285,7 +296,7 @@ describe("NPC character skins", () => {
       expect(sprite.displayWidth).toBeLessThan(40);
       expect(sprite.originY).toBe(1);
       expect(sprite.parent?.interactive).toBe(true);
-      sprite.parent?.handlers.get("pointerup")?.();
+      sprite.parent?.handlers.get("pointerup")?.({button:2});
       expect(selected).toHaveBeenLastCalledWith(npc.id);
     }
     expect(fake.text("Miro\nKupiec")).toBeDefined();
@@ -303,7 +314,38 @@ describe("NPC character skins", () => {
     const label = fake.text("Miro\nKupiec")!;
     expect(fake.objects.some((object) => object.kind === "rectangle")).toBe(true);
     expect(label.parent?.interactive).toBe(true);
-    label.parent?.handlers.get("pointerup")?.();
+    label.parent?.handlers.get("pointerup")?.({button:2});
     expect(selected).toHaveBeenCalledWith("merchant-miro");
   });
+});
+
+
+it("passes primary mouse clicks through entity sprites and consumes only configured interaction buttons", () => {
+  const fake=createScene(),renderer=new WorldEntitiesRenderer(fake.scene,hero.id);
+  const selected=vi.fn(),encounterSelected=vi.fn(),teleportSelected=vi.fn();
+  renderer.onNpcSelected=selected;renderer.onEncounterSelected=encounterSelected;renderer.onTeleportSelected=teleportSelected;
+  renderer.render({...snapshot([]),npcs:[{id:"guide-boran",name:"Boran",kind:"guide",x:100,y:100,interactionRadius:95}],encounters:[{id:"wolves",label:"Wilki",x:200,y:100}],teleports:[{id:"east",label:"Do lasu",x:1510,y:350,width:90,height:200,destinationLocationId:"eastern-forest-01"}]});
+  const views=[fake.text("Boran\nPrzewodnik")!.parent!,fake.text("Wilki")!.parent!];
+  for(const view of views) {
+    const stopPropagation=vi.fn(),onPointer=view.handlers.get("pointerup")!;
+    onPointer({button:0},0,0,{stopPropagation});expect(stopPropagation).not.toHaveBeenCalled();
+    onPointer({button:1},0,0,{stopPropagation});expect(stopPropagation).not.toHaveBeenCalled();
+    onPointer({button:2},0,0,{stopPropagation});expect(stopPropagation).toHaveBeenCalledTimes(1);
+    onPointer({button:0,wasTouch:true},0,0,{stopPropagation});expect(stopPropagation).toHaveBeenCalledTimes(2);
+    setRightClickInteractions(false);onPointer({button:0},0,0,{stopPropagation});expect(stopPropagation).toHaveBeenCalledTimes(3);setRightClickInteractions(true);
+  }
+  expect(selected).toHaveBeenCalledTimes(3);expect(encounterSelected).toHaveBeenCalledTimes(3);expect(teleportSelected).not.toHaveBeenCalled();
+  delete renderer.onNpcSelected;const stopPropagation=vi.fn();views[0]!.handlers.get("pointerup")!({button:2},0,0,{stopPropagation});expect(stopPropagation).not.toHaveBeenCalled();renderer.destroy();
+});
+
+it("opens another player's interaction by id and ignores the local player", () => {
+  const fake=createScene(),renderer=new WorldEntitiesRenderer(fake.scene,hero.id),selected=vi.fn();renderer.onPlayerSelected=selected;
+  renderer.render(snapshot([hero,friend]));
+  const local=fake.text(hero.nickname)!.parent!,remote=fake.text(friend.nickname)!.parent!,stopPropagation=vi.fn();
+  expect(local.interactive).toBe(false);expect(remote.interactive).toBe(true);
+  remote.handlers.get("pointerup")!({button:0},0,0,{stopPropagation});expect(selected).not.toHaveBeenCalled();expect(stopPropagation).not.toHaveBeenCalled();
+  remote.handlers.get("pointerup")!({button:2},0,0,{stopPropagation});expect(selected).toHaveBeenLastCalledWith(friend.id);expect(stopPropagation).toHaveBeenCalledTimes(1);
+  remote.handlers.get("pointerup")!({button:0,wasTouch:true},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(2);
+  setRightClickInteractions(false);remote.handlers.get("pointerup")!({button:0},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(3);
+  local.handlers.get("pointerup")?.({button:2},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(3);renderer.destroy();
 });

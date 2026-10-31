@@ -78,4 +78,62 @@ describe('Android lifecycle', () => {
     expect(front).toHaveBeenCalledOnce();
     expect(behind).not.toHaveBeenCalled();
   });
+
+  it('offers Back to compact game chrome before minimizing', async () => {
+    const closeChrome = (event: Event) => event.preventDefault();
+    document.addEventListener('game-ui-back', closeChrome);
+    const cleanup = await initializeNativeClient({ reload: vi.fn() });
+    events.get('backButton')!({ canGoBack: false });
+    expect(minimizeApp).not.toHaveBeenCalled();
+    document.removeEventListener('game-ui-back', closeChrome);
+    events.get('backButton')!({ canGoBack: false });
+    expect(minimizeApp).toHaveBeenCalledOnce();
+    await cleanup();
+  });
+
+  it('closes detached item details before the backpack underneath', async () => {
+    document.body.innerHTML = `
+      <div class="game-panel" style="position:fixed;z-index:1100"><button data-close id="bag">Plecak</button></div>
+      <div class="container-contents--portal" style="position:fixed;z-index:1190">
+        <section data-container-item-actions><button data-close id="details">Szczegóły</button></section>
+      </div>`;
+    const closed: string[] = [];
+    for (const id of ['bag', 'details']) {
+      document.getElementById(id)!.addEventListener('click', (event) => {
+        closed.push(id);
+        (event.currentTarget as HTMLElement).parentElement!.hidden = true;
+      });
+    }
+    const cleanup = await initializeNativeClient({ reload: vi.fn() });
+    events.get('backButton')!({ canGoBack: false });
+    expect(closed).toEqual(['details']);
+    expect(minimizeApp).not.toHaveBeenCalled();
+    events.get('backButton')!({ canGoBack: false });
+    expect(closed).toEqual(['details', 'bag']);
+    await cleanup();
+  });
+
+  it('closes Chat before later-created Social using their parent stacking contexts', async () => {
+    document.body.innerHTML = `
+      <div class="chat-widget" style="position:fixed;z-index:1120">
+        <section class="game-panel" style="position:fixed;z-index:1100"><button data-close id="chat">Czat</button></section>
+      </div>
+      <div class="social-widget" style="position:fixed;z-index:1115">
+        <section class="game-panel" style="position:fixed;z-index:1100"><button data-close id="social">Społeczność</button></section>
+      </div>`;
+    const closed: string[] = [];
+    for (const id of ['chat', 'social']) {
+      document.getElementById(id)!.addEventListener('click', (event) => {
+        closed.push(id);
+        (event.currentTarget as HTMLElement).closest('.game-panel')!.classList.add('is-hidden');
+      });
+    }
+    const cleanup = await initializeNativeClient({ reload: vi.fn() });
+    events.get('backButton')!({ canGoBack: false });
+    expect(closed).toEqual(['chat']);
+    expect(minimizeApp).not.toHaveBeenCalled();
+    events.get('backButton')!({ canGoBack: false });
+    expect(closed).toEqual(['chat', 'social']);
+    await cleanup();
+  });
 });

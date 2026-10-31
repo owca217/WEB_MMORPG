@@ -1,4 +1,29 @@
-.game-panel.healing-panel { position:fixed; z-index:32; top:max(12px,var(--safe-area-top,0px)); right:max(12px,var(--safe-area-right,0px)); left:auto; transform:none; width:min(480px,calc(100vw - 24px)); max-height:calc(100dvh - 24px - var(--safe-area-top,0px) - var(--safe-area-bottom,0px)); overflow:auto; box-sizing:border-box; }
+.game-panel.healing-panel {
+  position:fixed; z-index:1100;
+  top:calc(12px + var(--safe-area-top,0px)); right:calc(12px + var(--safe-area-right,0px));
+  left:auto; transform:none;
+  width:min(480px,calc(100vw - 24px - var(--safe-area-left,0px) - var(--safe-area-right,0px)));
+  max-height:calc(100dvh - 24px - var(--safe-area-top,0px) - var(--safe-area-bottom,0px));
+  overflow:auto; box-sizing:border-box; overscroll-behavior:contain;
+}
+body.has-world-hud .game-panel.healing-panel {
+  top:calc(52px + var(--safe-area-top,0px));
+  right:calc(292px + var(--safe-area-right,0px));
+  width:min(480px,calc(100vw - 304px - var(--safe-area-left,0px) - var(--safe-area-right,0px)));
+  max-height:calc(100dvh - 116px - var(--safe-area-top,0px) - var(--safe-area-bottom,0px));
+}
+.game-panel.healing-panel .game-panel__header {
+  position:sticky; top:0; z-index:1; background:var(--rpg-panel,#222521);
+}
+.game-panel.healing-panel [data-close] { flex-shrink:0; min-width:44px; min-height:44px; }
+@media (max-width:1099px), (max-height:599px) {
+  body.has-world-hud .game-panel.healing-panel {
+    top:calc(68px + var(--safe-area-top,0px));
+    right:calc(12px + var(--safe-area-right,0px));
+    width:min(480px,calc(100vw - 24px - var(--safe-area-left,0px) - var(--safe-area-right,0px)));
+    max-height:calc(100dvh - 136px - var(--safe-area-top,0px) - var(--safe-area-bottom,0px));
+  }
+}
 .healing-panel[hidden] { display:none; }
 .healing-panel [data-healing-targets] { display:grid; gap:8px; }
 .healing-panel [data-heal-target] { min-height:44px; text-align:left; white-space:normal; }

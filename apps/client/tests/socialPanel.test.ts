@@ -11,13 +11,18 @@ const inventoryItem = (instanceId: string, extra: Partial<InventoryItem> = {}): 
 const inventory: InventorySnapshot = { items: [inventoryItem("herb")] };
 const snapshot = (extra: Partial<SocialSnapshot> = {}): SocialSnapshot => ({ selfId: "self", onlinePlayers: [other], friends: [], incomingFriendRequests: [], outgoingFriendRequests: [], party: null, partyInvites: [], trade: null, ...extra });
 const trade = (extra: Partial<TradeSnapshot> = {}): TradeSnapshot => ({ id: "trade", initiatorId: "other", status: "active", revision: 1, participants: [{ player: self, offer: [], confirmed: false }, { player: other, offer: [{ instanceId: "sword", name: "Miecz", quantity: 1 }], confirmed: true }], expiresAt: Date.now() + 60000, ...extra });
-function element<T extends HTMLElement = HTMLElement>(selector: string): T { const result = document.querySelector<T>(selector); if (!result) throw new Error(`Missing ${selector}`); return result; }
+let view:"party"|"friends"|"trade"="friends";
+function element<T extends HTMLElement = HTMLElement>(selector: string): T {
+  if(view!=="friends"&&selector==="[data-social-content]")selector=`[data-floating-game-window="${view}"] [data-floating-content]`;
+  if(view!=="friends"&&selector==="[data-social-feedback]")selector=`[data-${view}-feedback]`;
+  const result = document.querySelector<T>(selector); if (!result) throw new Error(`Missing ${selector}`); return result;
+}
 function button(selector: string): HTMLButtonElement { return element<HTMLButtonElement>(selector); }
-function tab(name: "party" | "friends" | "trade"): void { button(`[data-social-tab="${name}"]`).click(); }
+function tab(name: "party" | "friends" | "trade"): void { view=name;if(name==="party")panels.at(-1)!.openParty();if(name==="trade")panels.at(-1)!.openTrade(); }
 function type(selector: string, value: string): void { const node = element<HTMLInputElement>(selector); node.value = value; node.dispatchEvent(new Event("input", { bubbles: true })); }
 function panel(onAction: (action: SocialAction) => Promise<SocialActionResult> = vi.fn(async (): Promise<SocialActionResult> => ({ ok: true, social: snapshot() })), state = snapshot()): SocialPanel { const result = new SocialPanel({ onAction }); panels.push(result); result.update(state, inventory, "connected", false); button("[data-social-toggle]").click(); return result; }
 
-beforeEach(() => document.body.replaceChildren());
+beforeEach(() => {document.body.replaceChildren();view="friends";});
 afterEach(() => { for (const instance of panels.splice(0)) instance.destroy(); vi.restoreAllMocks(); });
 
 it("requires explicit consent for incoming requests and renders nicknames as text", async () => {
@@ -36,6 +41,14 @@ it("requires explicit consent for incoming requests and renders nicknames as tex
   button('[data-social-action="respondTrade"][data-accept="false"]').click();
   await vi.waitFor(() => expect(actions).toHaveLength(2));
   expect(actions[1]).toEqual({ type: "respondTrade", tradeId: "trade", accept: false });
+});
+
+it("opens party and trade independently from friends without modal panels or tab navigation",()=>{
+  const instance=panel();instance.openParty();instance.openTrade();
+  expect(document.querySelector('[data-social-tab="party"]')).toBeNull();expect(document.querySelector('[data-social-tab="trade"]')).toBeNull();
+  for(const kind of ["party","trade"]){const window=element(`[data-floating-game-window="${kind}"]`);expect(window.classList.contains("is-hidden")).toBe(false);expect(window.classList.contains("game-panel")).toBe(false);}
+  expect(element('[data-social-content]').textContent).toContain("Dodaj znajomego");
+  element('[data-floating-game-window="trade"] [data-close]').click();expect(element('[data-floating-game-window="party"]').classList.contains("is-hidden")).toBe(false);
 });
 
 it("sends nickname requests once, preserves failed drafts and awaits authoritative parent updates", async () => {
@@ -59,19 +72,58 @@ it("sends nickname requests once, preserves failed drafts and awaits authoritati
   expect(element("[data-social-content]").textContent).toContain("Wysłane zaproszenia");
 });
 
-it("shows party leadership and limits invitations by connection, battle and capacity", () => {
+it("shows party leadership and limits direct invitations by connection, battle and capacity", async () => {
   const member: SocialPlayer = { id: "member", nickname: "Ola", online: false, inBattle: false };
-  const instance = panel(undefined, snapshot({ party: { id: "party", leaderId: "self", members: [self, member], experienceBonusPercent: 10 } }));
+  const actions:SocialAction[]=[],onAction=vi.fn(async(action:SocialAction):Promise<SocialActionResult>=>{actions.push(action);return{ok:true,social:snapshot()};});
+  const instance = panel(onAction, snapshot({ party: { id: "party", leaderId: "self", members: [self, member], experienceBonusPercent: 10 } }));
+  tab("party");
   expect(element("[data-social-content]").textContent).toContain("do +10% XP");
   expect(button('[data-social-action="kickParty"]').disabled).toBe(false);
-  expect(button('[data-social-action="inviteParty"]').disabled).toBe(false);
+  expect(document.querySelector('[data-social-target]')).toBeNull();expect(element<HTMLDetailsElement>('.social-widget__rules').open).toBe(false);
+  instance.inviteToParty("other");await vi.waitFor(()=>expect(actions).toHaveLength(1));await vi.waitFor(()=>expect(button('[data-social-action="kickParty"]').disabled).toBe(false));
   instance.update(snapshot({ party: { id: "party", leaderId: "member", members: [self, member], experienceBonusPercent: 10 } }), inventory, "connected", false);
   expect(document.querySelector('[data-social-action="kickParty"]')).toBeNull();
-  expect(button('[data-social-action="inviteParty"]').disabled).toBe(true);
+  instance.inviteToParty("other");expect(actions).toHaveLength(1);
   instance.update(snapshot(), inventory, "connected", true);
-  expect(button('[data-social-action="inviteParty"]').disabled).toBe(true);
+  instance.inviteToParty("other");expect(actions).toHaveLength(1);
   tab("trade");
-  expect(button('[data-social-action="requestTrade"]').disabled).toBe(true);
+  instance.requestTrade("other");expect(actions).toHaveLength(1);
+});
+
+it("sends the exact world target even before the social poll and retains pending action guards",async()=>{
+  let resolve!:(result:SocialActionResult)=>void;const actions:SocialAction[]=[];
+  const instance=panel(action=>{actions.push(action);return new Promise(done=>{resolve=done;});},snapshot({onlinePlayers:[]}));
+  instance.inviteToParty("new-world-player");instance.inviteToParty("new-world-player");
+  expect(actions).toEqual([{type:"inviteParty",playerId:"new-world-player"}]);
+  resolve({ok:false,code:"PLAYER_IN_BATTLE",message:"Gracz jest w walce."});await vi.waitFor(()=>expect(element('[data-party-feedback]').textContent).toContain("Gracz jest w walce"));
+  instance.requestTrade("another-world-player");expect(actions.at(-1)).toEqual({type:"requestTrade",playerId:"another-world-player"});
+  resolve({ok:true,social:snapshot()});await vi.waitFor(()=>expect(element('[data-floating-game-window="trade"]').getAttribute("aria-busy")).toBe("false"));
+  instance.update(snapshot({onlinePlayers:[{...other,online:false}]}),inventory,"connected",false);instance.requestTrade("other");expect(actions).toHaveLength(2);
+});
+
+it("opens new incoming invitations once, preserves focus and allows reopening from the menu",()=>{
+  const instance=panel(),launcher=document.createElement("button");document.body.append(launcher);launcher.focus();
+  const incoming=snapshot({partyInvites:[{id:"new-invite",leader:other,membersCount:2,expiresAt:Date.now()+60000}],trade:trade({status:"invited"})});
+  instance.update(incoming,inventory,"connected",false);expect(document.activeElement).toBe(launcher);
+  for(const kind of ["party","trade"]){expect(element(`[data-floating-game-window="${kind}"]`).classList.contains("is-hidden")).toBe(false);element(`[data-floating-game-window="${kind}"] [data-close]`).click();}
+  instance.update(incoming,inventory,"connected",false);expect(element('[data-floating-game-window="trade"]').classList.contains("is-hidden")).toBe(true);
+  instance.openTrade();expect(element('[data-floating-game-window="trade"]').textContent).toContain("Zaproszenie do wymiany");
+});
+
+it("keeps trade drafts and typing in its own window when closed and reopened",()=>{
+  const state=snapshot({trade:trade()}),instance=panel(undefined,state);tab("trade");type('[data-trade-quantity]',"2");button('[data-trade-add]').click();
+  const floating=element('[data-floating-game-window="trade"]'),position=[floating.style.left,floating.style.top];element('[data-trade-quantity]').focus();expect(instance.isTyping).toBe(true);
+  element('[data-floating-game-window="trade"] [data-close]').click();expect(instance.isTyping).toBe(false);instance.openTrade();
+  expect(element('[data-trade-draft]').textContent).toContain("Zioło ×2");instance.update(state,inventory,"connected",false);
+  expect([floating.style.left,floating.style.top]).toEqual(position);expect(element('[data-trade-draft]').textContent).toContain("Zioło ×2");
+});
+it("shows existing party and active trade on scene entry without reopening manually closed windows on polls",()=>{
+  const state=snapshot({party:{id:"party",leaderId:"self",members:[self,other],experienceBonusPercent:10},trade:trade()});const instance=panel(undefined,state);
+  for(const kind of ["party","trade"]){expect(element(`[data-floating-game-window="${kind}"]`).classList.contains("is-hidden")).toBe(false);element(`[data-floating-game-window="${kind}"] [data-close]`).click();}
+  instance.update(state,inventory,"connected",true);
+  for(const kind of ["party","trade"])expect(element(`[data-floating-game-window="${kind}"]`).classList.contains("is-hidden")).toBe(true);
+  instance.update({...state,trade:trade({status:"invited"})},inventory,"connected",true);instance.update(state,inventory,"connected",true);
+  expect(element('[data-floating-game-window="trade"]').classList.contains("is-hidden")).toBe(false);
 });
 
 it("allows cleaning up unavailable friends and cancelling sent requests while refusing acceptance", async () => {

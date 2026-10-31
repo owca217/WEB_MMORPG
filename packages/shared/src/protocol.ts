@@ -50,7 +50,7 @@ export interface ClientToServerEvents {
     ack: (result: SetContainerSlotResult) => void
   ) => void;
   moveItemToContainer: (
-    payload: { itemInstanceId: string; targetContainerInstanceId: string | null },
+    payload: { itemInstanceId: string; targetContainerInstanceId: string | null; targetPosition?: number },
     ack: (result: InventoryUpdateResult) => void
   ) => void;
 }

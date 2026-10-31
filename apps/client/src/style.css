@@ -466,8 +466,8 @@ button {
 
 .world-hud__container-slots {
   display: grid;
-  grid-template-columns: repeat(4, minmax(44px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(4, var(--rpg-slot-size, 36px));
+  gap: var(--rpg-slot-gap, 2px);
 }
 
 .world-hud__container-slot {
@@ -475,10 +475,13 @@ button {
   display: grid;
   justify-items: center;
   align-content: center;
-  gap: 3px;
-  min-width: 44px;
-  min-height: 68px;
-  padding: 5px 4px;
+  gap: 0;
+  width: var(--rpg-slot-size, 36px);
+  height: var(--rpg-slot-size, 36px);
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 1px;
   overflow: hidden;
   color: #c8ba9d;
   background: rgba(13, 18, 13, 0.65);
@@ -536,6 +539,7 @@ button {
 }
 
 .world-hud__container-name {
+  display: none;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -547,8 +551,8 @@ button {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: var(--rpg-slot-size, 36px);
+  height: var(--rpg-slot-size, 36px);
   overflow: hidden;
   color: #c4ac75;
   font-size: 30px;
@@ -595,8 +599,8 @@ button {
 }
 
 .container-picker__choice .container-icon {
-  width: 44px;
-  height: 44px;
+  width: var(--rpg-slot-size, 36px);
+  height: var(--rpg-slot-size, 36px);
 }
 
 .container-picker__content {
@@ -687,7 +691,7 @@ button {
 
 .inventory-item {
   display: grid;
-  grid-template-columns: 48px 1fr;
+  grid-template-columns: var(--rpg-slot-size, 36px) 1fr;
   gap: 12px;
   align-items: start;
   padding: 11px;
@@ -699,8 +703,8 @@ button {
 .inventory-item__icon {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
+  width: var(--rpg-slot-size, 36px);
+  height: var(--rpg-slot-size, 36px);
   border-radius: 8px;
   background: #53563c;
   font-weight: 900;
@@ -1088,19 +1092,19 @@ button {
   }
 
   .world-hud__container-slots {
-    gap: 5px;
+    gap: var(--rpg-slot-gap, 2px);
   }
 
   .world-hud__container-slot {
-    min-height: 56px;
-    padding: 3px;
-    gap: 1px;
+    min-height: 0;
+    padding: 1px;
+    gap: 0;
   }
 
   .world-hud__container-slot .container-icon {
-    width: 30px;
-    height: 30px;
-    font-size: 26px;
+    width: 100%;
+    height: 100%;
+    font-size: 20px;
   }
 
   .experience-progress {
@@ -1450,7 +1454,7 @@ button {
 .equipment-item { display:flex; gap:9px; align-items:center; min-width:0; }
 .equipment-item > div { display:grid; gap:5px; min-width:0; overflow-wrap:anywhere; }
 .equipment-item small,.equipment-slot__empty { color:#c3c4aa; line-height:1.35; }
-.equipment-icon { display:grid; place-items:center; flex:0 0 38px; width:38px; height:38px; color:#a8aa8b; background:#070a07; border:1px solid #545b41; border-radius:6px; font-size:24px; overflow:hidden; }
+.equipment-icon { display:grid; place-items:center; box-sizing:border-box; flex:0 0 var(--rpg-slot-size,36px); width:var(--rpg-slot-size,36px); height:var(--rpg-slot-size,36px); color:#a8aa8b; background:#070a07; border:1px solid #545b41; border-radius:3px; font-size:19px; overflow:hidden; }
 .equipment-icon img { width:100%; height:100%; object-fit:contain; }
 .equipment-candidates { display:grid; gap:8px; }
 .equipment-slot button,.equipment-candidate button,.container-equipment-action { min-height:44px; padding:8px 12px; border:1px solid #938051; border-radius:6px; color:#f0e9ce; background:#555d37; cursor:pointer; }
@@ -1493,4 +1497,52 @@ body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-conte
   }
   body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel--character { top:auto; bottom:calc(50% + 6px); }
   body:has(.game-panel--character:not(.is-hidden)):has(.game-panel.container-contents:not(.is-hidden)) > .game-panel.container-contents { top:calc(50% + 6px); bottom:auto; }
+}
+
+/* A compact equipment sheet and the inline inventory must remain separate
+   scroll surfaces so an item can travel from the rail to a real gear target. */
+@media (max-width:1099px), (max-height:599px) {
+  body.has-world-hud > .game-panel--character {
+    top: calc(64px + var(--safe-area-top));
+    max-height: max(1px, calc(100dvh - 128px - var(--safe-area-top) - var(--safe-area-bottom)));
+    transform: translateX(-50%);
+  }
+  body:has(> .game-panel--character:not(.is-hidden)):has(.world-hud__content:not([hidden]) .container-contents--inline) {
+    --rpg-pair-top: calc(64px + var(--safe-area-top));
+    --rpg-pair-height: max(1px, calc(100dvh - 128px - var(--safe-area-top) - var(--safe-area-bottom)));
+    --rpg-pair-width: calc(100vw - 16px - var(--safe-area-left) - var(--safe-area-right));
+  }
+  body:has(> .game-panel--character:not(.is-hidden)):has(.world-hud__content:not([hidden]) .container-contents--inline) > .game-panel--character,
+  body:has(> .game-panel--character:not(.is-hidden)) .world-hud__content:not([hidden]):has(.container-contents--inline) {
+    position: fixed;
+    left: calc(8px + var(--safe-area-left));
+    right: auto;
+    bottom: auto;
+    width: var(--rpg-pair-width);
+    max-width: none;
+    height: calc(var(--rpg-pair-height) / 2 - 4px);
+    max-height: calc(var(--rpg-pair-height) / 2 - 4px);
+    min-height: 0;
+    transform: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  body:has(> .game-panel--character:not(.is-hidden)):has(.world-hud__content:not([hidden]) .container-contents--inline) > .game-panel--character { top: var(--rpg-pair-top); }
+  body:has(> .game-panel--character:not(.is-hidden)) .world-hud__content:not([hidden]):has(.container-contents--inline) { top: calc(var(--rpg-pair-top) + var(--rpg-pair-height) / 2 + 4px); }
+}
+
+@media (min-width:600px) and (max-width:1099px) and (orientation:landscape), (min-width:600px) and (max-height:599px) and (orientation:landscape) {
+  body:has(> .game-panel--character:not(.is-hidden)):has(.world-hud__content:not([hidden]) .container-contents--inline) > .game-panel--character,
+  body:has(> .game-panel--character:not(.is-hidden)) .world-hud__content:not([hidden]):has(.container-contents--inline) {
+    top: var(--rpg-pair-top);
+    height: var(--rpg-pair-height);
+    max-height: var(--rpg-pair-height);
+  }
+  body:has(> .game-panel--character:not(.is-hidden)):has(.world-hud__content:not([hidden]) .container-contents--inline) > .game-panel--character { width: calc(var(--rpg-pair-width) - min(300px, 40vw) - 8px); }
+  body:has(> .game-panel--character:not(.is-hidden)) .world-hud__content:not([hidden]):has(.container-contents--inline) {
+    left: auto;
+    right: calc(8px + var(--safe-area-right));
+    width: min(300px, 40vw);
+  }
 }

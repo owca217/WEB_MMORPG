@@ -222,7 +222,7 @@ export class TradeService {
           const instance = instances.get(offer.instanceId)!;
           if (offer.quantity === instance.quantity) {
             await client.query(
-              "UPDATE item_instances SET character_id=$2, player_id=NULL,container_instance_id=NULL, updated_at=NOW() WHERE id=$1",
+              "UPDATE item_instances SET character_id=$2, player_id=NULL,container_instance_id=NULL,container_position=NULL, updated_at=NOW() WHERE id=$1",
               [instance.id, recipientId]
             );
           } else {

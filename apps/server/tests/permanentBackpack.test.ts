@@ -14,7 +14,7 @@ import { seedItemMetadata } from "../src/items/seedItemMetadata";
 import { TradeService } from "../src/social/TradeService";
 
 const databaseUrl=process.env.DATABASE_URL,target=databaseUrl?new URL(databaseUrl):undefined;
-const describeDatabase=target&&["localhost","127.0.0.1"].includes(target.hostname)&&target.pathname==="/web_mmorpg_test"?describe:describe.skip;
+const describeDatabase=target&&["localhost","127.0.0.1"].includes(target.hostname)&&["/web_mmorpg_test","/web_mmorpg_slot_order_tests"].includes(target.pathname)?describe:describe.skip;
 
 describeDatabase("permanent character backpack",()=>{
  const pool=createPool(databaseUrl??"postgresql://unused/unused"),inventory=new InventoryService(pool);

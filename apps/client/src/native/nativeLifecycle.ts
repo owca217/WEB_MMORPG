@@ -2,6 +2,7 @@ import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { gameSocket, type ConnectionState } from '../net/GameSocket';
 import { sessionStateStore } from '../state/SessionStateStore';
+import { closeForegroundGamePanel } from '../ui/gameWindows';
 
 export async function initializeNativeClient(
   options: { reload?: () => void } = {}
@@ -27,13 +28,10 @@ export async function initializeNativeClient(
     }
   });
   const backListener = await App.addListener('backButton', () => {
-    const panels = [...document.querySelectorAll<HTMLElement>('.game-panel, .dialogue-panel')];
-    const visible = panels.reverse()
-      .filter((panel) => !panel.hidden && !panel.classList.contains('is-hidden') && getComputedStyle(panel).display !== 'none')
-      .sort((a, b) => (Number.parseInt(getComputedStyle(b).zIndex) || 0) - (Number.parseInt(getComputedStyle(a).zIndex) || 0))[0];
-    const close = visible?.querySelector<HTMLButtonElement>('[data-close]');
-    if (close) close.click();
-    else void App.minimizeApp();
+    if (closeForegroundGamePanel()) return;
+    const back = new Event('game-ui-back', { cancelable: true });
+    document.dispatchEvent(back);
+    if (!back.defaultPrevented) void App.minimizeApp();
   });
   return async () => {
     stopConnection();

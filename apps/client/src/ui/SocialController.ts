@@ -4,7 +4,7 @@ import { playerStateStore } from "../state/PlayerStateStore";
 import { socialStateStore } from "../state/SocialStateStore";
 import { SocialPanel } from "./SocialPanel";
 
-interface Options {inBattle:boolean;onTypingChange?:()=>void;onInventoryChanged:(inventory:InventorySnapshot)=>void;}
+interface Options {inBattle:boolean;onTypingChange?:()=>void;onInventoryChanged:(inventory:InventorySnapshot)=>void;onStatusChange?:(status:{opened:boolean;notifications:number})=>void;}
 export class SocialController {
   private readonly panel:SocialPanel;
   private readonly cleanups:Array<()=>void>=[];
@@ -18,7 +18,7 @@ export class SocialController {
       const result=await gameSocket.socialAction(action);
       if(!this.destroyed && result.ok && result.inventory)options.onInventoryChanged(result.inventory);
       return result;
-    },onOpen:()=>{void this.refresh();gameSocket.requestPlayerState();}});
+    },onOpen:()=>{void this.refresh();gameSocket.requestPlayerState();},...(options.onStatusChange ? {onStatusChange:options.onStatusChange} : {})});
     this.cleanups.push(socialStateStore.subscribe(()=>this.render()),playerStateStore.subscribe(()=>this.render()));
     this.cleanups.push(gameSocket.onConnectionState(state=>{this.connection=state;this.render();if(state==="connected")void this.refresh();}));
     const focus=()=>{queueMicrotask(()=>{
@@ -32,6 +32,11 @@ export class SocialController {
     this.render();
   }
   get isTyping():boolean {return this.panel.isTyping;}
+  toggle():void {this.panel.toggle();}
+  openParty():void {this.panel.openParty();}
+  openTrade():void {this.panel.openTrade();}
+  inviteToParty(playerId:string):void {this.panel.inviteToParty(playerId);}
+  requestTrade(playerId:string):void {this.panel.requestTrade(playerId);}
   destroy():void {
     this.destroyed=true;window.clearInterval(this.timer);
     for(const cleanup of this.cleanups.splice(0))cleanup();this.panel.destroy();

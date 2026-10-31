@@ -366,11 +366,21 @@ describeDatabase("Socket.IO game flow", () => {
     ]) } });
     expect((await changed).inventory.items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBe(bag.instanceId);
     expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
+      itemInstanceId: item.instanceId, targetContainerInstanceId: bag.instanceId, targetPosition: 7
+    })).toMatchObject({ ok: true, inventory: { items: expect.arrayContaining([
+      expect.objectContaining({ instanceId: item.instanceId, containerPosition: 7 })
+    ]) } });
+    for (const targetPosition of [-1, 1.5, 8, "3", null]) {
+      expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
+        itemInstanceId: item.instanceId, targetContainerInstanceId: bag.instanceId, targetPosition
+      })).toMatchObject({ ok: false, code: "INVALID_CONTAINER_POSITION" });
+    }
+    expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
       itemInstanceId: item.instanceId, targetContainerInstanceId: foreign
     })).toMatchObject({ ok: false, code: "CONTAINER_ITEM_NOT_OWNED" });
     const restored = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     await authenticate(client, owner.token);
-    expect((await restored).inventory.items.find((entry) => entry.instanceId === item.instanceId)?.containerInstanceId).toBe(bag.instanceId);
+    expect((await restored).inventory.items.find((entry) => entry.instanceId === item.instanceId)).toMatchObject({containerInstanceId:bag.instanceId,containerPosition:7});
     expect(await client.timeout(1000).emitWithAck("moveItemToContainer", {
       itemInstanceId: item.instanceId, targetContainerInstanceId: null
     })).toMatchObject({ ok: true, inventory: { items: expect.arrayContaining([

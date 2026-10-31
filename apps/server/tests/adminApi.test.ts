@@ -232,7 +232,7 @@ describeDatabase("ADMIN item REST API", () => {
       const loose = swords.filter(item => !item.containerInstanceId);
       const originalChildren = loose.slice(0, 60).map(item => item.instanceId);
       // Reproduce a persisted, full legacy bag awaiting assignment with the permanent bag full too.
-      await pool.query("UPDATE item_instances SET container_instance_id=NULL WHERE id=$1", [bag.instanceId]);
+      await pool.query("UPDATE item_instances SET container_instance_id=NULL,container_position=NULL WHERE id=$1", [bag.instanceId]);
       await pool.query("UPDATE item_instances SET container_instance_id=$1 WHERE id=ANY($2::uuid[])", [bag.instanceId, originalChildren]);
       await pool.query("UPDATE item_instances SET container_instance_id=$1 WHERE id=$2", [permanent.instanceId, loose[60]!.instanceId]);
       const inventory = new InventoryService(pool);

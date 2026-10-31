@@ -12,16 +12,15 @@ import type {
 import "./SocialPanel.css";
 import { itemQualityText } from "./ItemQualityFrame";
 import { getAssignedContainers } from "./PermanentBackpack";
+import { FloatingGameWindow } from "./FloatingGameWindow";
 
 interface SocialPanelHandlers {
   onAction: (action: SocialAction) => Promise<SocialActionResult>;
   onOpen?: () => void;
+  onStatusChange?: (status: { opened: boolean; notifications: number }) => void;
 }
 
 type ConnectionState = "connected" | "connecting" | "disconnected";
-type SocialTab = "party" | "friends" | "trade";
-const TABS: SocialTab[] = ["party", "friends", "trade"];
-const TAB_LABELS: Record<SocialTab, string> = { party: "Drużyna", friends: "Znajomi", trade: "Handel" };
 let nextPanelId = 0;
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = "", className = ""): HTMLElementTagNameMap[K] {
@@ -38,25 +37,30 @@ function sameOffer(left: readonly TradeOfferEntry[], right: readonly TradeOfferE
 export class SocialPanel {
   private readonly root: HTMLDivElement;
   private readonly panel: HTMLElement;
-  private readonly toggle: HTMLButtonElement;
-  private readonly content: HTMLElement;
+  private readonly launcher: HTMLButtonElement;
+  private content: HTMLElement;
+  private readonly friendsContent: HTMLElement;
   private readonly feedback: HTMLElement;
+  private readonly partyWindow: FloatingGameWindow;
+  private readonly tradeWindow: FloatingGameWindow;
+  private readonly partyFeedback: HTMLElement;
+  private readonly tradeFeedback: HTMLElement;
   private readonly viewport: VisualViewport | null;
   private snapshot: SocialSnapshot | null = null;
   private inventory: InventorySnapshot = { items: [] };
   private connection: ConnectionState = "connecting";
   private inBattle = false;
-  private tab: SocialTab = "party";
   private opened = false;
   private destroyed = false;
+  private returnFocus: HTMLElement | null = null;
   private pending: SocialAction | null = null;
   private error = "";
   private nicknameDraft = "";
-  private targetId = "";
   private selectedItemId = "";
   private quantityDraft = "1";
   private draftKey = "";
   private offerDraft: TradeOfferEntry[] = [];
+  private partyRulesOpen = false;
 
   constructor(private readonly handlers: SocialPanelHandlers) {
     const id = `game-social-${++nextPanelId}`;
@@ -68,22 +72,24 @@ export class SocialPanel {
         <span class="social-widget__badge" data-social-badge hidden aria-hidden="true"></span>
       </button>
       <section id="${id}" class="game-panel social-widget__panel is-hidden" data-social-panel role="dialog" aria-modal="false" aria-labelledby="${id}-title">
-        <header class="social-widget__header"><div><h2 id="${id}-title">Społeczność</h2><span data-social-connection role="status"></span></div><button type="button" data-close aria-label="Zamknij społeczność">×</button></header>
-        <div class="social-widget__tabs" role="tablist" aria-label="Społeczność">
-          ${TABS.map((tab) => `<button type="button" data-social-tab="${tab}" id="${id}-${tab}" role="tab" aria-controls="${id}-content" aria-selected="${tab === "party"}" tabindex="${tab === "party" ? 0 : -1}">${TAB_LABELS[tab]}</button>`).join("")}
-        </div>
-        <div id="${id}-content" class="social-widget__content" data-social-content role="tabpanel" tabindex="0"></div>
+        <header class="social-widget__header"><div><h2 id="${id}-title">Znajomi</h2><span data-social-connection role="status"></span></div><button type="button" data-close aria-label="Zamknij społeczność">×</button></header>
+        <div id="${id}-content" class="social-widget__content" data-social-content role="region" aria-label="Znajomi" tabindex="0"></div>
         <p class="social-widget__feedback" data-social-feedback role="status" aria-live="polite"></p>
       </section>`;
     document.body.appendChild(this.root);
     this.panel = this.require("[data-social-panel]");
-    this.toggle = this.require<HTMLButtonElement>("[data-social-toggle]");
+    this.launcher = this.require<HTMLButtonElement>("[data-social-toggle]");
     this.content = this.require("[data-social-content]");
+    this.friendsContent = this.content;
     this.feedback = this.require("[data-social-feedback]");
-    this.toggle.addEventListener("click", () => this.opened ? this.close() : this.open());
+    this.partyWindow = new FloatingGameWindow({id:`${id}-party`,title:"Drużyna",width:320,onOpen:()=>this.handlers.onOpen?.()});
+    this.tradeWindow = new FloatingGameWindow({id:`${id}-trade`,title:"Handel",width:360,onOpen:()=>this.handlers.onOpen?.()});
+    this.partyWindow.element.dataset.floatingGameWindow="party";this.tradeWindow.element.dataset.floatingGameWindow="trade";
+    this.partyFeedback=node("p","","social-widget__feedback");this.partyFeedback.dataset.partyFeedback="";
+    this.tradeFeedback=node("p","","social-widget__feedback");this.tradeFeedback.dataset.tradeFeedback="";
+    for(const [window,feedback] of [[this.partyWindow,this.partyFeedback],[this.tradeWindow,this.tradeFeedback]] as const){feedback.setAttribute("role","status");feedback.setAttribute("aria-live","polite");window.element.append(feedback);}
+    this.launcher.addEventListener("click", () => this.toggle());
     this.require("[data-close]").addEventListener("click", () => this.close());
-    for (const tab of TABS) this.require(`[data-social-tab="${tab}"]`).addEventListener("click", () => this.selectTab(tab));
-    this.require("[role=tablist]").addEventListener("keydown", (event) => this.onTabKey(event));
     this.panel.addEventListener("keydown", (event) => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); this.close(); }
     });
@@ -91,18 +97,40 @@ export class SocialPanel {
     window.addEventListener("resize", this.updateViewport);
     this.viewport?.addEventListener("resize", this.updateViewport);
     this.viewport?.addEventListener("scroll", this.updateViewport);
+    document.addEventListener("game-ui-back", this.onBack);
     this.updateViewport();
     this.render();
   }
 
   get isTyping(): boolean {
     const active = document.activeElement;
-    return !this.destroyed && this.opened && active instanceof HTMLElement && this.panel.contains(active)
-      && (active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement || active.isContentEditable);
+    return !this.destroyed && active instanceof HTMLElement && ((this.opened && this.panel.contains(active)) || (this.partyWindow.isOpen && this.partyWindow.element.contains(active)) || (this.tradeWindow.isOpen && this.tradeWindow.element.contains(active)))
+      && (active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement || !!active.isContentEditable);
+  }
+
+  /** Shared by the world menu and the independent battle launcher. */
+  toggle(): void {
+    if (this.destroyed) return;
+    if (this.opened) this.close();
+    else this.open();
+  }
+  openParty():void { if(!this.destroyed)this.partyWindow.show(); }
+  openTrade():void { if(!this.destroyed)this.tradeWindow.show(); }
+  inviteToParty(playerId:string):void { this.openParty();const player=this.findPlayer(playerId);if(player&&this.canInviteParty(player))void this.perform({type:"inviteParty",playerId}); }
+  requestTrade(playerId:string):void { this.openTrade();const player=this.findPlayer(playerId);if(player&&this.canRequestTrade(player))void this.perform({type:"requestTrade",playerId}); }
+  private findPlayer(playerId:string):SocialPlayer|undefined {
+    if(!playerId.trim()||!this.snapshot)return undefined;
+    // A world player may have joined after the last social poll. Preserve known
+    // status restrictions; the server validates an exact target absent in cache.
+    return this.snapshot.onlinePlayers.find(player=>player.id===playerId)??this.snapshot.friends.find(player=>player.id===playerId)??{id:playerId,nickname:"Gracz",online:true,inBattle:false};
   }
 
   update(snapshot: SocialSnapshot | null, inventory: InventorySnapshot, connection: ConnectionState, inBattle: boolean): void {
     if (this.destroyed) return;
+    const newPartyInvite=snapshot?.partyInvites.some(invite=>!this.snapshot?.partyInvites.some(old=>old.id===invite.id));
+    const newTradeInvite=snapshot?.trade?.status==="invited"&&snapshot.trade.initiatorId!==snapshot.selfId&&snapshot.trade.id!==this.snapshot?.trade?.id;
+    const newParty=snapshot?.party?.id&&snapshot.party.id!==this.snapshot?.party?.id;
+    const activeTrade=snapshot?.trade?.status==="active"&&(snapshot.trade.id!==this.snapshot?.trade?.id||this.snapshot.trade.status!=="active");
     this.snapshot = snapshot;
     this.inventory = inventory;
     this.connection = connection;
@@ -116,6 +144,8 @@ export class SocialPanel {
       this.quantityDraft = "1";
     }
     this.render();
+    if(newPartyInvite||newParty)this.partyWindow.show(false);
+    if(newTradeInvite||activeTrade)this.tradeWindow.show(false);
   }
 
   destroy(): void {
@@ -124,16 +154,20 @@ export class SocialPanel {
     window.removeEventListener("resize", this.updateViewport);
     this.viewport?.removeEventListener("resize", this.updateViewport);
     this.viewport?.removeEventListener("scroll", this.updateViewport);
+    document.removeEventListener("game-ui-back", this.onBack);
+    this.partyWindow.destroy();this.tradeWindow.destroy();
     this.root.remove();
   }
 
   private open(): void {
     if (this.destroyed) return;
+    const active = document.activeElement;
+    this.returnFocus = active instanceof HTMLElement && active !== document.body && !this.panel.contains(active) ? active : this.launcher;
     this.opened = true;
     this.panel.classList.remove("is-hidden");
-    this.toggle.setAttribute("aria-expanded", "true");
+    this.launcher.setAttribute("aria-expanded", "true");
     this.render();
-    this.require<HTMLButtonElement>(`[data-social-tab="${this.tab}"]`).focus();
+    this.friendsContent.focus({preventScroll:true});
     this.handlers.onOpen?.();
   }
 
@@ -141,58 +175,43 @@ export class SocialPanel {
     if (this.destroyed) return;
     this.opened = false;
     this.panel.classList.add("is-hidden");
-    this.toggle.setAttribute("aria-expanded", "false");
-    this.toggle.focus();
+    this.launcher.setAttribute("aria-expanded", "false");
+    (this.returnFocus?.isConnected ? this.returnFocus : this.launcher).focus({ preventScroll: true });
     this.renderBadge();
-  }
-
-  private selectTab(tab: SocialTab): void {
-    if (this.destroyed || this.tab === tab) return;
-    this.tab = tab;
-    this.content.scrollTop = 0;
-    this.render();
-  }
-
-  private onTabKey(event: KeyboardEvent): void {
-    if (!(event.target instanceof HTMLElement) || !event.target.closest("[data-social-tab]")) return;
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const index = TABS.indexOf(this.tab);
-    const tab = event.key === "Home" ? TABS[0] : event.key === "End" ? TABS.at(-1) : TABS[(index + (event.key === "ArrowRight" ? 1 : 2)) % TABS.length];
-    if (tab) { this.selectTab(tab); this.require<HTMLButtonElement>(`[data-social-tab="${tab}"]`).focus(); }
   }
 
   private get available(): boolean { return this.connection === "connected" && this.snapshot !== null && this.pending === null; }
 
   private render(): void {
+    for(const surface of [
+      {content:this.friendsContent,panel:this.panel,feedback:this.feedback,view:"friends"},
+      {content:this.partyWindow.content,panel:this.partyWindow.element,feedback:this.partyFeedback,view:"party"},
+      {content:this.tradeWindow.content,panel:this.tradeWindow.element,feedback:this.tradeFeedback,view:"trade"}
+    ] as const){
+    this.content=surface.content;
     const active = document.activeElement;
     const focusKey = active instanceof HTMLElement && this.content.contains(active) ? active.dataset.focusKey : undefined;
     const selection = active instanceof HTMLInputElement && active.type !== "number" ? [active.selectionStart, active.selectionEnd] : null;
     const scrollTop = this.content.scrollTop;
-    for (const tab of TABS) {
-      const button = this.require<HTMLButtonElement>(`[data-social-tab="${tab}"]`);
-      button.setAttribute("aria-selected", String(tab === this.tab));
-      button.tabIndex = tab === this.tab ? 0 : -1;
-      if (tab === this.tab) this.content.setAttribute("aria-labelledby", button.id);
-    }
     const connection = this.require("[data-social-connection]");
     connection.textContent = this.connection === "connected" ? "Połączono" : this.connection === "connecting" ? "Łączenie…" : "Brak połączenia";
     connection.dataset.connection = this.connection;
     this.content.replaceChildren();
     if (!this.snapshot) this.content.append(node("p", "Ładowanie danych społeczności…", "social-widget__hint"));
-    else if (this.tab === "party") this.renderParty(this.snapshot);
-    else if (this.tab === "friends") this.renderFriends(this.snapshot);
+    else if (surface.view === "party") this.renderParty(this.snapshot);
+    else if (surface.view === "friends") this.renderFriends(this.snapshot);
     else this.renderTrade(this.snapshot);
-    this.feedback.textContent = this.error || (this.pending ? "Oczekiwanie na serwer…" : this.connection !== "connected" ? "Działania będą dostępne po połączeniu." : "");
-    this.feedback.dataset.state = this.error ? "error" : "idle";
-    this.panel.setAttribute("aria-busy", String(this.pending !== null));
-    this.renderBadge();
+    surface.feedback.textContent = this.error || (this.pending ? "Oczekiwanie na serwer…" : this.connection !== "connected" ? "Działania będą dostępne po połączeniu." : "");
+    surface.feedback.dataset.state = this.error ? "error" : "idle";
+    surface.panel.setAttribute("aria-busy", String(this.pending !== null));
     this.content.scrollTop = scrollTop;
     if (focusKey) {
       const replacement = [...this.content.querySelectorAll<HTMLElement>("[data-focus-key]")].find((element) => element.dataset.focusKey === focusKey);
       replacement?.focus({ preventScroll: true });
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(selection[0] ?? 0, selection[1] ?? 0);
     }
+    }
+    this.content=this.friendsContent;this.partyWindow.refreshLayout();this.tradeWindow.refreshLayout();this.renderBadge();
   }
 
   private renderBadge(): void {
@@ -201,7 +220,8 @@ export class SocialPanel {
     const badge = this.require("[data-social-badge]");
     badge.textContent = count > 99 ? "99+" : String(count);
     badge.hidden = count === 0;
-    this.toggle.setAttribute("aria-label", `${this.opened ? "Zamknij" : "Otwórz"} społeczność${count ? `, oczekujące zaproszenia: ${count}` : ""}`);
+    this.launcher.setAttribute("aria-label", `${this.opened ? "Zamknij" : "Otwórz"} społeczność${count ? `, oczekujące zaproszenia: ${count}` : ""}`);
+    this.handlers.onStatusChange?.({ opened: this.opened, notifications: count });
   }
 
   private section(title: string): HTMLElement {
@@ -258,7 +278,8 @@ export class SocialPanel {
       }
       members.append(this.action("Opuść drużynę", { type: "leaveParty" }));
     } else members.append(node("p", "Nie należysz jeszcze do drużyny.", "social-widget__hint"));
-    members.append(node("p", "Maksymalnie 5 osób. Rozpoczęcie walki dołącza dostępnych członków online z tej samej lokacji, niezależnie od odległości. Wspólna walka daje +10% XP za każdego innego uczestnika drużyny, do +40%. Przy walce solo premia wymaga obecności członka drużyny w odległości do 800.", "social-widget__hint"));
+    const rules=node("details","","social-widget__rules");rules.append(node("summary","Zasady drużyny"),node("p", "Maksymalnie 5 osób. Rozpoczęcie walki dołącza dostępnych członków online z tej samej lokacji, niezależnie od odległości. Wspólna walka daje +10% XP za każdego innego uczestnika drużyny, do +40%. Przy walce solo premia wymaga obecności członka drużyny w odległości do 800.", "social-widget__hint"));members.append(rules);
+    rules.open=this.partyRulesOpen;rules.addEventListener("toggle",()=>{if(rules.isConnected){this.partyRulesOpen=rules.open;this.partyWindow.refreshLayout();}});
     if (snapshot.partyInvites.length) {
       const invites = this.section("Zaproszenia do drużyny");
       for (const invite of snapshot.partyInvites) {
@@ -267,7 +288,7 @@ export class SocialPanel {
         invites.append(row);
       }
     }
-    this.renderTarget(snapshot, "party");
+    this.renderPlayerHint("party");
   }
 
   private renderFriends(snapshot: SocialSnapshot): void {
@@ -313,30 +334,15 @@ export class SocialPanel {
     }
   }
 
-  private renderTarget(snapshot: SocialSnapshot, type: "party" | "trade"): void {
-    const section = this.section("Gracze online");
-    const players = snapshot.onlinePlayers.filter((player) => player.id !== snapshot.selfId && player.online);
-    if (!players.length) { section.append(node("p", "Brak innych graczy online.", "social-widget__hint")); return; }
-    if (!players.some((player) => player.id === this.targetId)) this.targetId = players[0]?.id ?? "";
-    const label = node("label", "Wybierz gracza");
-    const select = node("select");
-    select.dataset.socialTarget = "";
-    select.dataset.focusKey = "social-target";
-    for (const player of players) { const option = node("option", `${player.nickname}${player.inBattle ? " · w walce" : ""}`); option.value = player.id; select.append(option); }
-    select.value = this.targetId;
-    select.addEventListener("change", () => { this.targetId = select.value; this.render(); });
-    label.append(select);
-    const player = players.find((player) => player.id === this.targetId);
-    const action: SocialAction = type === "party" ? { type: "inviteParty", playerId: this.targetId } : { type: "requestTrade", playerId: this.targetId };
-    section.append(label, this.action(type === "party" ? "Zaproś do drużyny" : "Zaproś do wymiany", action, !player || !(type === "party" ? this.canInviteParty(player) : this.canRequestTrade(player))));
-    if (this.inBattle) section.append(node("p", "Zapraszanie jest dostępne poza walką.", "social-widget__hint"));
+  private renderPlayerHint(type: "party" | "trade"): void {
+    this.content.append(node("p",this.inBattle?"Zapraszanie jest dostępne poza walką.":`Kliknij gracza prawym przyciskiem myszy lub dotknij go, aby zaprosić ${type==="party"?"do drużyny":"do wymiany"}.`,"social-widget__hint"));
   }
 
   private renderTrade(snapshot: SocialSnapshot): void {
     const trade = snapshot.trade;
     if (!trade) {
-      this.section("Bezpieczna wymiana").append(node("p", "Zaproś gracza i poczekaj na jego zgodę. Przedmioty zostaną przekazane dopiero po zatwierdzeniu tej samej oferty przez obie osoby.", "social-widget__hint"));
-      this.renderTarget(snapshot, "trade");
+      this.section("Bezpieczna wymiana").append(node("p", "Przedmioty zostaną przekazane po zatwierdzeniu tej samej oferty przez obie osoby.", "social-widget__hint"));
+      this.renderPlayerHint("trade");
       return;
     }
     const partner = trade.participants.find((participant) => participant.player.id !== snapshot.selfId);
@@ -355,7 +361,7 @@ export class SocialPanel {
     if (trade.status === "active" && self) {
       review.append(node("p", "Każda zmiana oferty usuwa oba zatwierdzenia. Sprawdź obie strony i zatwierdź aktualną wersję wymiany.", "social-widget__hint"));
       this.renderOfferEditor(trade, self);
-    } else this.renderTarget(snapshot, "trade");
+    } else this.renderPlayerHint("trade");
   }
 
   private renderOffer(parent: HTMLElement, participant: TradeParticipant, own: boolean): void {
@@ -446,6 +452,7 @@ export class SocialPanel {
   private async perform(action: SocialAction): Promise<void> {
     if (this.destroyed || !this.available) return;
     if ("revision" in action && (this.snapshot?.trade?.id !== action.tradeId || this.snapshot.trade.revision !== action.revision || this.snapshot.trade.status !== "active")) return;
+    if(action.type==="inviteParty")this.openParty();if(action.type==="requestTrade")this.openTrade();
     this.pending = action;
     this.error = "";
     this.render();
@@ -467,6 +474,16 @@ export class SocialPanel {
     this.root.style.setProperty("--social-viewport-height", `${height}px`);
     this.root.style.setProperty("--social-viewport-top", `${this.viewport?.offsetTop ?? 0}px`);
     this.root.dataset.compact = String(height <= 330);
+  };
+
+  private readonly onBack = (event: Event): void => {
+    if (!this.opened || this.destroyed || event.defaultPrevented) return;
+    // Chat is the higher layer; a single Back must close only one window.
+    if (document.querySelector("[data-chat-panel]:not(.is-hidden)")) return;
+    if (document.querySelector("[data-floating-game-window]:not(.is-hidden)")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.close();
   };
 
   private require<T extends HTMLElement = HTMLElement>(selector: string): T {

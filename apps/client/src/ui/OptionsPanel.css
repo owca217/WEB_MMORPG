@@ -1,0 +1,28 @@
+.game-panel.options-panel {
+  z-index: 1140;
+  width: min(460px, calc(100vw - 24px - var(--safe-area-left, 0px) - var(--safe-area-right, 0px)));
+  max-height: calc(100dvh - 24px - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px));
+}
+.options-panel[hidden] { display: none !important; }
+.options-panel__preference {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  margin-top: 16px;
+  color: var(--rpg-text, #f0e6d0);
+  cursor: pointer;
+}
+.options-panel__preference input {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--rpg-gold, #dec084);
+}
+.options-panel__description {
+  margin: 10px 0 0;
+  color: var(--rpg-muted, #bfb39b);
+  font-size: 12px;
+  line-height: 1.5;
+}

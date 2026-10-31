@@ -1,5 +1,6 @@
 import {
   BATTLE_ITEM_AP_COST,
+  type BattleSnapshot,
   getBattleHealingPreview,
   type CharacterSnapshot,
   type CombatantSnapshot,
@@ -8,6 +9,7 @@ import {
   type InventorySnapshot,
   type InventoryUpdateResult
 } from "@web-mmorpg/shared";
+import type { BattleHudRegions, LayoutRect } from "../scenes/battleLayout";
 import "./BattleHud.css";
 import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 
@@ -19,6 +21,8 @@ interface BattleHudHandlers {
   onUseItem: (instanceId: string) => Promise<InventoryUpdateResult>;
   onInventoryChanged: (inventory: InventorySnapshot) => void;
   onToggleAuto?: () => void;
+  onToggleZoom?: () => void;
+  onLayoutChanged?: () => void;
 }
 
 const INJURY_LABELS: Record<InjuryKind, string> = {
@@ -49,17 +53,33 @@ export class BattleHud {
   private autoBattle = false;
   private autoPending = false;
 
+  private commandPending = false;
+  private battle: BattleSnapshot | undefined;
+  private compact = true;
+  private detailsOpen = false;
+  private readonly onBack = (event: Event) => {
+    if (!event.defaultPrevented && this.compact && this.detailsOpen) {
+      this.setDetailsOpen(false);
+      event.preventDefault();
+    }
+  };
+  private readonly onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") this.onBack(event);
+  };
+
+
   constructor(private readonly handlers: BattleHudHandlers) {
     this.root = document.createElement("div");
     this.root.className = "battle-hud";
     this.root.setAttribute("role", "complementary");
     this.root.setAttribute("aria-label", "Twoja postać w walce");
     this.root.innerHTML = `
-      <header class="battle-hud__header">
-        <span class="battle-hud__eyebrow">Twoja postać</span>
-        <div class="battle-hud__name" data-name>Brak postaci</div>
-        <div class="battle-hud__identity"><span>Poziom <b data-level>—</b></span><span>Inicjatywa <b data-initiative>—</b></span></div>
-      </header>
+      <header class="battle-hud__header" data-battle-header>
+        <div class="battle-hud__overview">
+        <div class="battle-hud__portrait-name">
+          <div class="battle-hud__name" data-name>Brak postaci</div>
+          <div class="battle-hud__identity"><span>Poziom <b data-level>—</b></span><span>Inicjatywa <b data-initiative>—</b></span></div>
+        </div>
       <section class="battle-hud__resources" aria-label="Zasoby postaci">
         <div class="battle-hud__resource battle-hud__resource--hp">
           <div><span>HP</span><strong data-hp>—</strong></div>
@@ -70,8 +90,21 @@ export class BattleHud {
           <div class="battle-hud__meter" aria-hidden="true"><span data-ap-fill></span></div>
         </div>
       </section>
-      <section class="battle-hud__section" aria-label="Statystyki postaci">
-        <h2>Statystyki</h2>
+        </div>
+        <div class="battle-hud__round-strip">
+          <strong class="battle-hud__round" data-battle-round>Runda —</strong>
+          <p class="battle-hud__turn-status" data-turn-status>Oczekiwanie na postać</p>
+          <p class="battle-hud__auto-status" data-auto-status hidden>Auto: wyłączone</p>
+          <ol class="battle-hud__turn-order" data-turn-order aria-label="Kolejność tur"></ol>
+          <p class="battle-hud__feedback" data-battle-feedback role="status" aria-live="polite"></p>
+          <button type="button" class="battle-hud__zoom-toggle" data-toggle-battle-zoom aria-label="Przybliż planszę" title="Przybliż planszę" aria-pressed="false">+</button>
+          <button type="button" class="battle-hud__details-toggle" data-toggle-battle-details aria-expanded="false" aria-controls="battle-character-details">Postać</button>
+        </div>
+      </header>
+      <aside class="battle-hud__sidebar" id="battle-character-details" data-battle-sidebar>
+        <div class="battle-hud__sidebar-heading"><h2>Postać w walce</h2><button type="button" data-close-battle-details aria-label="Zamknij szczegóły postaci">×</button></div>
+      <details class="battle-hud__section battle-hud__statistics" aria-label="Statystyki postaci">
+        <summary>Atrybuty i obrażenia</summary>
         <dl class="battle-hud__stats" title="Obrażenia przed pancerzem celu i wpływem urazów">
           <div><dt>Wręcz</dt><dd data-melee-damage>—</dd></div>
           <div><dt>Dystans</dt><dd data-ranged-damage>—</dd></div>
@@ -84,21 +117,24 @@ export class BattleHud {
           <div><dt>Zręczność</dt><dd data-stat="dexterity">—</dd></div>
           <div><dt>Żywotność</dt><dd data-stat="vitality">—</dd></div>
         </dl>
-        <p class="battle-hud__injuries" data-injuries>Brak urazów</p>
-      </section>
-      <section class="battle-hud__section battle-hud__team" aria-label="Drużyna w walce" data-battle-team hidden><h2>Drużyna</h2><div data-team-members></div></section>
-      <section class="battle-hud__turn" aria-label="Akcje tury">
-        <p class="battle-hud__turn-status" data-turn-status>Oczekiwanie na postać</p>
-        <p class="battle-hud__auto-status" data-auto-status hidden>Auto: wyłączone</p>
-        <button type="button" class="battle-hud__auto" data-action="auto" hidden>Włącz auto</button>
-        <label class="battle-hud__heal-target" data-healing-target-label hidden>Cel leczenia<select data-battle-healing-target aria-label="Cel leczenia"></select></label>
-        <button type="button" class="battle-hud__heal" data-action="heal-self" hidden disabled>Leczenie kosturem</button>
-        <button type="button" class="battle-hud__end-turn" data-action="end" disabled>Koniec tury</button>
-      </section>
-      <p class="battle-hud__feedback" data-battle-feedback role="status" aria-live="polite"></p>
-      <section class="battle-hud__section battle-hud__consumables" aria-label="Przedmioty do użycia w walce">
-        <h2>Przedmioty <span class="battle-hud__cost">${BATTLE_ITEM_AP_COST} AP / użycie</span></h2>
+      </details>
+      <section class="battle-hud__section"><h2>Urazy</h2><p class="battle-hud__injuries" data-injuries>Brak urazów</p></section>
+      <details class="battle-hud__section battle-hud__consumables" aria-label="Przedmioty do użycia w walce" open>
+        <summary>Przedmioty <span class="battle-hud__cost">${BATTLE_ITEM_AP_COST} AP / użycie</span></summary>
         <div class="battle-hud__items" data-battle-items></div>
+      </details>
+      <section class="battle-hud__section battle-hud__team" aria-label="Drużyna w walce" data-battle-team hidden><h2>Drużyna</h2><div data-team-members></div></section>
+      </aside>
+      <section class="battle-hud__dock" data-battle-actions aria-label="Cel i akcje tury">
+        <div class="battle-hud__target" data-battle-target></div>
+        <div class="battle-hud__turn">
+          <button type="button" class="battle-hud__auto" data-action="auto" hidden>Włącz auto</button>
+          <button type="button" class="battle-hud__end-turn" data-action="end" disabled>Koniec tury</button>
+        </div>
+        <div class="battle-hud__healing" data-battle-healing hidden>
+          <label class="battle-hud__heal-target" data-healing-target-label hidden>Cel leczenia<select data-battle-healing-target aria-label="Cel leczenia"></select></label>
+          <button type="button" class="battle-hud__heal" data-action="heal-self" hidden disabled>Leczenie kosturem</button>
+        </div>
       </section>
     `;
     this.itemsElement = this.requireElement("[data-battle-items]");
@@ -107,12 +143,12 @@ export class BattleHud {
     this.autoButton = this.requireElement<HTMLButtonElement>("[data-action='auto']");
     this.autoButton.hidden = !handlers.onToggleAuto;
     this.autoButton.addEventListener("click", () => {
-      if (!this.destroyed && !this.pending && !this.autoPending && this.ownCombatant && this.ownCombatant.hp > 0) this.handlers.onToggleAuto?.();
+      if (!this.destroyed && !this.pending && !this.commandPending && !this.autoPending && this.ownCombatant && this.ownCombatant.hp > 0) this.handlers.onToggleAuto?.();
     });
     this.requireElement<HTMLButtonElement>("[data-action='heal-self']").addEventListener("click",()=>{if(this.canAct() && this.healingPreview?.available)this.handlers.onHealSelf?.();});
     this.requireElement<HTMLSelectElement>("[data-battle-healing-target]").addEventListener("change",event=>{
       const id=(event.currentTarget as HTMLSelectElement).value;
-      if(!this.destroyed && !this.pending && !this.autoPending && !this.autoBattle)this.handlers.onSelectHealingTarget?.(id);
+      if(!this.destroyed && !this.pending && !this.commandPending && !this.autoPending && !this.autoBattle)this.handlers.onSelectHealingTarget?.(id);
     });
     for(const type of ["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend"])this.root.addEventListener(type,event=>event.stopPropagation());
     this.root.addEventListener("focusin",()=>this.handlers.onTypingChange?.());
@@ -121,6 +157,15 @@ export class BattleHud {
       if (this.canAct()) this.handlers.onEndTurn();
     });
     document.body.appendChild(this.root);
+    document.body.classList.add("has-battle-hud");
+    this.requireElement("[data-toggle-battle-details]").addEventListener("click", () => this.setDetailsOpen(!this.detailsOpen));
+    const zoomButton = this.requireElement("[data-toggle-battle-zoom]");
+    zoomButton.hidden = !handlers.onToggleZoom;
+    zoomButton.addEventListener("click", () => { if (!this.destroyed && this.compact) this.handlers.onToggleZoom?.(); });
+    this.requireElement("[data-close-battle-details]").addEventListener("click", () => this.setDetailsOpen(false));
+    document.addEventListener("game-ui-back", this.onBack);
+    document.addEventListener("keydown", this.onKeyDown);
+    this.setViewport(window.innerWidth, window.innerHeight);
     this.render();
   }
 
@@ -129,7 +174,62 @@ export class BattleHud {
   }
 
   get busy(): boolean {
-    return this.pending || this.autoPending;
+    return this.pending || this.autoPending || this.commandPending;
+  }
+
+  get attackCardHost(): HTMLElement { return this.requireElement("[data-battle-target]"); }
+
+  get layoutElements(): HTMLElement[] {
+    return ["[data-battle-header]", "[data-battle-sidebar]", "[data-battle-actions]"].map(selector => this.requireElement(selector));
+  }
+
+  getLayoutRegions(): BattleHudRegions {
+    const measure = (selector: string): LayoutRect | undefined => {
+      const element = this.requireElement(selector);
+      if (element.hidden) return undefined;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 ? rect : undefined;
+    };
+    const header = measure("[data-battle-header]");
+    const sidebar = this.compact ? undefined : measure("[data-battle-sidebar]");
+    const actions = measure("[data-battle-actions]");
+    const healing = this.root.dataset.hasHealing === "true";
+    const portrait = this.root.dataset.portrait === "true";
+    const fallbackHeight = this.compact ? portrait ? healing ? 228 : 160 : healing ? 136 : 76 : healing ? 166 : 112;
+    // Chat/social live outside this root and share its actual action clearance.
+    document.body.style.setProperty("--battle-ui-dock-height", `${actions?.height ?? fallbackHeight}px`);
+    return { ...(header ? { header } : {}), ...(sidebar ? { sidebar } : {}), ...(actions ? { actions } : {}) };
+  }
+
+  setViewport(width: number, height: number): void {
+    this.compact = width < 1100 || height < 600;
+    this.root.dataset.compact = String(this.compact);
+    this.root.dataset.portrait = String(width < 600);
+    this.requireElement("[data-battle-sidebar]").hidden = this.compact && !this.detailsOpen;
+  }
+
+  setBoardZoomed(enabled: boolean): void {
+    const button = this.requireElement("[data-toggle-battle-zoom]");
+    const label = enabled ? "Pokaż całą planszę" : "Przybliż planszę";
+    button.setAttribute("aria-pressed", String(enabled));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.textContent = enabled ? "−" : "+";
+  }
+
+  private setDetailsOpen(open: boolean): void {
+    this.detailsOpen = open;
+    this.requireElement("[data-battle-sidebar]").hidden = this.compact && !open;
+    this.requireElement("[data-toggle-battle-details]").setAttribute("aria-expanded", String(open));
+    this.handlers.onLayoutChanged?.();
+    if (!open && this.compact) this.requireElement("[data-toggle-battle-details]").focus();
+  }
+
+  setBattleContext(battle: BattleSnapshot | undefined, commandPending = false): void {
+    if (this.destroyed) return;
+    this.battle = battle;
+    this.commandPending = commandPending;
+    this.render();
   }
 
   update(
@@ -154,6 +254,7 @@ export class BattleHud {
     if (this.destroyed) return;
     this.feedbackElement.textContent = message;
     this.feedbackElement.dataset.state = "info";
+    this.root.dataset.hasFeedback = String(Boolean(message));
   }
 
   setAutoBattle(enabled: boolean, pending = false): void {
@@ -167,11 +268,17 @@ export class BattleHud {
   destroy(): void {
     this.destroyed = true;
     this.pending = false;
+    document.removeEventListener("game-ui-back", this.onBack);
+    document.removeEventListener("keydown", this.onKeyDown);
     this.root.remove();
+    document.body.classList.remove("has-battle-hud");
+    document.body.style.removeProperty("--battle-ui-dock-height");
   }
 
   private render(): void {
     const combatant = this.ownCombatant;
+    this.root.dataset.hasFeedback = String(Boolean(this.feedbackElement.textContent));
+    this.renderTurnOrder();
     this.requireElement("[data-name]").textContent = combatant?.name ?? "Brak postaci";
     this.requireElement("[data-level]").textContent = combatant?.level === undefined ? "—" : `${combatant.level}`;
     this.requireElement("[data-initiative]").textContent = combatant ? `${combatant.initiative}` : "—";
@@ -179,6 +286,7 @@ export class BattleHud {
     this.requireElement("[data-ap]").textContent = combatant ? `${combatant.ap}/${combatant.maxAp}` : "—";
     this.setMeter("[data-hp-fill]", combatant?.hp ?? 0, combatant?.maxHp ?? 0);
     this.setMeter("[data-ap-fill]", combatant?.ap ?? 0, combatant?.maxAp ?? 0);
+    this.requireElement("[data-ap-fill]").style.setProperty("--battle-ap-segments", String(Math.max(1, combatant?.maxAp ?? 1)));
     this.requireElement("[data-melee-damage]").textContent = combatant?.combatStats ? `${combatant.combatStats.meleeDamage}` : "—";
     this.requireElement("[data-ranged-damage]").textContent = combatant?.combatStats ? `${combatant.combatStats.rangedDamage}` : "—";
     this.requireElement("[data-armor]").textContent = combatant?.combatStats ? `${combatant.combatStats.armor}` : "—";
@@ -198,22 +306,25 @@ export class BattleHud {
         ...(combatant.injuries.length ? combatant.injuries.map((injury) => INJURY_LABELS[injury]) : [])
       ].join(" · ") || "Brak urazów";
     const activeAlly=this.team?.members.find(member=>member.id===this.team?.activeCombatantId);
-    this.requireElement("[data-turn-status]").textContent = !combatant ? "Oczekiwanie na postać"
+    const active = this.battle?.combatants.find(unit => unit.id === this.battle?.activeCombatantId);
+    this.requireElement("[data-turn-status]").textContent = this.commandPending ? "Oczekiwanie na serwer…" : !combatant ? "Oczekiwanie na postać"
       : combatant.hp <= 0 ? "Postać pokonana"
         : this.ownedTurn ? "Twoja tura"
           : activeAlly?.id===combatant.id ? "Oczekiwanie na serwer…"
-            : activeAlly ? `Tura: ${activeAlly.name} (drużyna)` : "Tura przeciwnika";
+            : activeAlly ? `Tura: ${activeAlly.name} (drużyna)` : active ? `Tura: ${active.name}` : "Tura przeciwnika";
     this.root.dataset.ownedTurn = `${this.ownedTurn}`;
-    this.root.setAttribute("aria-busy", `${this.pending || this.autoPending}`);
+    this.root.setAttribute("aria-busy", `${this.busy}`);
     const autoStatus = this.requireElement("[data-auto-status]");
     autoStatus.hidden = !this.autoBattle && !this.autoPending;
     autoStatus.textContent = this.autoPending ? "Zmiana sterowania…" : "Auto: włączone";
     this.autoButton.textContent = this.autoBattle ? "Przejmij sterowanie" : "Włącz auto";
-    this.autoButton.disabled = this.pending || this.autoPending || !combatant || combatant.hp <= 0;
+    this.autoButton.disabled = this.pending || this.commandPending || this.autoPending || !combatant || combatant.hp <= 0;
     this.root.dataset.autoBattle = String(this.autoBattle);
     this.endButton.disabled = !this.canAct();
     const heal=this.requireElement<HTMLButtonElement>("[data-action='heal-self']");
     heal.hidden=!this.handlers.onHealSelf || !(combatant?.combatStats?.healingPower);
+    this.requireElement("[data-battle-healing]").hidden=heal.hidden;
+    this.root.dataset.hasHealing=String(!heal.hidden);
     heal.disabled=!this.canAct() || !this.healingPreview?.available;
     const selected=this.team?.members.find(member=>member.id===this.team?.healingTargetId);
     const targetName=selected && selected.id!==combatant?.id ? selected.name : "siebie";
@@ -237,12 +348,29 @@ export class BattleHud {
     }
     const label=this.requireElement("[data-healing-target-label]"),select=this.requireElement<HTMLSelectElement>("[data-battle-healing-target]");
     label.hidden=!this.handlers.onSelectHealingTarget || !(this.ownCombatant?.combatStats?.healingPower);
-    select.disabled=this.pending || this.autoPending || this.autoBattle || !this.ownCombatant || this.ownCombatant.hp<=0;
+    select.disabled=this.pending || this.commandPending || this.autoPending || this.autoBattle || !this.ownCombatant || this.ownCombatant.hp<=0;
     select.replaceChildren();
     for(const member of members.filter(member=>member.hp>0)){
       const option=document.createElement("option");option.value=member.id;option.textContent=`${member.name}${member.id===this.ownCombatant?.id?" (Ty)":""} · ${member.hp}/${member.maxHp} HP`;select.append(option);
     }
     select.value=this.team?.healingTargetId??this.ownCombatant?.id??"";
+  }
+
+  private renderTurnOrder(): void {
+    this.requireElement("[data-battle-round]").textContent = `Runda ${this.battle?.round ?? "—"}`;
+    const list = this.requireElement("[data-turn-order]");
+    list.replaceChildren();
+    for (const id of this.battle?.turnOrder ?? []) {
+      const unit = this.battle?.combatants.find(combatant => combatant.id === id);
+      if (!unit) continue;
+      const entry = document.createElement("li");
+      entry.dataset.turnCombatant = id;
+      entry.textContent = unit.name;
+      entry.title = `${unit.name} · ${unit.hp}/${unit.maxHp} HP`;
+      entry.setAttribute("aria-current", String(id === this.battle?.activeCombatantId));
+      entry.dataset.defeated = String(unit.hp <= 0);
+      list.appendChild(entry);
+    }
   }
 
   private renderItems(): void {
@@ -311,7 +439,7 @@ export class BattleHud {
   }
 
   private canAct(): boolean {
-    return !this.destroyed && !this.pending && !this.autoBattle && !this.autoPending && this.ownedTurn && !!this.ownCombatant && this.ownCombatant.hp > 0;
+    return !this.destroyed && !this.pending && !this.commandPending && !this.autoBattle && !this.autoPending && this.ownedTurn && !!this.ownCombatant && this.ownCombatant.hp > 0;
   }
 
   private itemDisabledReason(item: InventoryItem): string | undefined {
@@ -325,7 +453,7 @@ export class BattleHud {
     if (this.autoBattle) return "Przejmij sterowanie, aby użyć przedmiotu.";
     if (this.autoPending) return "Oczekiwanie na zmianę sterowania…";
     if (!this.ownedTurn) return "Poczekaj na swoją turę";
-    if (this.pending) return "Oczekiwanie na serwer…";
+    if (this.pending || this.commandPending) return "Oczekiwanie na serwer…";
     if (combatant.ap < BATTLE_ITEM_AP_COST) return `Potrzeba ${BATTLE_ITEM_AP_COST} AP`;
     const canHeal = healHp > 0 && combatant.hp < combatant.maxHp;
     const canRestoreAp = Math.min(combatant.maxAp, combatant.ap - BATTLE_ITEM_AP_COST + restoreAp) > combatant.ap;

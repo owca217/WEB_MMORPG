@@ -2,13 +2,14 @@ import { CONTAINER_ITEM_CATEGORY, isEquipmentSlot, type ContainerSlotIndex, type
 import { inventoryItemIcon } from "./InventoryItemIcon";
 import { applyItemQualityFrame } from "./ItemQualityFrame";
 import { getAssignedContainers } from "./PermanentBackpack";
+import { inventoryPositions } from "./inventoryPositions";
 
 interface DragOptions {
     snapshot: () => InventorySnapshot;
     source: (instanceId: string) => InventoryItem | undefined;
     enabled: () => boolean;
     onStart: () => void;
-    onDrop: (instanceId: string, containerInstanceId: string) => void;
+    onDrop: (instanceId: string, containerInstanceId: string, targetPosition?: number) => void;
     canEquip?: (item: InventoryItem, slot: EquipmentSlot) => boolean;
     onEquipDrop?: (instanceId: string, slot: EquipmentSlot) => void;
     onAssignContainer?: (instanceId: string, slot: ContainerSlotIndex) => void;
@@ -74,13 +75,23 @@ export class InventoryDragController {
         if (item.containerInstanceId && !assigned.some(bag => bag.instanceId === item.containerInstanceId)) return undefined;
         return item;
     }
-    private canDrop(instanceId: string, containerId: string): boolean {
+    private canDrop(instanceId: string, containerId: string, targetPosition?: number): boolean {
         const item = this.sourceItem(instanceId), snapshot = this.options.snapshot();
-        if (!item || item.instanceId === containerId || item.containerInstanceId === containerId) return false;
+        if (!item || item.instanceId === containerId) return false;
         if (snapshot.items.some(child => child.containerInstanceId === item.instanceId)) return false;
         const target = getAssignedContainers(snapshot).find(bag => bag.instanceId === containerId);
         if (!target) return false;
-        return snapshot.items.filter(child => child.containerInstanceId === containerId && !child.equippedSlot).length < target.containerCapacity!;
+        const children = snapshot.items.filter(child => child.containerInstanceId === containerId && !child.equippedSlot);
+        if (targetPosition !== undefined) {
+            if (!Number.isSafeInteger(targetPosition) || targetPosition < 0 || targetPosition >= target.containerCapacity!) return false;
+            const occupant = inventoryPositions(children, target.containerCapacity!).get(targetPosition);
+            if (item.containerInstanceId === containerId) return occupant?.instanceId !== item.instanceId;
+            return !occupant && children.length < target.containerCapacity!;
+        }
+        return item.containerInstanceId !== containerId && children.length < target.containerCapacity!;
+    }
+    private targetPosition(target: HTMLElement): number | undefined {
+        return target.hasAttribute("data-container-position") ? Number(target.dataset.containerPosition) : undefined;
     }
     private canEquipAt(instanceId: string, target: HTMLElement): boolean {
         const slot = target.dataset.equipmentDropTarget, item = this.sourceItem(instanceId);
@@ -100,7 +111,7 @@ export class InventoryDragController {
         if (target.closest("[hidden], .is-hidden")) return false;
         if (this.isContainerAssignment(instanceId, target)) return this.canAssignAt(instanceId, target);
         return target.hasAttribute("data-equipment-drop-target") ? this.canEquipAt(instanceId, target)
-            : this.canDrop(instanceId, target.dataset.containerDropTarget ?? "");
+            : this.canDrop(instanceId, target.dataset.containerDropTarget ?? "", this.targetPosition(target));
     }
     private targetAt(x: number, y: number): HTMLElement | null {
         return document.elementFromPoint?.(x, y)?.closest<HTMLElement>("[data-container-drop-target], [data-equipment-drop-target], [data-container-slot-target]") ?? null;
@@ -144,7 +155,7 @@ export class InventoryDragController {
         if (gesture.pointerId !== null) { try { gesture.source.setPointerCapture?.(gesture.pointerId); } catch { /* The document listeners also cover replaced cells. */ } }
         this.options.onMessage(item.category === CONTAINER_ITEM_CATEGORY
             ? "Upuść pojemnik w slocie 2–4, aby go założyć. Klawiatura: Tab wybiera slot, Enter zatwierdza, Escape anuluje."
-            : "Najedź na plecak lub upuść przedmiot w slocie uzbrojenia. Klawiatura: Tab wybiera slot, Enter zatwierdza, Escape anuluje.");
+            : "Upuść przedmiot w plecaku lub slocie uzbrojenia. Klawiatura: Tab wybiera slot, Enter zatwierdza, Escape anuluje.");
         this.options.onStateChange();
     }
     private readonly onPointerMove = (event: PointerEvent): void => {
@@ -162,8 +173,6 @@ export class InventoryDragController {
         event.preventDefault(); event.stopImmediatePropagation();
         if (gesture.committed) return;
         this.positionGhost(); this.highlightTargets();
-        const target = this.targetAt(event.clientX, event.clientY);
-        if (target?.hasAttribute("data-container-drop-target") && !this.isContainerAssignment(gesture.instanceId, target) && this.validTarget(gesture.instanceId, target)) this.commit(target.dataset.containerDropTarget!);
     };
     private readonly onPointerUp = (event: PointerEvent): void => {
         const gesture = this.gesture;
@@ -178,6 +187,9 @@ export class InventoryDragController {
             } else if (target?.hasAttribute("data-equipment-drop-target")) {
                 if (this.validTarget(gesture.instanceId, target)) this.commitEquipment(target);
                 else this.options.onMessage("Nie można założyć przedmiotu w tym slocie. Sprawdź jego wymagania.");
+            } else if (target?.hasAttribute("data-container-drop-target")) {
+                if (this.validTarget(gesture.instanceId, target)) this.commit(target);
+                else this.options.onMessage("Nie można umieścić przedmiotu w tym miejscu.");
             }
         }
         this.finish(false);
@@ -203,20 +215,22 @@ export class InventoryDragController {
         if (target && this.validTarget(gesture.instanceId, target)) {
             if (this.isContainerAssignment(gesture.instanceId, target)) this.commitContainerAssignment(target);
             else if (target.hasAttribute("data-equipment-drop-target")) this.commitEquipment(target);
-            else this.commit(target.dataset.containerDropTarget!);
+            else this.commit(target);
         } else this.options.onMessage("Nie można umieścić przedmiotu w tym slocie.");
     };
     private readonly onFocus = (event: FocusEvent): void => {
         if (this.gesture?.pointerId !== null || !(event.target instanceof HTMLElement)) return;
         const rect = event.target.getBoundingClientRect(); this.gesture.x = rect.left + rect.width / 2; this.gesture.y = rect.top + rect.height / 2; this.positionGhost();
     };
-    private commit(containerId: string): void {
+    private commit(target: HTMLElement): void {
         const gesture = this.gesture;
-        if (!gesture || gesture.committed || !this.canDrop(gesture.instanceId, containerId)) return;
+        const containerId = target.dataset.containerDropTarget!, targetPosition = this.targetPosition(target);
+        if (!gesture || gesture.committed || !this.validTarget(gesture.instanceId, target)) return;
         gesture.committed = true;
         this.clearVisuals();
         const keyboard = gesture.pointerId === null;
-        this.options.onDrop(gesture.instanceId, containerId);
+        if (targetPosition === undefined) this.options.onDrop(gesture.instanceId, containerId);
+        else this.options.onDrop(gesture.instanceId, containerId, targetPosition);
         if (keyboard) this.finish(false);
     }
     private commitEquipment(target: HTMLElement): void {

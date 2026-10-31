@@ -203,9 +203,9 @@ describeDatabase("persistent container slots", () => {
   it("enforces slot bounds, ownership, parent exclusion, and occupied-slot uniqueness in the database", async () => {
     const [first, second] = await addContainers(2);
     await inventory.setContainerSlot(characterId, 1, first!);
-    await expect(pool.query("UPDATE item_instances SET container_slot = 1, container_instance_id = NULL WHERE id = $1", [second]))
+    await expect(pool.query("UPDATE item_instances SET container_slot = 1, container_instance_id = NULL, container_position = NULL WHERE id = $1", [second]))
       .rejects.toMatchObject({ code: "23505" });
-    await expect(pool.query("UPDATE item_instances SET container_slot = 4, container_instance_id = NULL WHERE id = $1", [second]))
+    await expect(pool.query("UPDATE item_instances SET container_slot = 4, container_instance_id = NULL, container_position = NULL WHERE id = $1", [second]))
       .rejects.toMatchObject({ code: "23514" });
     await expect(pool.query("UPDATE item_instances SET character_id = NULL WHERE id = $1", [first]))
       .rejects.toMatchObject({ code: "23514" });

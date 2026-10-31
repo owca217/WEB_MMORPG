@@ -1,0 +1,15 @@
+/* Shared item/container slot dimensions, including compact and touch layouts.
+   Slot icons intentionally use a smaller target than the surrounding actions. */
+:root {
+  --rpg-slot-size: 36px;
+  --rpg-slot-gap: 2px;
+}
+
+.rpg-item-slot {
+  box-sizing: border-box;
+  width: var(--rpg-slot-size);
+  height: var(--rpg-slot-size);
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 var(--rpg-slot-size);
+}

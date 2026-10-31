@@ -43,6 +43,8 @@ export interface InventoryItem {
   upgradeLevel: number;
   boundToPlayerId?: string;
   containerInstanceId?: ItemInstanceId;
+  /** Zero-based persistent cell within containerInstanceId. */
+  containerPosition?: number;
   containerCapacity?: number;
   permanentContainer?: boolean;
   consumableEffects?: ConsumableEffects;

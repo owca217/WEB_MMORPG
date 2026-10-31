@@ -3,6 +3,7 @@ import { EQUIPMENT_SLOTS, PERMANENT_BACKPACK_SLOT_INDEX, findNearestWalkablePosi
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { preloadNpcSkins, registerNpcSkinFrames } from "../characters/npcSkinAssets";
+import { preloadEnemySkins, registerEnemySkinFrames } from "../characters/enemySkinAssets";
 import { resolveGameServerUrl } from "../hosting";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
@@ -132,7 +133,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   preload(): void {
-    const pendingAssets=preloadCharacterSkins(this)+preloadNpcSkins(this)+preloadEnvironmentAssets(this);
+    const pendingAssets=preloadCharacterSkins(this)+preloadNpcSkins(this)+preloadEnemySkins(this)+preloadEnvironmentAssets(this);
     if(pendingAssets===0)return;
 
     this.cameras.main.setBackgroundColor(0x101b15);
@@ -160,6 +161,7 @@ export class WorldScene extends Phaser.Scene {
   create(): void {
     registerCharacterSkinAnimations(this);
     registerNpcSkinFrames(this);
+    registerEnemySkinFrames(this);
     registerEnvironmentFrames(this);
     this.cameras.main.setBackgroundColor(0x29452d);
     this.cameras.main.setBounds(

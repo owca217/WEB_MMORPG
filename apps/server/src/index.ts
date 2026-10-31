@@ -39,7 +39,7 @@ async function startServer(): Promise<void> {
   const pool = createPool();
   await runMigrations(pool);
   await bootstrapInitialAdmin(pool);
-  await seedItemMetadata(pool);
+  await seedItemMetadata(pool, resolvePublicServerBaseUrl());
 
   const characters = new CharacterLifecycleService(pool);
   const authService = new AuthService(pool, new AccountRepository(pool), characters);

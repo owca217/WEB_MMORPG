@@ -1,0 +1,192 @@
+{
+  "tool": "built-in image_gen",
+  "useCase": "stylized-concept",
+  "purpose": "Five hostile enemy idle sprites for levels 1–10 in the browser MMORPG",
+  "createdDate": "2026-10-29",
+  "styleReferences": [
+    "apps/client/public/assets/characters/npcs/guide-boran.png",
+    "docs/art/npc-skin-prompts.json"
+  ],
+  "referencesUsage": "Existing NPC art was inspected visually and translated into text-only style guidance; each enemy was generated independently in one built-in call.",
+  "format": {
+    "fileType": "PNG",
+    "width": 1254,
+    "height": 1254,
+    "mode": "RGBA",
+    "alpha": true,
+    "poses": "one full-body idle pose per image",
+    "orientation": "slight elevated three-quarter front view facing down-right"
+  },
+  "frameConvention": {
+    "coordinates": "top-left x/y; width/height; source image pixels",
+    "frameAlphaThreshold": 8,
+    "note": "Original files are unedited copies. Built-in output contains a few invisible alpha 1–7 pixels beyond the visible silhouette. frame uses alpha >= 8 for practical rendering, while alphaBBox records every alpha > 0 pixel."
+  },
+  "assets": [
+    {
+      "id": "feral-rat",
+      "name": "Zdziczały szczur",
+      "level": 1,
+      "path": "apps/client/public/assets/characters/enemies/feral-rat.png",
+      "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a1873b-6b13-70b0-9e21-1511a5d0c930\\exec-96edadd7-1c6e-453f-9b11-1a18a9b5017f.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 1195510,
+      "alphaBBox": {
+        "x": 25,
+        "y": 25,
+        "width": 1217,
+        "height": 1189
+      },
+      "frame": {
+        "x": 114,
+        "y": 295,
+        "width": 1037,
+        "height": 700
+      },
+      "prompt": "Use case: stylized-concept. Asset type: one original enemy sprite for a browser medieval fantasy MMORPG, readable when displayed at 56–70 pixels. Scene/backdrop: fully transparent alpha everywhere outside the subject. Style/medium: compact chibi RPG sprite with sharp dark outlines, chunky clustered pixel-art inspired painted shading, subtle textured highlights, subdued warm medieval fantasy palette. Match a game whose human NPCs have large heads, short sturdy bodies, broad readable boots, deep brown outlines, muted olive and leather colors. Composition: ONE complete full-body subject, slight elevated three-quarter front view, facing down-right (south-east), neutral alert idle stance, centered within generous transparent margins. Complete silhouette including every foot, tail and any weapon entirely inside the canvas. No ground, cast shadow, aura, backdrop, vignette, text, labels, checkerboard, border, extra poses, extra characters, sprite sheet, gore, photorealism, blur or modern objects. Genuine transparent PNG, square canvas. Subject: ONE hostile feral rat. Ragged earthy brown fur, squat low quadruped body, hunched shoulders, pointed muzzle, rounded torn-looking ears, dark bead eyes, four little pink-brown clawed feet and one long curling bare tail clearly visible. Tiny bared incisors and wary posture communicate hostility without gore. Small ordinary forest rat proportions, natural animal anatomy. Fur rendered as readable large dark brown clusters with tan highlights.",
+      "review": {
+        "visual": "Reviewed full-body silhouette, orientation, distinct subject, complete feet/tail/weapons, absence of backdrop and text.",
+        "alpha": "Verified RGBA alpha extrema 0–255 and fully transparent pixels using read-only Pillow inspection.",
+        "processing": "Copied original PNG byte-for-byte; no cropping, resizing or image editing."
+      }
+    },
+    {
+      "id": "forest-wolf",
+      "name": "Leśny wilk",
+      "level": 3,
+      "path": "apps/client/public/assets/characters/enemies/forest-wolf.png",
+      "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a1873b-6b13-70b0-9e21-1511a5d0c930\\exec-b8285420-7d2c-4c80-a27e-f89798b513aa.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 997889,
+      "alphaBBox": {
+        "x": 0,
+        "y": 31,
+        "width": 1234,
+        "height": 1199
+      },
+      "frame": {
+        "x": 41,
+        "y": 181,
+        "width": 1166,
+        "height": 894
+      },
+      "prompt": "Use case: stylized-concept. Asset type: one original enemy sprite for a browser medieval fantasy MMORPG, readable when displayed at 56–70 pixels. Scene/backdrop: fully transparent alpha everywhere outside the subject. Style/medium: compact chibi RPG sprite with sharp dark outlines, chunky clustered pixel-art inspired painted shading, subtle textured highlights, subdued warm medieval fantasy palette. Match a game whose human NPCs have large heads, short sturdy bodies, broad readable boots, deep brown outlines, muted olive and leather colors. Composition: ONE complete full-body subject, slight elevated three-quarter front view, facing down-right (south-east), neutral alert idle stance, centered within generous transparent margins. Complete silhouette including every foot, tail and any weapon entirely inside the canvas. No ground, cast shadow, aura, backdrop, vignette, text, labels, checkerboard, border, extra poses, extra characters, sprite sheet, gore, photorealism, blur or modern objects. Genuine transparent PNG, square canvas. Subject: ONE hostile lean gray forest wolf, standing on four legs. Smoky gray fur with charcoal back and cream-gray muzzle/chest, pointed ears, long canine muzzle, watchful amber eyes, bushy tail, four paws clearly separated. Low alert posture with neck slightly lowered, closed or slightly parted mouth with discreet teeth. Natural wolf anatomy and wiry proportions, clearly a wolf rather than a dog. Large crisp gray fur clusters, no collar or accessories.",
+      "review": {
+        "visual": "Reviewed full-body silhouette, orientation, distinct subject, complete feet/tail/weapons, absence of backdrop and text.",
+        "alpha": "Verified RGBA alpha extrema 0–255 and fully transparent pixels using read-only Pillow inspection.",
+        "processing": "Copied original PNG byte-for-byte; no cropping, resizing or image editing."
+      }
+    },
+    {
+      "id": "wild-boar",
+      "name": "Rozjuszony dzik",
+      "level": 5,
+      "path": "apps/client/public/assets/characters/enemies/wild-boar.png",
+      "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a1873b-6b13-70b0-9e21-1511a5d0c930\\exec-9606c15b-1d11-46cb-ab61-783389067d8d.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 830477,
+      "alphaBBox": {
+        "x": 0,
+        "y": 19,
+        "width": 1224,
+        "height": 1235
+      },
+      "frame": {
+        "x": 57,
+        "y": 102,
+        "width": 1145,
+        "height": 1041
+      },
+      "prompt": "Use case: stylized-concept. Asset type: one original enemy sprite for a browser medieval fantasy MMORPG, readable when displayed at 56–70 pixels. Scene/backdrop: fully transparent alpha everywhere outside the subject. Style/medium: compact chibi RPG sprite with sharp dark outlines, chunky clustered pixel-art inspired painted shading, subtle textured highlights, subdued warm medieval fantasy palette. Match a game whose human NPCs have large heads, short sturdy bodies, broad readable boots, deep brown outlines, muted olive and leather colors. Composition: ONE complete full-body subject, slight elevated three-quarter front view, facing down-right (south-east), neutral alert idle stance, centered within generous transparent margins. Complete silhouette including every foot, tail and any weapon entirely inside the canvas. No ground, cast shadow, aura, backdrop, vignette, text, labels, checkerboard, border, extra poses, extra characters, sprite sheet, gore, photorealism, blur or modern objects. Genuine transparent PNG, square canvas. Subject: ONE hostile wild boar, standing on all four stout short legs. Bulky russet-brown body, raised charcoal bristle mane along the back, large wedge-shaped head and broad snout, small fierce amber eyes, two unmistakable curved ivory tusks, little hooves and a small tail visible. Tense angry idle posture, natural boar anatomy, grounded stocky silhouette. Readable rusty-brown fur clusters and dark face details.",
+      "review": {
+        "visual": "Reviewed full-body silhouette, orientation, distinct subject, complete feet/tail/weapons, absence of backdrop and text.",
+        "alpha": "Verified RGBA alpha extrema 0–255 and fully transparent pixels using read-only Pillow inspection.",
+        "processing": "Copied original PNG byte-for-byte; no cropping, resizing or image editing."
+      }
+    },
+    {
+      "id": "forest-bandit",
+      "name": "Leśny rabuś",
+      "level": 7,
+      "path": "apps/client/public/assets/characters/enemies/forest-bandit.png",
+      "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a1873b-6b13-70b0-9e21-1511a5d0c930\\exec-34c17374-d30a-43ea-bab1-066256cf5166.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 1106767,
+      "alphaBBox": {
+        "x": 0,
+        "y": 19,
+        "width": 1234,
+        "height": 1235
+      },
+      "frame": {
+        "x": 284,
+        "y": 73,
+        "width": 716,
+        "height": 1123
+      },
+      "prompt": "Use case: stylized-concept. Asset type: one original enemy sprite for a browser medieval fantasy MMORPG, readable when displayed at 56–70 pixels. Scene/backdrop: fully transparent alpha everywhere outside the subject. Style/medium: compact chibi RPG sprite with sharp dark outlines, chunky clustered pixel-art inspired painted shading, subtle textured highlights, subdued warm medieval fantasy palette. Match a game whose human NPCs have large heads, short sturdy bodies, broad readable boots, deep brown outlines, muted olive and leather colors. Composition: ONE complete full-body subject, slight elevated three-quarter front view, facing down-right (south-east), neutral alert idle stance, centered within generous transparent margins. Complete silhouette including every foot, tail and any weapon entirely inside the canvas. No ground, cast shadow, aura, backdrop, vignette, text, labels, checkerboard, border, extra poses, extra characters, sprite sheet, gore, photorealism, blur or modern objects. Genuine transparent PNG, square canvas. Subject: ONE hostile adult male forest bandit, fully clothed. Rugged stern face with short stubble inside a dark olive-green hood, compact chibi adult proportions, worn dark green tunic and brown patched leather jerkin, leather belt, charcoal trousers, sturdy brown boots. Holds ONE rusty short sword low at his side angled away from the body, other hand loose. Small belt pouch. Slightly crouched alert idle stance. Readable hood, scowling face and blade silhouette; no blood.",
+      "review": {
+        "visual": "Reviewed full-body silhouette, orientation, distinct subject, complete feet/tail/weapons, absence of backdrop and text.",
+        "alpha": "Verified RGBA alpha extrema 0–255 and fully transparent pixels using read-only Pillow inspection.",
+        "processing": "Copied original PNG byte-for-byte; no cropping, resizing or image editing."
+      }
+    },
+    {
+      "id": "outlaw-guard",
+      "name": "Strażnik banitów",
+      "level": 10,
+      "path": "apps/client/public/assets/characters/enemies/outlaw-guard.png",
+      "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a1873b-6b13-70b0-9e21-1511a5d0c930\\exec-c4282dd3-727f-41e3-ba60-d64ddd33fdb1.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alphaExtrema": [
+        0,
+        255
+      ],
+      "fullyTransparentPixels": 956562,
+      "alphaBBox": {
+        "x": 0,
+        "y": 21,
+        "width": 1240,
+        "height": 1233
+      },
+      "frame": {
+        "x": 158,
+        "y": 68,
+        "width": 974,
+        "height": 1106
+      },
+      "prompt": "Use case: stylized-concept. Asset type: one original enemy sprite for a browser medieval fantasy MMORPG, readable when displayed at 56–70 pixels. Scene/backdrop: fully transparent alpha everywhere outside the subject. Style/medium: compact chibi RPG sprite with sharp dark outlines, chunky clustered pixel-art inspired painted shading, subtle textured highlights, subdued warm medieval fantasy palette. Match a game whose human NPCs have large heads, short sturdy bodies, broad readable boots, deep brown outlines, muted olive and leather colors. Composition: ONE complete full-body subject, slight elevated three-quarter front view, facing down-right (south-east), neutral alert idle stance, centered within generous transparent margins. Complete silhouette including every foot, tail and any weapon entirely inside the canvas. No ground, cast shadow, aura, backdrop, vignette, text, labels, checkerboard, border, extra poses, extra characters, sprite sheet, gore, photorealism, blur or modern objects. Genuine transparent PNG, square canvas. Subject: ONE hostile stocky intimidating adult male outlaw guard, fully clothed, compact chibi adult proportions. Broad shoulders and powerful stocky build, grim face with short dark beard under a battered iron open-face helmet, dented muted iron chest armor and shoulder plates over dark brown clothing, a muted burgundy sash at the waist, sturdy iron-trimmed brown boots. Holds ONE worn single-bladed hand axe lowered at his right side and ONE small plain dark round wooden shield with iron rim at his left, every weapon within frame. Sturdy alert idle stance, clearly a tougher higher-level human enemy. No heraldic text, no blood.",
+      "review": {
+        "visual": "Reviewed full-body silhouette, orientation, distinct subject, complete feet/tail/weapons, absence of backdrop and text.",
+        "alpha": "Verified RGBA alpha extrema 0–255 and fully transparent pixels using read-only Pillow inspection.",
+        "processing": "Copied original PNG byte-for-byte; no cropping, resizing or image editing."
+      }
+    }
+  ]
+}

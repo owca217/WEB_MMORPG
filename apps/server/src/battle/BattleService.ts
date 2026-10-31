@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   getCharacterStatistics,
+  getEnemyDefinition,
   getEquipmentCombatStatistics,
   getEquippedWeaponFamily,
   hasEquippedShield,
@@ -87,18 +88,19 @@ export class BattleService {
     const initiator = characters[0]!, seed = 12345;
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
     const definition = getEncounterDefinition(encounterId) ?? LEGACY_WOLF_DEFINITION;
+    const enemy = definition.enemyId ? getEnemyDefinition(definition.enemyId) : undefined;
     const level = Math.max(definition.minimumLevel, ...characters.map(character => Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1))));
     const soloCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
-    const wolfCount = Math.min(5, soloCount + characters.length - 1);
+    const wolfCount = enemy ? 1 : Math.min(5, soloCount + characters.length - 1);
     const healthFactor = soloCount === 3 ? 0.65 : soloCount === 2 ? 0.75 : 1;
     const damageFactor = soloCount === 3 ? 0.35 : soloCount === 2 ? 0.5 : 1;
-    const wolfHp = Math.round((definition.baseHp + definition.hpPerLevel * (level - 1)) * healthFactor);
-    const wolfDamage = Math.round((definition.baseDamage + definition.damagePerLevel * (level - 1)) * damageFactor);
-    const wolfArmor = Math.floor(definition.baseArmor + definition.armorPerLevel * (level - 1) + 3 * Math.max(0, level - 25));
-    const wolfInitiative = initiator.initiative - (initiator.injuries.includes("concussion") ? 2 : 0) - 1;
+    const wolfHp = enemy?.maxHp ?? Math.round((definition.baseHp + definition.hpPerLevel * (level - 1)) * healthFactor);
+    const wolfDamage = enemy?.combatStats.meleeDamage ?? Math.round((definition.baseDamage + definition.damagePerLevel * (level - 1)) * damageFactor);
+    const wolfArmor = enemy?.combatStats.armor ?? Math.floor(definition.baseArmor + definition.armorPerLevel * (level - 1) + 3 * Math.max(0, level - 25));
+    const wolfInitiative = enemy?.initiative ?? initiator.initiative - (initiator.injuries.includes("concussion") ? 2 : 0) - 1;
     const enemyStarts = arena.enemyStartCells.slice(0, wolfCount);
     if (arena.playerStartCells.length < characters.length || enemyStarts.length !== wolfCount) throw new Error("ARENA_START_POSITION_MISSING");
-    const state = createBattleState({
+    const state = this.runNpcTurns(createBattleState({
 id: `battle:${initiator.playerId}:${encounterId}:${randomUUID()}`, seed, arena, combatants: [
         ...characters.map((character, index) => {
           const characterLevel = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
@@ -114,13 +116,13 @@ id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "play
 };
         }),
         ...enemyStarts.map((position, index) => ({
-id: index === 0 ? `${definition.enemyKind}:${encounterId}` : `${definition.enemyKind}:${encounterId}:${index + 1}`, side: "enemy" as const, name: definition.enemyName, level,
-          combatStats: { meleeDamage: wolfDamage, rangedDamage: 0, armor: wolfArmor }, hp: wolfHp, maxHp: wolfHp, maxAp: 4, initiative: wolfInitiative, position, severelyInjured: false, injuries: []
+id: enemy ? `enemy:${encounterId}` : index === 0 ? `${definition.enemyKind}:${encounterId}` : `${definition.enemyKind}:${encounterId}:${index + 1}`, ...(enemy ? { enemyId: enemy.id } : {}), side: "enemy" as const, name: enemy?.name ?? definition.enemyName, level: enemy?.level ?? level,
+          combatStats: { meleeDamage: wolfDamage, rangedDamage: enemy?.combatStats.rangedDamage ?? 0, armor: wolfArmor }, hp: wolfHp, maxHp: wolfHp, maxAp: enemy?.maxAp ?? 4, initiative: wolfInitiative, position, severelyInjured: false, injuries: []
 }))
       ]
-});
+}));
     const participants = new Map(characters.map(character => [character.playerId, { weaponFamily:getEquippedWeaponFamily(character.equipment),shield:hasEquippedShield(character.equipment),used:new Set<WeaponFamily>(),auto: false }]));
-    const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: wolfCount * (25 + 15 * level) };
+    const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: enemy?.experienceReward ?? wolfCount * (25 + 15 * level) };
     for (const id of participants.keys()) this.battlesByPlayer.set(id, active);
     return this.snapshotFor(active, initiator.playerId);
   }
@@ -321,6 +323,7 @@ result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, ac
       coverCells: state.arena.coverCells.map((cell) => ({ ...cell })),
       combatants: Object.values(state.combatants).map((combatant) => ({
         id: combatant.id,
+        ...(combatant.enemyId ? { enemyId: combatant.enemyId } : {}),
         side: combatant.side,
         ...(combatant.ownerPlayerId !== undefined
           ? { ownerPlayerId: combatant.ownerPlayerId }

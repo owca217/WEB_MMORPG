@@ -1,10 +1,11 @@
-import type { EncounterSnapshot, LocationId } from "@web-mmorpg/shared";
+import { ENEMY_DEFINITIONS, type EnemyId, type EncounterSnapshot, type LocationId } from "@web-mmorpg/shared";
 
 export interface EncounterDefinition {
   id: string;
   locationId: LocationId;
   enemyKind: NonNullable<EncounterSnapshot["enemyKind"]>;
   enemyName: string;
+  enemyId?: EnemyId;
   minimumLevel: number;
   baseHp: number;
   hpPerLevel: number;
@@ -31,6 +32,13 @@ const FOREST_BOAR: Omit<EncounterDefinition, "id"> = {
 
 export const ENCOUNTER_DEFINITIONS: readonly EncounterDefinition[] = [
   LEGACY_WOLF_DEFINITION,
+  ...ENEMY_DEFINITIONS.map(enemy => ({
+    id: `${enemy.id}-01`, enemyId: enemy.id, locationId: "forest-settlement-01",
+    enemyKind: enemy.id === "wild-boar" ? "boar" as const : "wolf" as const,
+    enemyName: enemy.name, minimumLevel: enemy.level, baseHp: enemy.maxHp, hpPerLevel: 0,
+    baseDamage: enemy.combatStats.meleeDamage, damagePerLevel: 0,
+    baseArmor: enemy.combatStats.armor, armorPerLevel: 0, goldReward: 0
+  })),
   { id: "forest-boars-01", ...FOREST_BOAR },
   {
     id: "forest-spiders-01", locationId: "eastern-forest-01", enemyKind: "forest-spider", enemyName: "Pająk leśny",

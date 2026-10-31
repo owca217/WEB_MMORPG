@@ -209,6 +209,20 @@ describe("ItemCatalogView", () => {
     expect(host.querySelector("[data-action='history']")).not.toBeNull();
   });
 
+  it("shows the item icon and keeps the name readable if the icon cannot load", async () => {
+    const host = document.createElement("div");
+    const view = new ItemCatalogView(host, createApi([
+      catalogItem({ iconUrl: "https://game.example.test/api/item-icons/sword.png" })
+    ]), { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn() });
+    await view.show();
+
+    const image = host.querySelector<HTMLImageElement>("article img");
+    expect(image?.src).toBe("https://game.example.test/api/item-icons/sword.png");
+    image?.dispatchEvent(new Event("error"));
+    expect(host.querySelector("article img")).toBeNull();
+    expect(host.querySelector("article")?.textContent).toContain("Żelazny miecz");
+  });
+
   it("submits search and every catalog filter through AdminApi", async () => {
     const host = document.createElement("div");
     const api = createApi();

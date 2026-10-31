@@ -1,4 +1,10 @@
-import type { EncounterSnapshot, LocationId, LocationPresentation, NpcSnapshot, TeleportZoneSnapshot } from "@web-mmorpg/shared";
+import { getEnemyDefinition, type EnemyId, type EncounterSnapshot, type LocationId, type LocationPresentation, type NpcSnapshot, type TeleportZoneSnapshot } from "@web-mmorpg/shared";
+
+function enemyEncounter(enemyId: EnemyId, x: number, y: number): EncounterSnapshot {
+  const enemy = getEnemyDefinition(enemyId);
+  if (!enemy) throw new Error(`ENEMY_DEFINITION_NOT_FOUND:${enemyId}`);
+  return { id: `${enemyId}-01`, enemyId, x, y, label: enemy.name };
+}
 
 export interface WorldTeleport extends TeleportZoneSnapshot {
   destination: { x: number; y: number };
@@ -54,6 +60,11 @@ export const FOREST_SETTLEMENT_01: WorldFixture = {
     }
   ],
   encounters: [
+    enemyEncounter("feral-rat", 1015, 465),
+    enemyEncounter("forest-wolf", 1135, 425),
+    enemyEncounter("wild-boar", 1265, 615),
+    enemyEncounter("forest-bandit", 1365, 210),
+    enemyEncounter("outlaw-guard", 1465, 655),
     {
       id: "wolf-pack-01",
       x: 1320,

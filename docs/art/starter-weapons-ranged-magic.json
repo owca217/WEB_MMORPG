@@ -1,0 +1,78 @@
+[
+  {
+    "id": "starter-bow",
+    "path": "apps/server/assets/items/starter-bow.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-67eb-7893-a5c4-9f46b99dc034\\exec-7a74d0b1-6640-47d8-a3ff-fc334946cf51.png",
+    "prompt": "Use case: stylized-concept.\nAsset type: square RPG inventory item PNG, readable at only 56 pixels.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs. Beginner common quality, no gold or ornate decoration.\nScene/backdrop: genuinely transparent background and alpha channel.\nComposition/framing: one single object centered diagonally lower-left to upper-right, full unobstructed silhouette with approximately 10% clear padding; item occupies about 75–85% of the square canvas.\nConstraints: no background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glow, or extra items. No realistic photography or smooth 3D rendering.\nPrimary request / Subject: Łuk myśliwski: a simple ash wood shortbow with a clear taut bowstring and plain brown leather grip. Only the bow; no arrow.",
+    "width": 1254,
+    "height": 1254,
+    "pngColorType": 6,
+    "alpha": true,
+    "cornerAlpha": 0,
+    "size": 464118,
+    "byteForByte": true,
+    "useCase": "stylized-concept",
+    "generator": "built-in image_gen"
+  },
+  {
+    "id": "starter-crossbow",
+    "path": "apps/server/assets/items/starter-crossbow.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-67eb-7893-a5c4-9f46b99dc034\\exec-18e33ebf-920c-4b56-896c-d70c09cf214a.png",
+    "prompt": "Use case: stylized-concept.\nAsset type: square RPG inventory item PNG, readable at only 56 pixels.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs. Beginner common quality, no gold or ornate decoration.\nScene/backdrop: genuinely transparent background and alpha channel.\nComposition/framing: one single object centered diagonally lower-left to upper-right, full unobstructed silhouette with approximately 10% clear padding; item occupies about 75–85% of the square canvas.\nConstraints: no background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glow, or extra items. No realistic photography or smooth 3D rendering.\nPrimary request / Subject: Kusza wartownika: a modest wooden-stock crossbow, small iron bow mounted crosswise at the front, clear taut bowstring and simple trigger. Stock axis lower-left to upper-right. Only the crossbow; no loose bolt.",
+    "width": 1254,
+    "height": 1254,
+    "pngColorType": 6,
+    "alpha": true,
+    "cornerAlpha": 0,
+    "size": 727573,
+    "byteForByte": true,
+    "useCase": "stylized-concept",
+    "generator": "built-in image_gen"
+  },
+  {
+    "id": "starter-staff",
+    "path": "apps/server/assets/items/starter-staff.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-67eb-7893-a5c4-9f46b99dc034\\exec-b249a2d4-ba62-48dd-9d94-253e7e04b192.png",
+    "prompt": "Use case: stylized-concept.\nAsset type: square RPG inventory item PNG, readable at only 56 pixels.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs. Beginner common quality, no gold or ornate decoration.\nScene/backdrop: genuinely transparent background and alpha channel.\nComposition/framing: one single object centered diagonally lower-left to upper-right, full unobstructed silhouette with approximately 10% clear padding; item occupies about 75–85% of the square canvas.\nConstraints: no background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glow, or extra items. No realistic photography or smooth 3D rendering.\nPrimary request / Subject: Kostur ucznia: a long gnarled ash wood staff, plain brown leather handle wrap, one small plain dull blue stone secured at the top. Its silhouette is very long, sturdy, recognizably a full-length staff. NO glow.",
+    "width": 1254,
+    "height": 1254,
+    "pngColorType": 6,
+    "alpha": true,
+    "cornerAlpha": 0,
+    "size": 374878,
+    "byteForByte": true,
+    "useCase": "stylized-concept",
+    "generator": "built-in image_gen"
+  },
+  {
+    "id": "starter-wand",
+    "path": "apps/server/assets/items/starter-wand.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-67eb-7893-a5c4-9f46b99dc034\\exec-5b93fad4-ec46-4119-8141-42d0991ee0a6.png",
+    "prompt": "Use case: stylized-concept.\nAsset type: square RPG inventory item PNG, readable at only 56 pixels.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs. Beginner common quality, no gold or ornate decoration.\nScene/backdrop: genuinely transparent background and alpha channel.\nComposition/framing: one single object centered diagonally lower-left to upper-right, full unobstructed silhouette with approximately 10% clear padding; item occupies about 75–85% of the square canvas.\nConstraints: no background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glow, or extra items. No realistic photography or smooth 3D rendering.\nPrimary request / Subject: Różdżka nowicjusza: one short slim carved hazel wood wand, tiny pale blue tip stone. Clearly much shorter, slimmer and simpler than a full-length staff: thin tapered twiglike wand about 25 centimeters long, minimal grip, one tiny tip stone, no large prongs or branches, no sphere. NO glow.",
+    "width": 1254,
+    "height": 1254,
+    "pngColorType": 6,
+    "alpha": true,
+    "cornerAlpha": 0,
+    "size": 292901,
+    "byteForByte": true,
+    "useCase": "stylized-concept",
+    "generator": "built-in image_gen"
+  },
+  {
+    "id": "starter-offensive-shield",
+    "path": "apps/server/assets/items/starter-offensive-shield.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-67eb-7893-a5c4-9f46b99dc034\\exec-3bb0ad9d-e203-4ed7-88f3-9ab38284f02e.png",
+    "prompt": "Use case: stylized-concept.\nAsset type: square RPG inventory item PNG, readable at only 56 pixels.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs. Beginner common quality, no gold or ornate decoration.\nScene/backdrop: genuinely transparent background and alpha channel.\nComposition/framing: one single object centered diagonally lower-left to upper-right, full unobstructed silhouette with approximately 10% clear padding; item occupies about 75–85% of the square canvas.\nConstraints: no background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glow, or extra items. No realistic photography or smooth 3D rendering.\nPrimary request / Subject: Puklerz milicjanta: one small round worn wood buckler, dull iron rim and central raised iron boss with a modest short blunt central spike. Shield faces the viewer at a slight three-quarter angle. Rough warm brown wood planks, iron gray fittings. No heraldry.",
+    "width": 1254,
+    "height": 1254,
+    "pngColorType": 6,
+    "alpha": true,
+    "cornerAlpha": 0,
+    "size": 1462747,
+    "byteForByte": true,
+    "useCase": "stylized-concept",
+    "generator": "built-in image_gen"
+  }
+]
+

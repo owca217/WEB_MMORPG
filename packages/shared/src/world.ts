@@ -1,4 +1,5 @@
 import type { LocationId, PlayerId } from "./ids";
+import type { EnemyId } from "./enemies";
 
 export interface WorldPlayerSnapshot {
   id: PlayerId;
@@ -10,6 +11,7 @@ export interface WorldPlayerSnapshot {
 
 export interface EncounterSnapshot {
   id: string;
+  enemyId?: EnemyId;
   x: number;
   y: number;
   label: string;

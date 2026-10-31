@@ -17,6 +17,7 @@ export * from "./equipment";
 export * from "./equipmentCombat";
 export * from "./healing";
 export * from "./characterSkins";
+export * from "./enemies";
 export * from "./items";
 export * from "./itemQuality";
 export * from "./admin";

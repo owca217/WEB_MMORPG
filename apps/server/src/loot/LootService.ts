@@ -5,6 +5,7 @@ export class LootService {
   rollEncounterLoot(encounterId: string, _seed: number): InventoryReward[] {
     const definition = getEncounterDefinition(encounterId);
     if (!definition) return [];
+    if (definition.enemyId) return [];
 
     return [
       ...(definition.enemyKind === "wolf" ? [{ itemId: "wolf-pelt", quantity: 1 }] : []),

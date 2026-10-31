@@ -1,5 +1,6 @@
 import type { BattleId, EntityId, PlayerId } from "./ids";
 import type { CombatStatistics } from "./characterProgression";
+import type { EnemyId } from "./enemies";
 
 export interface HexCoord {
   q: number;
@@ -23,6 +24,7 @@ export type InjuryKind =
 
 export interface CombatantSnapshot {
   id: EntityId;
+  enemyId?: EnemyId;
   side?: "player" | "enemy";
   ownerPlayerId?: PlayerId;
   name: string;

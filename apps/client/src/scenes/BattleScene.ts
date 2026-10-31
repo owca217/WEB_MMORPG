@@ -1,6 +1,7 @@
 import {
   areBattleEnemies,
   getBattleAttackPreview,
+  getEnemyDefinition,
   getBattleHealingPreview,
   getReachableBattleCells,
   hexKey,
@@ -13,6 +14,7 @@ import {
   type PlayerId
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { getEnemySkinAsset, getEnemySkinDisplaySize, getEnemySkinTextureKey, preloadEnemySkins, registerEnemySkinFrames } from "../characters/enemySkinAssets";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { BattleHud } from "../ui/BattleHud";
@@ -71,7 +73,10 @@ export class BattleScene extends Phaser.Scene {
     this.modePending=false;this.modeVersion+=1;
   }
 
+  preload(): void { preloadEnemySkins(this); }
+
   create(): void {
+    registerEnemySkinFrames(this);
     this.disposed = false;
     this.cameras.main.setBackgroundColor(0x17191e);
 
@@ -246,7 +251,11 @@ export class BattleScene extends Phaser.Scene {
     const ally=combatant.side==="player" && this.ownCombatant()?.side==="player";
     const fill = combatant.hp <= 0 ? 0x555555 : owned ? 0x5fa6e8 : ally ? 0x6fac75 : 0xcf6a61;
 
-    const body = this.add.circle(x, y - hexSize * 0.16, Math.max(4, hexSize * 0.38), fill, 1);
+    const enemy = combatant.enemyId ? getEnemyDefinition(combatant.enemyId) : undefined;
+    const skin = enemy ? getEnemySkinAsset(enemy.id) : undefined;
+    const textureKey = enemy ? getEnemySkinTextureKey(enemy.id) : "";
+    const hasSprite = Boolean(skin && this.textures.exists(textureKey) && this.textures.get(textureKey).has("idle"));
+    const body = this.add.circle(x, y + hexSize * (hasSprite ? 0.12 : -0.16), Math.max(4, hexSize * 0.38), fill, hasSprite ? 0.35 : 1);
     body.setStrokeStyle(active ? 4 : 2, active ? 0xffdf77 : 0x17191e);
     // Labels may share space at phone sizes; every unit remains visible above them.
     body.setDepth(2);
@@ -254,10 +263,24 @@ export class BattleScene extends Phaser.Scene {
     body.on("pointerover", () => this.previewCell(combatant.position));
     body.on("pointerup", (pointer: Phaser.Input.Pointer) => this.selectCell(combatant.position, pointer?.wasTouch ?? false));
 
+    if (skin && hasSprite) {
+      const bounds = battleHexBounds(hexSize);
+      const size = getEnemySkinDisplaySize(skin, bounds.width * (skin.shape === "humanoid" ? 0.72 : 0.9), bounds.height * 0.85);
+      const sprite = this.add.sprite(x, y + bounds.height * 0.35, textureKey, "idle")
+        .setOrigin(0.5, 1).setDisplaySize(size.width, size.height).setDepth(3);
+      if (combatant.hp <= 0) sprite.setAlpha(0.4).setTint(0x777777);
+      sprite.setInteractive({ useHandCursor: combatant.hp > 0 });
+      sprite.on("pointerover", () => { if (combatant.hp > 0) this.previewCell(combatant.position); });
+      sprite.on("pointerup", (pointer: Phaser.Input.Pointer) => { if (combatant.hp > 0) this.selectCell(combatant.position, pointer?.wasTouch ?? false); });
+      this.renderObjects.push(sprite);
+    }
+
     const compact = hexSize < 30;
-    const name = compact && combatant.name.length > 12 ? `${combatant.name.slice(0, 11)}…` : combatant.name;
-    const caption = `${name}${compact ? "\n" : " "}${combatant.hp}/${combatant.maxHp}`;
-    const label = this.add.text(x, y - hexSize * 0.5, caption, {
+    const fullName = enemy?.name ?? combatant.name;
+    const name = compact && fullName.length > 12 ? `${fullName.slice(0, 11)}…` : fullName;
+    const caption = `${name}${compact ? "\n" : " "}${enemy ? `poz. ${enemy.level} · ` : ""}${combatant.hp}/${combatant.maxHp}`;
+    const labelY = y - hexSize * (hasSprite ? 0.72 : 0.5);
+    const label = this.add.text(x, labelY, caption, {
       fontFamily: "sans-serif",
       fontSize: `${labelFontSize}px`,
       color: "#ffffff",
@@ -266,7 +289,7 @@ export class BattleScene extends Phaser.Scene {
     }).setOrigin(0.5, 1).setDepth(1);
     label.setPosition(
       Math.max(arena.x + label.width / 2, Math.min(x, arena.x + arena.width - label.width / 2)),
-      Math.max(arena.y + label.height, Math.min(y - hexSize * 0.5, arena.y + arena.height))
+      Math.max(arena.y + label.height, Math.min(labelY, arena.y + arena.height))
     );
 
     this.renderObjects.push(body, label);

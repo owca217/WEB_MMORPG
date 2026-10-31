@@ -48,7 +48,7 @@ const initialBattle: BattleSnapshot = {
   finished: false
 };
 
-function createScene(snapshot = initialBattle, width = 800, height = 600) {
+function createScene(snapshot = initialBattle, width = 800, height = 600, loadedEnemyIds: string[] = []) {
   const scene = new BattleScene();
   const events = new EventEmitter();
   const start = vi.fn(() => events.emit("shutdown"));
@@ -56,7 +56,10 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
   const polygons: Array<Array<{ x: number; y: number }>> = [];
   const zones: Array<{ x: number; y: number; width: number; height: number; handlers: Map<string, (pointer?: {wasTouch:boolean}) => void> }> = [];
   const bodies: Array<{ x: number; y: number; radius: number; fill:number }> = [];
+  const captions: string[] = [];
   const drawable = () => ({
+    displayWidth: 0, displayHeight: 0, alpha: 1, tint: undefined as number | undefined,
+    handlers: new Map<string, (pointer?: {wasTouch:boolean}) => void>(),
     width: 80,
     height: 16,
     destroy() {},
@@ -65,7 +68,10 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
     setDepth() { return this; },
     setStrokeStyle() { return this; },
     setInteractive() { return this; },
-    on() { return this; },
+    on(event: string, handler: (pointer?: {wasTouch:boolean}) => void) { this.handlers.set(event,handler); return this; },
+    setDisplaySize(width:number,height:number) { this.displayWidth=width;this.displayHeight=height;return this; },
+    setAlpha(alpha:number) { this.alpha=alpha;return this; },
+    setTint(tint:number) { this.tint=tint;return this; },
     lineStyle() {},
     fillStyle() {},
     fillPoints() {},
@@ -73,15 +79,19 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
     fillRoundedRect() {},
     strokePoints(points: Array<{ x: number; y: number }>) { polygons.push(points); }
   });
+  const sprites: Array<ReturnType<typeof drawable> & { x:number;y:number;key:string }> = [];
+  const image=vi.fn();
   const scale = Object.assign(scaleEvents, { width, height });
 
   Object.assign(scene, {
     cameras: { main: { setBackgroundColor() {}, setViewport: vi.fn(), centerX: width / 2, centerY: height / 2, width, height } },
     scale,
+    load:{image},textures:{exists:(key:string)=>loadedEnemyIds.some(id=>key===`enemy-skin:${id}`),get:()=>({has:()=>true})},
     add: {
       graphics: drawable,
       circle: (x: number, y: number, radius: number, fill:number) => { bodies.push({ x, y, radius, fill }); return drawable(); },
-      text: drawable,
+      text:(_x:number,_y:number,caption:string)=>{captions.push(caption);return drawable();},
+      sprite:(x:number,y:number,key:string)=>{const sprite={...drawable(),x,y,key};sprites.push(sprite);return sprite;},
       zone: (x: number, y: number, zoneWidth: number, zoneHeight: number) => {
         const zone = { x, y, width: zoneWidth, height: zoneHeight, handlers: new Map<string, (pointer?: {wasTouch:boolean}) => void>() };
         zones.push(zone);
@@ -93,10 +103,85 @@ function createScene(snapshot = initialBattle, width = 800, height = 600) {
   });
   scene.init({ playerId: "character-1", snapshot });
   scene.create();
-  return { scene, events, start, scale, polygons, zones, bodies };
+  return { scene, events, start, scale, polygons, zones, bodies, sprites, image, captions };
 }
 
 describe("BattleScene completion", () => {
+  it("loads enemy art on direct battle entry and keeps sprites inside phone hexes with active interactions and dead state", () => {
+    const enemy={...initialBattle.combatants[0]!,id:"forest-bandit-01",ownerPlayerId:"enemy",name:"Bandyta",enemyId:"forest-bandit" as const,position:{q:1,r:0}};
+    const snapshot={...initialBattle,cells:[{q:0,r:0},{q:1,r:0}],combatants:[...initialBattle.combatants,enemy]};
+    const {scene,events,sprites,bodies,zones,image,captions}=createScene(snapshot,420,700,["forest-bandit"]);
+    scene.preload();
+    expect(image).toHaveBeenCalledTimes(4);
+    expect(sprites).toHaveLength(1);
+    const sprite=sprites[0]!;
+    expect(sprite.key).toBe("enemy-skin:forest-bandit");
+    const zone=zones[1]!;
+    expect(sprite.displayWidth).toBeLessThanOrEqual(zone.width);
+    expect(sprite.displayHeight).toBeLessThanOrEqual(zone.height);
+    expect(sprite.displayHeight).toBeGreaterThan(0);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!.y + bodies[1]!.radius).toBeGreaterThan(sprite.y);
+    expect(captions.at(-1)).toContain("poz. 7");
+    const commands:unknown[]=[];transport.on("battleCommand",command=>commands.push(command));
+    sprite.handlers.get("pointerup")!({wasTouch:true});
+    expect(commands).toHaveLength(0);
+    expect(document.querySelector("[data-attack-preview]")?.textContent).toContain(enemy.name);
+    transport.emit("battleState",{...snapshot,combatants:[...initialBattle.combatants,{...enemy,hp:0}]});
+    const deadSprite=sprites.at(-1)!;
+    expect(deadSprite.alpha).toBeLessThan(0.6);
+    expect(deadSprite.tint).toBeDefined();
+    deadSprite.handlers.get("pointerup")!();
+    expect(commands).toHaveLength(0);
+    events.emit("shutdown");
+  });
+
+  it("preserves visible circles when a new enemy sprite is unavailable", () => {
+    const enemy={...initialBattle.combatants[0]!,id:"rat",ownerPlayerId:"enemy",name:"Szczur",enemyId:"feral-rat" as const,position:{q:1,r:0}};
+    const {events,sprites,bodies}=createScene({...initialBattle,combatants:[...initialBattle.combatants,enemy]});
+    expect(sprites).toHaveLength(0);
+    expect(bodies).toHaveLength(2);
+    events.emit("shutdown");
+  });
+
+  it.each(["victory", "defeat"] as const)(
+    "returns to the world after the server confirms %s",
+    (outcome) => {
+      const { start } = createScene();
+      expect(document.querySelector(".battle-hud")).not.toBeNull();
+
+      transport.emit("battleState", { ...initialBattle, finished: true });
+      expect(start).not.toHaveBeenCalled();
+
+      const completed: BattleEndedPayload = {
+        outcome,
+        inventory: { items: [] },
+        character: {
+          playerId: "character-1",
+          nickname: "Hero",
+          level: 1,
+          hp: outcome === "victory" ? 71 : 25,
+          maxHp: 100,
+          maxAp: 5,
+          initiative: 10,
+          severelyInjured: outcome === "defeat",
+          injuries: outcome === "defeat" ? ["legTrauma"] : []
+        }
+      };
+      transport.emit("battleEnded", completed);
+
+      expect(start).toHaveBeenCalledExactlyOnceWith("WorldScene", {
+        playerId: "character-1",
+        battleResult: { outcome, experienceGained: 0, levelsGained: 0, level: 1 }
+      });
+      expect(document.querySelector(".battle-hud")).toBeNull();
+
+      // A completed scene must not react again while another scene is active.
+      transport.emit("battleEnded", completed);
+      expect(start).toHaveBeenCalledTimes(1);
+    }
+  );
+
   let transport: EventEmitter;
 
   it("zooms graphics and hit cells together, resets to fit and reserves the full battle canvas", () => {

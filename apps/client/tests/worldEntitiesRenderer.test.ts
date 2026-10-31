@@ -74,7 +74,7 @@ class GraphicsObject extends DisplayObject {
   fillTriangle() { return this; }
 }
 
-function createScene(loadedNpcIds: string[] = []) {
+function createScene(loadedNpcIds: string[] = [], loadedEnemyIds: string[] = []) {
   const objects: DisplayObject[] = [];
   const timers: { dueAt: number; removed: boolean; callback: () => void; remove: () => void }[] = [];
   const register = <T extends DisplayObject>(object: T): T => { objects.push(object); return object; };
@@ -90,7 +90,7 @@ function createScene(loadedNpcIds: string[] = []) {
   const scene = {
     time: clock,
     textures: {
-      exists: (key: string) => loadedNpcIds.some((id) => key === `npc-skin:${id}`),
+      exists: (key: string) => loadedNpcIds.some((id) => key === `npc-skin:${id}`) || loadedEnemyIds.some(id => key === `enemy-skin:${id}`),
       get: () => ({ has: (frame: string) => frame === "idle", setFilter: vi.fn() })
     },
     add: {
@@ -348,4 +348,36 @@ it("opens another player's interaction by id and ignores the local player", () =
   remote.handlers.get("pointerup")!({button:0,wasTouch:true},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(2);
   setRightClickInteractions(false);remote.handlers.get("pointerup")!({button:0},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(3);
   local.handlers.get("pointerup")?.({button:2},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(3);renderer.destroy();
+});
+
+
+it("preserves five original enemy sprites and levels with current right-click and respawn guards",()=>{
+  const enemies=[{id:"feral-rat",name:"Zdziczały szczur",level:1},{id:"forest-wolf",name:"Leśny wilk",level:3},{id:"wild-boar",name:"Rozjuszony dzik",level:5},{id:"forest-bandit",name:"Leśny rabuś",level:7},{id:"outlaw-guard",name:"Strażnik banitów",level:10}] as const;
+  const encounters=enemies.map((enemy,index)=>({id:`${enemy.id}-01`,enemyId:enemy.id,label:"Przeciwnik",x:100+index*100,y:200}));
+  const fake=createScene([],enemies.map(enemy=>enemy.id)),renderer=new WorldEntitiesRenderer(fake.scene,hero.id),selected=vi.fn();renderer.onEncounterSelected=selected;
+  renderer.render({...snapshot([]),encounters});
+  for(const [index,enemy] of enemies.entries()) {
+    const sprite=fake.objects.find(object=>object.kind===`enemy-skin:${enemy.id}`)!;
+    expect(sprite).toBeDefined();expect(sprite.displayWidth).toBeLessThanOrEqual(60);expect(sprite.displayHeight).toBeLessThanOrEqual(60);
+    const label=sprite.parent!.children.find((object):object is TextObject=>object instanceof TextObject)!;
+    expect(label.text).toBe(`${enemy.name}\nPoz. ${enemy.level}`);
+    const count=selected.mock.calls.length,stopPropagation=vi.fn();
+    sprite.parent!.handlers.get("pointerup")!({button:0},0,0,{stopPropagation});expect(selected).toHaveBeenCalledTimes(count);expect(stopPropagation).not.toHaveBeenCalled();
+    sprite.parent!.handlers.get("pointerup")!({button:2},0,0,{stopPropagation});expect(selected).toHaveBeenLastCalledWith(encounters[index]!.id);
+  }
+  const rat=fake.objects.find(object=>object.kind==="enemy-skin:feral-rat")!.parent!;
+  renderer.render({...snapshot([]),serverTime:1000,encounters:[{...encounters[0]!,status:"respawning",respawnAt:181000}]});
+  expect(rat.interactive).toBe(false);expect(rat.children.some(object=>object instanceof TextObject && object.text.includes("Poz. 1") && object.text.includes("03:00"))).toBe(true);
+  const count=selected.mock.calls.length;rat.handlers.get("pointerup")!({button:2});expect(selected).toHaveBeenCalledTimes(count);
+  renderer.updateEncounters(182000);expect(rat.interactive).toBe(false);
+  renderer.render({...snapshot([]),serverTime:182000,encounters:[{...encounters[0]!,status:"alive"}]});expect(rat.interactive).toBe(true);renderer.destroy();
+});
+
+it("retains missing enemy art fallbacks alongside legacy wolves and eastern forest enemies",()=>{
+  const fake=createScene(),renderer=new WorldEntitiesRenderer(fake.scene,hero.id),selected=vi.fn();renderer.onEncounterSelected=selected;
+  renderer.render({...snapshot([]),encounters:[{id:"rat",enemyId:"feral-rat",label:"Przeciwnik",x:100,y:200},{id:"wolf-pack-01",label:"Wolf Pack",x:300,y:200},{id:"forest-boars-01",enemyKind:"boar",label:"Dziki",x:500,y:200}]});
+  for(const [label,id] of [["Zdziczały szczur\nPoz. 1","rat"],["Wilki","wolf-pack-01"],["Dziki","forest-boars-01"]]) {
+    const view=fake.text(label!)!.parent!;expect(view.children.some(object=>object.kind==="ellipse")).toBe(true);view.handlers.get("pointerup")!({button:2});expect(selected).toHaveBeenLastCalledWith(id);
+  }
+  renderer.destroy();expect(fake.objects.every(object=>object.destroyed)).toBe(true);
 });

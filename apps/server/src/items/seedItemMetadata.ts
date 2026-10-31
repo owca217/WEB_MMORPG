@@ -8,7 +8,7 @@ import {
   SYSTEM_SUBCATEGORIES
 } from "./statRegistry";
 
-export async function seedItemMetadata(pool: Pool): Promise<void> {
+export async function seedItemMetadata(pool: Pool, publicBaseUrl?: string): Promise<void> {
   const client = await pool.connect();
   let transactionOpen=false;
 
@@ -18,7 +18,7 @@ export async function seedItemMetadata(pool: Pool): Promise<void> {
     await seedStats(client);
     await seedCategories(client);
     await seedSubcategories(client);
-    await seedStarterItems(client);
+    await seedStarterItems(client, publicBaseUrl);
     await migrateLegacyCharacterItems(client);
     await ensurePermanentBackpackDefinition(client);
     // Release catalog locks before taking character locks, matching live inventory operations.

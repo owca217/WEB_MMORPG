@@ -29,3 +29,10 @@
 .encounter-menu button:focus-visible { outline: 2px solid #f1d48a; outline-offset: 2px; }
 .encounter-menu__header [data-close] { width: 44px; min-height: 44px; flex: 0 0 44px; padding: 0; border-color: transparent; background: transparent; font-size: 22px; }
 .encounter-menu__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+
+.encounter-menu__details { margin: 0 0 10px; font-size: 13px; }
+.encounter-menu__details[hidden] { display: none; }
+.encounter-menu__details p { margin: 0 0 9px; color: #d5ceb8; }
+.encounter-menu__details dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; margin: 0; }
+.encounter-menu__details dt { margin: 0; }
+.encounter-menu__details dd { margin: 0; color: #ffe7a5; font-weight: 700; text-align: right; }

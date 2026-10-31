@@ -1,5 +1,6 @@
 import {
   resolveCharacterSkin,
+  getEnemyDefinition,
   type CharacterSkinId,
   type EncounterSnapshot,
   type NpcSnapshot,
@@ -17,6 +18,7 @@ import {
 import { getCharacterSkinTextureKey } from "../characters/characterSkinAssets";
 import { getCharacterWalkAnimationKey } from "../characters/characterSkinSprites";
 import { getNpcSkinAsset, getNpcSkinTextureKey } from "../characters/npcSkinAssets";
+import { getEnemySkinAsset, getEnemySkinDisplaySize, getEnemySkinTextureKey } from "../characters/enemySkinAssets";
 import { encounterAvailable, encounterLabel, encounterStatusText } from "./encounterPresentation";
 import { isPrimaryMovementPointer, shouldInteractWithPointer } from "../ui/interactionPreferences";
 
@@ -358,7 +360,9 @@ export class WorldEntitiesRenderer {
   updateEncounters(serverNow=Date.now()):void {
     for(const view of this.encounterViews.values()) {
       const status=encounterStatusText(view.encounter,serverNow);
-      view.label.setText(`${encounterLabel(view.encounter)}${status ? `\n${status}` : ""}`);
+      const enemy=view.encounter.enemyId ? getEnemyDefinition(view.encounter.enemyId) : undefined;
+      const name=enemy ? `${enemy.name}\nPoz. ${enemy.level}` : encounterLabel(view.encounter);
+      view.label.setText(`${name}${status ? `\n${status}` : ""}`);
       const available=encounterAvailable(view.encounter);
       view.container.setAlpha(available ? 1 : 0.55);
       if(available)view.container.setInteractive({useHandCursor:true});
@@ -367,6 +371,39 @@ export class WorldEntitiesRenderer {
   }
 
   private createEncounter(encounter: EncounterSnapshot): EncounterView {
+    const enemy = encounter.enemyId ? getEnemyDefinition(encounter.enemyId) : undefined;
+    if (enemy) {
+      const container = this.scene.add.container(encounter.x, encounter.y).setDepth(17);
+      const skin = getEnemySkinAsset(enemy.id);
+      const humanoid = skin?.shape === "humanoid";
+      const shadow = this.scene.add.ellipse(0, 16, humanoid ? 32 : 54, 14, 0x111611, 0.4);
+      container.add(shadow);
+      const textureKey = getEnemySkinTextureKey(enemy.id);
+      if (skin && this.scene.textures.exists(textureKey) && this.scene.textures.get(textureKey).has("idle")) {
+        this.scene.textures.get(textureKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+        const size = getEnemySkinDisplaySize(skin, humanoid ? 40 : 60, humanoid ? 58 : 40);
+        const sprite = this.scene.add.sprite(0, 20, textureKey, "idle")
+          .setOrigin(0.5, 1).setDisplaySize(size.width, size.height);
+        container.add(sprite);
+      } else if (humanoid) {
+        const body = this.scene.add.rectangle(0, 2, 24, 30, 0x875447).setStrokeStyle(2, 0x332623);
+        const head = this.scene.add.circle(0, -18, 9, 0xb98663).setStrokeStyle(2, 0x332623);
+        container.add([body, head]);
+      } else {
+        // A missing download must still leave a visible, selectable enemy.
+        const body = this.scene.add.ellipse(0, 5, 44, 24, 0x785a50).setStrokeStyle(2, 0x332623);
+        const head = this.scene.add.circle(21, 0, 10, 0x96715b).setStrokeStyle(2, 0x332623);
+        container.add([body, head]);
+      }
+      const label = this.scene.add.text(0, humanoid ? -55 : -43, `${enemy.name}\nPoz. ${enemy.level}`, {
+        fontFamily: "sans-serif", fontSize: "12px", align: "center", color: "#f4c8ae",
+        backgroundColor: "#2d1c17dd", padding: { x: 5, y: 2 }
+      }).setOrigin(0.5);
+      container.add(label);
+      container.setSize(78, 82).setInteractive({ useHandCursor: true });
+      return this.encounterView(container,label,encounter);
+    }
+
     const container = this.scene.add.container(encounter.x, encounter.y).setDepth(17);
     const shadow = this.scene.add.ellipse(0, 14, 88, 30, 0x111611, 0.35);
     const kind=encounter.enemyKind??"wolf";
@@ -395,6 +432,10 @@ export class WorldEntitiesRenderer {
     }).setOrigin(0.5);
     container.add([shadow, ...wolves, label]);
     container.setSize(110, 70).setInteractive({ useHandCursor: true });
+    return this.encounterView(container,label,encounter);
+  }
+
+  private encounterView(container:Phaser.GameObjects.Container,label:Phaser.GameObjects.Text,encounter:EncounterSnapshot):EncounterView {
     const view={container,label,encounter:{...encounter}};
     container.on("pointerup", (pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
       if (!this.onEncounterSelected || !encounterAvailable(view.encounter) || !shouldInteractWithPointer(pointer)) return;

@@ -1,8 +1,9 @@
-import type { CombatStatistics, HexCoord, InjuryKind, PlayerId } from "@web-mmorpg/shared";
+import type { CombatStatistics, EnemyId, HexCoord, InjuryKind, PlayerId } from "@web-mmorpg/shared";
 export { movementApCost, rangedAttackApCost } from "@web-mmorpg/shared";
 
 export interface CombatantState {
   id: string;
+  enemyId?: EnemyId;
   ownerPlayerId?: PlayerId;
   side: "player" | "enemy";
   name: string;

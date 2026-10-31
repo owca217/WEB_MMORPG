@@ -1,5 +1,5 @@
 import "./EncounterMenu.css";
-import type { EncounterSnapshot } from "@web-mmorpg/shared";
+import { getEnemyDefinition, type EncounterSnapshot } from "@web-mmorpg/shared";
 import { encounterAvailable, encounterLabel, encounterStatusText } from "../world/encounterPresentation";
 
 interface EncounterMenuHandlers {
@@ -12,6 +12,7 @@ export class EncounterMenu {
   private readonly root: HTMLDivElement;
   private readonly label: HTMLElement;
   private readonly status: HTMLElement;
+  private readonly details: HTMLElement;
   private available=true;
   private encounterId: string | null = null;
   private anchor: MenuAnchor = { x: 0, y: 0 };
@@ -36,10 +37,12 @@ export class EncounterMenu {
     this.root.setAttribute("aria-label", "Wybierz tryb walki");
     this.root.innerHTML = `
       <div class="encounter-menu__header"><strong data-encounter-label></strong><button type="button" data-close aria-label="Zamknij menu potwora">×</button></div>
+      <div class="encounter-menu__details" data-encounter-details hidden></div>
       <p data-encounter-status role="status" hidden></p>
       <div class="encounter-menu__actions"><button type="button" data-encounter-mode="manual">Walcz</button><button type="button" data-encounter-mode="auto">Auto</button></div>`;
     this.label = this.root.querySelector<HTMLElement>("[data-encounter-label]")!;
     this.status = this.root.querySelector<HTMLElement>("[data-encounter-status]")!;
+    this.details = this.root.querySelector<HTMLElement>("[data-encounter-details]")!;
     this.root.querySelector<HTMLButtonElement>("[data-close]")!.addEventListener("click", () => this.hide());
     for (const mode of ["manual", "auto"] as const) {
       this.root.querySelector<HTMLButtonElement>(`[data-encounter-mode="${mode}"]`)!.addEventListener("click", () => {
@@ -61,7 +64,7 @@ export class EncounterMenu {
     this.viewport?.addEventListener("scroll", this.onResize);
   }
 
-  show(encounter: Pick<EncounterSnapshot,"id"|"label"|"status"|"respawnAt">, anchor: MenuAnchor,serverNow=Date.now()): void {
+  show(encounter: Pick<EncounterSnapshot,"id"|"label"|"status"|"respawnAt"|"enemyId">, anchor: MenuAnchor,serverNow=Date.now()): void {
     if (this.destroyed) return;
     this.encounterId = encounter.id;
     this.root.hidden = false;
@@ -69,9 +72,35 @@ export class EncounterMenu {
     this.reposition(anchor);
   }
 
-  update(encounter:Pick<EncounterSnapshot,"id"|"label"|"status"|"respawnAt">,serverNow=Date.now()):void {
+  update(encounter:Pick<EncounterSnapshot,"id"|"label"|"status"|"respawnAt"|"enemyId">,serverNow=Date.now()):void {
     if(this.destroyed || this.encounterId!==encounter.id)return;
-    this.label.textContent=encounterLabel(encounter);
+    const enemy = encounter.enemyId ? getEnemyDefinition(encounter.enemyId) : undefined;
+    this.label.textContent = enemy?.name ?? encounterLabel(encounter);
+    this.details.replaceChildren();
+    this.details.hidden = !enemy;
+    if (enemy) {
+      const description = document.createElement("p");
+      description.dataset.encounterDescription = "";
+      description.textContent = enemy.description;
+      const stats = document.createElement("dl");
+      const values: [string, string | number][] = [
+        ["Poziom", enemy.level],
+        ["Zalecany poziom", `${enemy.recommendedLevels[0]}–${enemy.recommendedLevels[1]}`],
+        ["HP", enemy.maxHp],
+        ["Obrażenia wręcz", enemy.combatStats.meleeDamage],
+        ["Obrażenia dystansowe", enemy.combatStats.rangedDamage],
+        ["Pancerz", enemy.combatStats.armor],
+        ["PD", enemy.experienceReward]
+      ];
+      for (const [name, value] of values) {
+        const term = document.createElement("dt");
+        const amount = document.createElement("dd");
+        term.textContent = name;
+        amount.textContent = String(value);
+        stats.append(term, amount);
+      }
+      this.details.append(description, stats);
+    }
     this.available=encounterAvailable(encounter);
     this.status.textContent=encounterStatusText(encounter,serverNow);
     this.status.hidden=!this.status.textContent;

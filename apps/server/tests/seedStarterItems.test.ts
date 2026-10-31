@@ -77,7 +77,9 @@ describeDatabase("starter equipment seeding", () => {
 
     expect(await authoredSnapshot()).toEqual(original);
     const equipment = await equipmentSnapshot();
-    expect(new Set(equipment.map((row) => row.item_id)).size).toBe(15);
+    // Current training gear plus the original ten other starter weapons;
+    // the author's starter-sword row above must remain untouched.
+    expect(new Set(equipment.map((row) => row.item_id)).size).toBe(25);
     expect(equipment.find((row) => row.item_id === "training-sword")).toMatchObject({
       stat_code: "PHYSICAL_DAMAGE", modifier_type: "flat", value: "12"
     });

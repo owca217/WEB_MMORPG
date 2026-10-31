@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { PoolClient } from "pg";
 import { BASIC_EQUIPMENT_ITEMS } from "./basicEquipment";
+import { STARTER_WEAPON_ITEMS } from "./starterWeaponItems";
 
-interface StarterItemSeed {
+export interface StarterItemSeed {
   itemUuid: string;
   versionUuid: string;
   itemId: string;
@@ -14,6 +16,9 @@ interface StarterItemSeed {
   maxStack: number;
   weight: number;
   minimumLevel?:number;
+  sellValue?: number;
+  tags?: readonly string[];
+  icon?: { key: string; assetUrl: URL };
   specialData?: Readonly<Record<string, unknown>>;
   stats?: readonly {
     id: string;
@@ -137,7 +142,7 @@ const STARTER_ITEMS: readonly StarterItemSeed[] = [
   }
 ];
 
-export async function seedStarterItems(client: PoolClient): Promise<void> {
+export async function seedStarterItems(client: PoolClient, publicBaseUrl = `http://localhost:${process.env.PORT ?? 3001}`): Promise<void> {
   const equipment:StarterItemSeed[]=BASIC_EQUIPMENT_ITEMS.map((item)=>({
     itemUuid:randomUUID(),versionUuid:randomUUID(),itemId:item.itemId,name:item.name,
     categoryId:item.categoryId,subcategoryId:item.subcategoryId,description:`Podstawowy przedmiot: ${item.name.toLowerCase()}.`,
@@ -145,7 +150,7 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
     specialData:item.weaponFamily?{weaponFamily:item.weaponFamily}:{armorSlot:item.subcategoryId},
     stats:item.stats.map((stat)=>({...stat,id:randomUUID()}))
   }));
-  for (const seed of [...STARTER_ITEMS,...equipment]) {
+  for (const seed of [...STARTER_ITEMS,...equipment,...STARTER_WEAPON_ITEMS]) {
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO items (id, item_id, status, active_version_no)
        VALUES ($1, $2, 'PUBLISHED', 1)
@@ -172,15 +177,23 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
       continue;
     }
 
+    if (seed.icon) {
+      await client.query(
+        `INSERT INTO item_icon_assets (key, mime_type, bytes)
+         VALUES ($1, 'image/png', $2) ON CONFLICT (key) DO NOTHING`,
+        [seed.icon.key, await readFile(seed.icon.assetUrl)]
+      );
+    }
+
     await client.query(
       `INSERT INTO item_versions (
         id, item_id, version_no, revision, state, name, category_id,
         subcategory_id, description, rarity, item_level, minimum_level,
         sell_value, sellable, tradable, droppable, stackable, max_stack,
-        weight, soulbound, unique_item, special_data, created_by
+        weight, soulbound, unique_item, special_data, created_by, icon_key, icon_url
       ) VALUES (
         $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, 'COMMON', 1, $12,
-        0, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, $10::jsonb, $11
+        $13, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, $10::jsonb, $11, $14, $15
       )`,
       [
         seed.versionUuid,
@@ -194,7 +207,10 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
         seed.weight,
         JSON.stringify(seed.specialData ?? {}),
         seedActor,
-        seed.minimumLevel??0
+        seed.minimumLevel??0,
+        seed.sellValue ?? 0,
+        seed.icon?.key ?? null,
+        seed.icon ? `${publicBaseUrl.replace(/\/+$/, "")}/api/item-icons/${seed.icon.key}` : null
       ]
     );
 
@@ -204,6 +220,9 @@ export async function seedStarterItems(client: PoolClient): Promise<void> {
          VALUES ($1, $2, $3, $4, $5)`,
         [stat.id, seed.versionUuid, stat.statCode, stat.modifierType, stat.value]
       );
+    }
+    for (const tag of seed.tags ?? []) {
+      await client.query("INSERT INTO item_tags (version_id, tag) VALUES ($1, $2)", [seed.versionUuid, tag]);
     }
   }
 }

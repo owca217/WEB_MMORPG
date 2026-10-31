@@ -139,6 +139,24 @@ export class ItemCatalogView {
     meta.textContent = `${item.itemId} • ${item.categoryId}${item.subcategoryId ? ` / ${item.subcategoryId}` : ""} • ${item.rarity} • ${itemQualityText(item)} • Lv.${item.itemLevel} • ${item.status}`;
     title.append(name, meta);
 
+    const identity = document.createElement("div");
+    identity.className = "admin-catalog-item__identity";
+    const icon = document.createElement("div");
+    icon.className = "admin-catalog-item__icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "◆";
+    if (item.iconUrl) {
+      const image = document.createElement("img");
+      image.alt = "";
+      image.src = item.iconUrl;
+      image.loading = "lazy";
+      image.width = 56;
+      image.height = 56;
+      image.addEventListener("error", () => { icon.textContent = "◆"; }, { once: true });
+      icon.replaceChildren(image);
+    }
+    identity.append(icon, title);
+
     const actions = document.createElement("div");
     actions.className = "admin-catalog-item__actions";
     const eligible = item.status === "PUBLISHED" && item.itemId !== PERMANENT_BACKPACK_ITEM_ID;
@@ -179,7 +197,7 @@ export class ItemCatalogView {
       actions.append(button);
     }
 
-    row.append(title, actions);
+    row.append(identity, actions);
     return row;
   }
 

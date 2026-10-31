@@ -1,0 +1,116 @@
+[
+  {
+    "id": "starter-sword",
+    "path": "apps/server/assets/items/starter-sword.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-37ea-70b3-ba64-c714b4f06cc3\\exec-c9fa8cf7-f57c-49e8-8ee0-0178c1bc0965.png",
+    "prompt": "Use case: stylized-concept\nAsset type: square transparent PNG medieval fantasy RPG inventory item icon, readable at 56px.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs in game.\nComposition/framing: exactly one isolated weapon, centered diagonally from lower-left handle to upper-right weapon tip, full silhouette visible with about 10% clear padding, object occupies 75–85% of square canvas.\nScene/backdrop: genuinely transparent background, preserve alpha.\nQuality: beginner common equipment, functional plain construction.\nAvoid: background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glows, extra items, gold, gems, ornate decoration.\nPrimary request: Miecz rekruta: a short simple iron sword, straight double edged broad iron blade, simple iron crossguard, short brown leather grip. Clear compact sword silhouette.",
+    "mode": "built-in image_gen",
+    "width": 1254,
+    "height": 1254,
+    "alpha": true,
+    "cornerAlpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "sha256": "2E4674ECA700B3A9C88B1A9840380C11CD65DCCB751EA437C183F1BDF487C4E0",
+    "bytes": 568901,
+    "originalCopiedByteForByte": true
+  },
+  {
+    "id": "starter-axe",
+    "path": "apps/server/assets/items/starter-axe.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-37ea-70b3-ba64-c714b4f06cc3\\exec-b1390f97-3108-49cf-897c-b79d0ed7bf6c.png",
+    "prompt": "Use case: stylized-concept\nAsset type: square transparent PNG medieval fantasy RPG inventory item icon, readable at 56px.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs in game.\nComposition/framing: exactly one isolated weapon, centered diagonally from lower-left handle to upper-right weapon tip, full silhouette visible with about 10% clear padding, object occupies 75–85% of square canvas.\nScene/backdrop: genuinely transparent background, preserve alpha.\nQuality: beginner common equipment, functional plain construction.\nAvoid: background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glows, extra items, gold, gems, ornate decoration.\nPrimary request: Topór drwala: one plain iron single-blade axe with short ash wood handle. Small utilitarian broad wedge axe head. Clear axe silhouette.",
+    "mode": "built-in image_gen",
+    "width": 1254,
+    "height": 1254,
+    "alpha": true,
+    "cornerAlpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "sha256": "056CD9211012581CC46F9F0E2EA10D653F937D0D4A0D4181D06DC39A566615FF",
+    "bytes": 745886,
+    "originalCopiedByteForByte": true
+  },
+  {
+    "id": "starter-hammer",
+    "path": "apps/server/assets/items/starter-hammer.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-37ea-70b3-ba64-c714b4f06cc3\\exec-59a370d8-43d6-4aa1-867c-3c8cc3014ce4.png",
+    "prompt": "Use case: stylized-concept\nAsset type: square transparent PNG medieval fantasy RPG inventory item icon, readable at 56px.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs in game.\nComposition/framing: exactly one isolated weapon, centered diagonally from lower-left handle to upper-right weapon tip, full silhouette visible with about 10% clear padding, object occupies 75–85% of square canvas.\nScene/backdrop: genuinely transparent background, preserve alpha.\nQuality: beginner common equipment, functional plain construction.\nAvoid: background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glows, extra items, gold, gems, ornate decoration.\nPrimary request: Młot czeladnika: one small rectangular iron warhammer head on a short wooden shaft with brown leather grip. Chunky simple hammer silhouette, rectangular striking head.",
+    "mode": "built-in image_gen",
+    "width": 1254,
+    "height": 1254,
+    "alpha": true,
+    "cornerAlpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "sha256": "5DED153EB68EEE8E6F461EED00F9A6C04E95E92A90A736C003DBFBF8306B9191",
+    "bytes": 615067,
+    "originalCopiedByteForByte": true
+  },
+  {
+    "id": "starter-dagger",
+    "path": "apps/server/assets/items/starter-dagger.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-37ea-70b3-ba64-c714b4f06cc3\\exec-bda6d7b1-7be5-47e3-8a5d-431795be7e5e.png",
+    "prompt": "Use case: stylized-concept\nAsset type: square transparent PNG medieval fantasy RPG inventory item icon, readable at 56px.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs in game.\nComposition/framing: exactly one isolated weapon, centered diagonally from lower-left handle to upper-right weapon tip, full silhouette visible with about 10% clear padding, object occupies 75–85% of square canvas.\nScene/backdrop: genuinely transparent background, preserve alpha.\nQuality: beginner common equipment, functional plain construction.\nAvoid: background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glows, extra items, gold, gems, ornate decoration.\nPrimary request: Sztylet wędrowca: one short worn iron dagger, compact pointed double edged blade, very small simple crossguard, wrapped brown grip. Clear squat dagger silhouette; short blade is only about twice the grip length, visibly a small dagger.",
+    "mode": "built-in image_gen",
+    "width": 1254,
+    "height": 1254,
+    "alpha": true,
+    "cornerAlpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "sha256": "588DCEB7009298A3FDC6F8EFEE59136C7E1962A50CB5D83D290EF3A2AC401C37",
+    "bytes": 544943,
+    "originalCopiedByteForByte": true
+  },
+  {
+    "id": "starter-spear",
+    "path": "apps/server/assets/items/starter-spear.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-37ea-70b3-ba64-c714b4f06cc3\\exec-9a203a4f-5c9a-4dbf-8692-84ae38614c18.png",
+    "prompt": "Use case: stylized-concept\nAsset type: square transparent PNG medieval fantasy RPG inventory item icon, readable at 56px.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs in game.\nComposition/framing: exactly one isolated weapon, centered diagonally from lower-left handle to upper-right weapon tip, full silhouette visible with about 10% clear padding, object occupies 75–85% of square canvas.\nScene/backdrop: genuinely transparent background, preserve alpha.\nQuality: beginner common equipment, functional plain construction.\nAvoid: background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glows, extra items, gold, gems, ornate decoration.\nPrimary request: Włócznia strażnika: one simple long ash wood spear shaft with a modest plain iron leaf-shaped spearhead and small iron socket. Clear full length spear silhouette, wooden shaft substantially longer than the small spearhead.",
+    "mode": "built-in image_gen",
+    "width": 1254,
+    "height": 1254,
+    "alpha": true,
+    "cornerAlpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "sha256": "81AC8122351036CEDB1DE3ACD3BAF2501ACF33EB2BF225F2D589EEDA5233C4A5",
+    "bytes": 276910,
+    "originalCopiedByteForByte": true
+  },
+  {
+    "id": "starter-two-handed",
+    "path": "apps/server/assets/items/starter-two-handed.png",
+    "sourcePath": "C:\\Users\\kgkg1\\.codex\\generated_images\\01a18830-37ea-70b3-ba64-c714b4f06cc3\\exec-018f0fca-a8d6-4cbf-a156-d5024ac7aa6d.png",
+    "prompt": "Use case: stylized-concept\nAsset type: square transparent PNG medieval fantasy RPG inventory item icon, readable at 56px.\nStyle/medium: grounded medieval fantasy RPG pixel-art inspired illustration, strong crisp dark-brown outlines, chunky large pixel clusters, lightly textured painterly shading, subdued iron gray and warm brown wood/leather palette matching chibi pixel-art NPCs in game.\nComposition/framing: exactly one isolated weapon, centered diagonally from lower-left handle to upper-right weapon tip, full silhouette visible with about 10% clear padding, object occupies 75–85% of square canvas.\nScene/backdrop: genuinely transparent background, preserve alpha.\nQuality: beginner common equipment, functional plain construction.\nAvoid: background, ground, shadow, border, frame, letters, labels, watermark, hands, character, aura, glows, extra items, gold, gems, ornate decoration.\nPrimary request: Dwuręczny miecz milicji: one long broad plain iron greatsword with a simple straight iron crossguard and unmistakably extended two-hand brown leather grip. Make the two-hand grip long enough for two adult hands, around one third of total sword length; broad long blade, plain iron pommel. Clear distinct greatsword silhouette.",
+    "mode": "built-in image_gen",
+    "width": 1254,
+    "height": 1254,
+    "alpha": true,
+    "cornerAlpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "sha256": "D92FA59068A33C9608674F1A3B6D8AEE4D33C2ACD8DB8ABB428D92DCACF965F4",
+    "bytes": 492718,
+    "originalCopiedByteForByte": true
+  }
+]

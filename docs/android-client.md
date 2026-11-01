@@ -1,4 +1,4 @@
-# Klient Android
+# Kroniki Pogranicza — klient Android
 
 Klient jest pakowany przez Capacitor 8 z tego samego kodu Phaser co wersja przeglądarkowa. APK zawiera grafiki i kod interfejsu. Logowanie, postacie, doświadczenie, ekwipunek i rozgrywka korzystają z serwera `https://web-mmorpg-server.onrender.com` i istniejących kont. Gra wymaga internetu.
 
@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [WEB-MMORPG-0.1.24.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.24/WEB-MMORPG-0.1.24.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [Kroniki-Pogranicza-0.1.26.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.26/Kroniki-Pogranicza-0.1.26.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -55,6 +55,8 @@ Wersja 0.1.22 wyśrodkowuje podgląd przeciąganego przedmiotu pod kursorem lub 
 Wersja 0.1.23 pozwala przypisać pojemnik przez upuszczenie go na jeden ze zwykłych slotów 2–4, także z widoku „Oczekujące” i z zachowaniem zawartości. Przedmioty można przenosić między założonymi pojemnikami przez przeciągnięcie nad ich ikonę. Obsługiwane są również starsze plecaki z pojemnością zapisaną jako dodatkowe miejsca. Podczas przeciągania pasek pojemników pozostaje nad oknami gry. Administrator może dodać wybraną ilość opublikowanego przedmiotu z katalogu do ekwipunku swojej aktualnej postaci.
 
 Wersja 0.1.24 porządkuje panel kategorii przedmiotów administratora. Wyszukiwarka filtruje kategorie i podkategorie, karty oraz grupy można zwijać, a pola wyboru są ułożone w siatce. Tworzenie kategorii i podkategorii ma osobne sekcje formularza.
+
+Wersja 0.1.26 nadaje grze nazwę „Kroniki Pogranicza”. Nowa nazwa jest widoczna w aplikacji i na liście zainstalowanych aplikacji Androida. Aktualizacja zachowuje identyfikator aplikacji, podpis oraz istniejące konto i dane.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

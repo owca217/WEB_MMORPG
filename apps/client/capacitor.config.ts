@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'io.github.owca217.webmmorpg',
-  appName: 'WEB MMORPG',
+  appName: 'Kroniki Pogranicza',
   webDir: 'dist-android',
   backgroundColor: '#111318',
   loggingBehavior: 'debug',

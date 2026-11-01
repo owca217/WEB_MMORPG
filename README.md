@@ -1,4 +1,4 @@
-# WEB_MMORPG
+# Kroniki Pogranicza
 
 Browser MMORPG prototype inspired by classic 2D map-based RPGs, with a deeper tactical combat system.
 

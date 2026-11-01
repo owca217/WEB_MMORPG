@@ -48,7 +48,7 @@ export class AuthPanel {
       <section class="auth-panel login-panel" data-auth-panel data-mode="${this.mode}">
         <header class="auth-panel__header">
           <p class="auth-panel__eyebrow">Świat czeka</p>
-          <h1>WEB MMORPG</h1>
+          <h1>Kroniki Pogranicza</h1>
           <p class="auth-panel__intro">Zaloguj się na swoje konto i wróć do gry.</p>
         </header>
         <nav class="auth-panel__modes" aria-label="Tryb konta">

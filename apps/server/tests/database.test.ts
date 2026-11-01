@@ -43,7 +43,8 @@ describeDatabase("item catalog database", () => {
         "item_versions",
         "items",
         "schema_migrations",
-        "stat_definitions"
+        "stat_definitions",
+        "weapon_injury_upgrade_receipts"
       ])
     );
 
@@ -64,8 +65,18 @@ describeDatabase("item catalog database", () => {
       { migration_name: "011_equipment_slots" },
       { migration_name: "012_item_quality" },
       { migration_name: "013_permanent_backpack" },
-      { migration_name: "014_container_positions" }
+      { migration_name: "014_container_positions" },
+      { migration_name: "015_weapon_injury_upgrades" }
     ]);
+
+    const injuryUpgrade = await pool.query<{ data_type: string; is_nullable: string }>(`
+      SELECT data_type, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'item_instances'
+        AND column_name = 'injury_upgrade'
+    `);
+    expect(injuryUpgrade.rows).toEqual([{ data_type: "jsonb", is_nullable: "YES" }]);
   });
 
   it("enforces stable unique itemId and foreign-key ownership", async () => {

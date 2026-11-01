@@ -53,8 +53,8 @@ const WORLD_ERROR_LABELS: Record<string, string> = {
 export class WorldScene extends Phaser.Scene {
   private playerId: PlayerId = "";
   private battleResult: BattleResultSummary | undefined;
-  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd?: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key>;
+  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
+  private wasd: Record<"W" | "A" | "S" | "D", Phaser.Input.Keyboard.Key> | undefined;
   private pointerTarget: { x: number; y: number } | null = null;
   private navigationPath:WorldPoint[]=[];
   private navigationKey:string|null=null;
@@ -338,6 +338,7 @@ export class WorldScene extends Phaser.Scene {
         "W" | "A" | "S" | "D",
         Phaser.Input.Keyboard.Key
       >;
+      this.updateKeyboardCapture();
     }
 
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
@@ -797,6 +798,11 @@ export class WorldScene extends Phaser.Scene {
     this.backgroundRenderer = undefined;
     this.cameras.main?.setViewport?.(0, 0, this.scale?.width ?? window.innerWidth, this.scale?.height ?? window.innerHeight);
     this.mapViewport = undefined;
+    // Phaser destroys scene keys before this callback, but retains their global
+    // captures. Remove our codes explicitly so forms in the next scene can type.
+    this.input.keyboard?.removeCapture?.("W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,SHIFT");
+    this.cursors = undefined;
+    this.wasd = undefined;
   }
 
   private updateWorldViewport(): void {

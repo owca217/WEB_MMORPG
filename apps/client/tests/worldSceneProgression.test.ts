@@ -1,6 +1,8 @@
 /* @vitest-environment jsdom */
 
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { emptyCharacterEquipment, emptyEquipmentSlots, type InventoryItem, type InventorySnapshot, type InventoryUpdateResult, type PlayerStateSnapshot } from "@web-mmorpg/shared";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -23,8 +25,60 @@ import { WorldScene } from "../src/scenes/WorldScene";
 import { playerStateStore } from "../src/state/PlayerStateStore";
 import { socialStateStore } from "../src/state/SocialStateStore";
 import { SocialController } from "../src/ui/SocialController";
+import { AuthPanel } from "../src/scenes/AuthScene";
+import { AuthApi } from "../src/net/AuthApi";
+import { SessionStateStore, sessionStateStore } from "../src/state/SessionStateStore";
 
 let transport: EventEmitter;
+
+it.each([false,true])("releases real Phaser key captures after logout and restores movement on re-entry (typing=%s)",async typing=>{
+  // Use Phaser's real keyboard implementations: a disabled scene plugin does not
+  // stop its global manager from preventing native input field key events.
+  const require=createRequire(import.meta.url);
+  const phaserRoot=dirname(dirname(require.resolve("phaser")));
+  const KeyboardManager=require(join(phaserRoot,"src/input/keyboard/KeyboardManager.js"));
+  const KeyboardPlugin=require(join(phaserRoot,"src/input/keyboard/KeyboardPlugin.js"));
+  const PhaserEvents=require("eventemitter3");
+  const inputManager={events:new PhaserEvents(),game:{events:new PhaserEvents()}};
+  const manager=new KeyboardManager(inputManager);manager.target=window;manager.startListeners();manager.addCapture("F9");
+  const scene=new WorldScene(),events=new EventEmitter(),input=new EventEmitter();
+  Object.assign(scene,{events,sys:{settings:{input:{}},events,canInput:()=>true},cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false}});
+  Object.assign(input,{systems:{game:inputManager.game},scene,manager:{...inputManager,keyboard:manager},pluginEvents:new PhaserEvents()});
+  const keyboard=new KeyboardPlugin(input);Object.assign(input,{keyboard});Object.assign(scene,{input});
+  const host=document.createElement("div");document.body.append(host);
+  const panel=new AuthPanel(host,{} as AuthApi,new SessionStateStore(null),vi.fn());
+  Object.assign(scene,{scene:{start:(key:string)=>{expect(key).toBe("AuthScene");events.emit("shutdown");panel.mount();}}});
+  sessionStateStore.reset();vi.spyOn(gameSocket,"disconnect").mockImplementation(()=>{});
+  const enter=()=>{
+    // Phaser shuts its input plugin down before the scene's own cleanup.
+    events.once("shutdown",()=>keyboard.shutdown());keyboard.start();
+    scene.init({playerId:"hero"});scene.create();
+  };
+  const keyEvent=(target:HTMLElement,key:string,keyCode:number,type="keydown")=>{
+    const event=new KeyboardEvent(type,{key,keyCode,bubbles:true,cancelable:true});target.dispatchEvent(event);manager.postUpdate();return event;
+  };
+  try{
+    enter();expect(keyEvent(document.body,"w",87).defaultPrevented).toBe(true);
+    expect(keyboard.keys[87].isDown).toBe(true);
+    if(typing){document.querySelector<HTMLButtonElement>("[data-chat-toggle]")!.click();document.querySelector<HTMLTextAreaElement>("[data-chat-input]")!.focus();await Promise.resolve();expect(keyboard.enabled).toBe(false);}
+    document.querySelector<HTMLButtonElement>("[data-logout]")!.click();
+    await vi.waitFor(()=>expect(host.querySelector("[name='username']")).not.toBeNull());
+    // Preserve the pre-existing F9 capture; a later registration must not revive WASD.
+    manager.addCapture("F10");
+    for(const name of ["username","password"]){
+      const field=host.querySelector<HTMLInputElement>(`[name='${name}']`)!;field.focus();
+      for(const [key,code]of [["w",87],["a",65],["s",83],["d",68],["ArrowLeft",37],[" ",32]] as const){
+        expect(keyEvent(field,key,code).defaultPrevented,`${name}: ${key}`).toBe(false);
+        expect(keyEvent(field,key,code,"keyup").defaultPrevented,`${name}: ${key} up`).toBe(false);
+      }
+      expect(keyEvent(field,"F9",120).defaultPrevented).toBe(true);
+    }
+    panel.unmount();enter();
+    expect(keyboard.enabled).toBe(true);
+    expect(keyEvent(document.body,"d",68).defaultPrevented).toBe(true);
+    expect(keyboard.keys[68].isDown).toBe(true);
+  }finally{events.emit("shutdown");manager.destroy();panel.unmount();host.remove();}
+});
 
 it("uses primary map clicks for movement, suppresses native canvas context menus, and leaves other page menus alone",()=>{
   const scene=new WorldScene(),events=new EventEmitter(),input=new EventEmitter(),canvas=document.createElement("canvas");

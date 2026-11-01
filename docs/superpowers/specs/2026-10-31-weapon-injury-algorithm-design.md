@@ -2,7 +2,7 @@
 
 Data: 2026-10-31.
 
-Status: algorytm zaakceptowany przez autora gry w rozmowie; 2026-11-01 zaimplementowany w bieżącym drzewie roboczym na jego zlecenie. Weryfikacja i granice wdrożenia: [raport](../../weapon-injuries-verification.md).
+Status: algorytm zaakceptowany przez autora gry w rozmowie; 2026-11-01 zaimplementowany i po kolejnym poleceniu autora opublikowany na oficjalnym serwerze. Weryfikacja i granice wdrożenia: [raport](../../weapon-injuries-verification.md).
 
 ## Cel i zakres
 

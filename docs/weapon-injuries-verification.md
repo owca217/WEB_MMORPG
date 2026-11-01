@@ -52,6 +52,18 @@ Dowód: `artifacts/injury-runtime-verification.json` (artefakt lokalny ignorowan
 
 Sterowanie lokalną przeglądarką jest wyłączone w ustawieniach Work. Nie wykonano oględzin interfejsu w przeglądarce ani fizycznych prób Androida; testy DOM i transportu nie są przedstawiane jako taki odbiór. Dane konta pomocniczego znajdują się wyłącznie w ignorowanym lokalnym artefakcie.
 
-Zmiany dotyczą bieżącego drzewa roboczego. Nie wykonano wdrożenia na oficjalny serwer, publikacji wydania, push ani modyfikacji produkcyjnej bazy. Docelowy serwer musi uruchamiać tę wersję i migrację 015, aby opublikowany klient mógł korzystać z nowej operacji.
+Powyższy odbiór lokalny poprzedzał publikację. Po kolejnym poleceniu autora aktualizacja oficjalnego serwera została wykonana; szczegóły poniżej.
 
-Zbudowany debug APK ma domyślny oficjalny adres HTTPS z konfiguracji projektu. Jest dowodem poprawnej kompilacji; użycie nowej funkcji pod tym adresem wymaga wcześniejszego wdrożenia zgodnego serwera. Pomocniczy serwer lokalny i nowy klaster testowy zostały zatrzymane po weryfikacji; pozostawiono ich odizolowane dane do odtworzenia wyników.
+Zbudowany debug APK ma domyślny oficjalny adres HTTPS z konfiguracji projektu. Jest dowodem poprawnej kompilacji; zgodny serwer jest już wdrożony. Pomocniczy serwer lokalny i nowy klaster testowy zostały zatrzymane po weryfikacji; pozostawiono ich odizolowane dane do odtworzenia wyników.
+
+## Publikacja produkcyjna — 2026-11-01
+
+- Oficjalna gra: https://web-mmorpg-server.onrender.com/.
+- Wdrożony commit: `f8c92b3cb1f748d0db588c677ff403730a6b7f4c` na `feature/mvp-vertical-slice`. Zawiera mechanikę z `d93851c7d0c6c2113549d6122c160174217cacae` oraz poprawkę dwóch zastanych testów oczekujących tylko 14 migracji.
+- Pełne Feature CI [41269553829](https://github.com/owca217/WEB_MMORPG/actions/runs/41269553829) przeszło: 408 testów klienta, 501 serwera, 64 shared — razem 973. Przeszły też buildy oraz kontrola ścieżek zasobów Render/GitHub Pages. Nie osłabiano testów: do dokładnych list dodano migrację 015 i kontrolę jej tabeli/kolumny. Pierwsze CI wykryło właśnie te dwa pominięte oczekiwania.
+- Android APK CI [41269221876](https://github.com/owca217/WEB_MMORPG/actions/runs/41269221876) przeszło dla identycznego kodu aplikacji; kolejny commit zmienia wyłącznie dwa testy bazy.
+- Render deploy `dep-dbjb6hlg1s2s73f8ildg` ma status **live**, zakończony `2026-11-01T03:35:29Z` (04:35:29 w Warszawie). Publikację uruchomiono po zielonym CI; wcześniej commity używały `[skip render]`.
+- Odczyt produkcyjny potwierdził migrację 015, nullable JSONB `item_instances.injury_upgrade`, pustą tabelę potwierdzeń i opublikowany „Kamień urazu” kategorii `upgrade-item`. Start serwera wykonał migrację i seed automatycznie.
+- Zachowano wszystkie 9 kont, 9 postaci, 25 instancji przedmiotów i 9 stałych plecaków. Skróty uporządkowanych identyfikatorów kont, powiązań postać–konto i instancja–właściciel–definicja są identyczne przed i po aktualizacji.
+- Publiczny odbiór potwierdził HTTP 200 dla HTML i nowego klienta `/assets/index-C8vOmOCY.js`, obecność obsługi ulepszeń w kliencie, poprawne HTTP 401 bez sesji oraz działający nowy handler Socket.IO `applyWeaponInjury`, odrzucający nieuwierzytelnione żądanie. Nie tworzono kont produkcyjnych ani nie wykonywano ulepszeń na przedmiotach graczy. Logi nowej instancji pokazują poprawny start i gotowość.
+- Lokalne dowody bez sekretów: `artifacts/release/weapon-injuries-preflight.json`, `weapon-injuries-public-verification.json`, `weapon-injuries-production-release.json`. Ten ostatni zawiera wynik porównania danych.

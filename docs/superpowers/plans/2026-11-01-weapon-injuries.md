@@ -95,3 +95,5 @@ Files: ContainerContentsPanel, WorldScene, GameSocket, EquipmentIcon, HudEquipme
 The user explicitly requested implementation after approving the algorithm. Implementation proceeds in this session without another approval round. Concrete reversible defaults above are implementation decisions, not additional claims of prior user agreement.
 
 All four tasks are implemented. The final independent review's receipt-recovery and potion-preview findings were fixed and the scoped re-review is clean. Commands, results and runtime evidence are recorded in `docs/weapon-injuries-verification.md`. Production deployment and physical/browser UI acceptance were not performed.
+
+Follow-up authorization: the user then requested the official server update. Release `f8c92b3` passed full CI (973 tests) and became live in Render deploy `dep-dbjb6hlg1s2s73f8ildg` on 2026-11-01. Production migration 015, the published stone, public assets/new handler and unchanged account/character/inventory identity digests were verified. The report records the completed publication. Physical/browser UI acceptance remains unperformed.

@@ -31,7 +31,7 @@ export interface WeaponSkillDefinition {
 }
 export type WeaponSkillUpdateResult = { ok: true; character: CharacterSnapshot } | { ok: false; code: string; message: string };
 
-const families: WeaponFamily[] = ['sword', 'axe', 'hammer', 'dagger', 'spear', 'bow', 'crossbow', 'staff', 'shield'];
+const families: WeaponFamily[] = ['sword', 'axe', 'hammer', 'dagger', 'spear', 'bow', 'crossbow', 'staff', 'wand', 'shield'];
 type Node = 'power' | 'technique' | 'mastery' | 'ultimate';
 const nodeSettings: Record<Node, { requiredLevel: number; pointCost: number; branch: 'power' | 'tactics'; previous?: Node }> = {
   power: { requiredLevel: 10, pointCost: 2, branch: 'power' },
@@ -53,7 +53,8 @@ const attackNames: Record<Exclude<WeaponFamily, 'staff' | 'shield'>, [string, st
   dagger: ['Głębokie pchnięcie', 'Krwawiące cięcie', 'Zabójcza precyzja'],
   spear: ['Mocne pchnięcie', 'Zaczep włócznią', 'Przebicie'],
   bow: ['Napięta cięciwa', 'Strzał w ścięgno', 'Strzała łowcy'],
-  crossbow: ['Ciężki bełt', 'Bełt przebijający', 'Strzał egzekutora']
+  crossbow: ['Ciężki bełt', 'Bełt przebijający', 'Strzał egzekutora'],
+  wand: ['Skupiony pocisk', 'Przenikająca iskra', 'Rozstrzygający rozbłysk']
 };
 const tacticalInjuries: Partial<Record<WeaponFamily, { kind: InjuryKind; label: string }>> = {
   axe: { kind: 'thighWound', label: 'ranę uda' },
@@ -77,7 +78,7 @@ export const WEAPON_SKILLS: readonly WeaponSkillDefinition[] = families.flatMap(
     skill(family, 'ultimate', { name: 'Bastion', description: 'Dodaje 15 pancerza i 30 punktów procentowych redukcji tarczy do początku drugiej kolejnej tury postaci.', kind: 'guard', target: 'self', apCost: 3, cooldownTurns: 3, blockBonus: 30, armorBonus: 15, durationTurns: 2 })
   ];
   const names = attackNames[family];
-  const ranged = family === 'bow' || family === 'crossbow';
+  const ranged = family === 'bow' || family === 'crossbow' || family === 'wand';
   const attackMode = ranged ? 'rangedAttack' as const : 'meleeAttack' as const;
   const range = ranged ? 6 : 1;
   const injury = tacticalInjuries[family];

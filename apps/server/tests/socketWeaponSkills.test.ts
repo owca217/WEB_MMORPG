@@ -53,6 +53,7 @@ async function setup() {
     const training = normalizeWeaponTraining(undefined);
     training.experience.sword = MAX_WEAPON_EXPERIENCE;
     training.experience.axe = MAX_WEAPON_EXPERIENCE;
+    training.experience.wand = 6375;
     await pool!.query("UPDATE characters SET weapon_training=$2::jsonb WHERE id=$1", [character.id, JSON.stringify(training)]);
     const { token } = await auth.login(username, "correct-horse-battery-staple"), socket = await connect();
     await authenticate(socket, token);
@@ -75,8 +76,10 @@ describeDb("weapon skill tree socket persistence", () => {
     alice.socket.disconnect();
     const next = await connect(), restored = await authenticate(next, alice.token);
     expect(restored.character.weaponTraining?.learnedSkills).toEqual(expect.arrayContaining(["sword:power", "axe:power"]));
+    expect(restored.character.weaponTraining?.experience.wand).toBe(6375);
     expect(await reset(next, "sword")).toMatchObject({ ok: true, character: { weaponTraining: { learnedSkills: ["axe:power"], experience: { sword: MAX_WEAPON_EXPERIENCE, axe: MAX_WEAPON_EXPERIENCE } } } });
     expect((await stored(alice.id)).learnedSkills).toEqual(["axe:power"]);
+    expect((await stored(alice.id)).experience.wand).toBe(6375);
     expect(await learn(next, "arbitrary:ultimate")).toMatchObject({ ok: false, code: "INVALID_WEAPON_SKILL" });
     expect(await reset(next, "arbitrary")).toMatchObject({ ok: false, code: "INVALID_WEAPON_FAMILY" });
   });

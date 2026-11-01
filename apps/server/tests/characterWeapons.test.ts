@@ -4,19 +4,20 @@ import { combatEquipment,armorItem } from "./combatEquipmentFixtures";
 
 it("trains families independently, caps progress and isolates returned equipment snapshots",()=>{
  const service=new CharacterService();service.createPlayer("hero","Hero");
- expect(service.trainWeapon("hero","sword",5).weaponTraining?.experience).toEqual({sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0});
+ expect(service.trainWeapon("hero","sword",5).weaponTraining?.experience).toEqual({sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,wand:0,shield:0});
  service.trainWeapon("hero","bow",25251);
  const input=combatEquipment("axe"),loaded=service.setEquipment("hero",input);
  loaded.weaponTraining!.experience.bow=999;loaded.equipment!.mainHand!.name="changed";input.mainHand!.name="also changed";
  expect(service.getSnapshot("hero")?.weaponTraining?.experience).toMatchObject({sword:5,bow:25250});
  expect(service.getSnapshot("hero")?.equipment?.mainHand?.name).toBe("axe");
  for(const amount of [-1,0.5,NaN,Infinity])expect(()=>service.trainWeapon("hero","sword",amount)).toThrow("INVALID_WEAPON_EXPERIENCE");
- expect(()=>service.trainWeapon("hero","wand" as "sword",1)).toThrow("INVALID_WEAPON_FAMILY");
+ expect(service.trainWeapon("hero","wand",5).weaponTraining?.experience.wand).toBe(5);
+ expect(()=>service.trainWeapon("hero","unknown" as "sword",1)).toThrow("INVALID_WEAPON_FAMILY");
 });
 
 it("recalculates equipped bonuses once through hydration and character level ups",()=>{
  const service=new CharacterService(),fresh=service.createPlayer("hero","Hero");
- const input={...fresh,equipment:combatEquipment("sword"),weaponTraining:{experience:{sword:25250,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,shield:0},loadout:{melee:"axe" as const,ranged:"bow" as const}}};
+ const input={...fresh,equipment:combatEquipment("sword"),weaponTraining:{experience:{sword:25250,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,wand:0,shield:0},loadout:{melee:"axe" as const,ranged:"bow" as const}}};
  const hydrated=service.hydrate(input);input.weaponTraining.experience.sword=0;
  expect(hydrated.statistics).toMatchObject({strength:10,meleeDamage:25,rangedDamage:0});
  expect(service.hydrate(hydrated).statistics).toMatchObject({meleeDamage:25,rangedDamage:0});

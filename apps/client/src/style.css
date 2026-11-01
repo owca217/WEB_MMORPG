@@ -960,6 +960,15 @@ button {
   gap: 9px;
 }
 
+.admin-catalog__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
 .admin-catalog-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

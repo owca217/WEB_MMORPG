@@ -9,7 +9,7 @@ import type { BattleSnapshot } from "@web-mmorpg/shared";
 
 function hero():CharacterSnapshot {
  const stats=getCharacterStatistics(1);
- return {playerId:"hero",nickname:"Hero",level:1,hp:stats.maxHp,maxHp:stats.maxHp,maxAp:stats.maxAp,initiative:stats.initiative,severelyInjured:false,injuries:[],equipment:combatEquipment("axe"),weaponTraining:{loadout:{melee:"axe",ranged:"crossbow"},experience:{sword:0,axe:25250,hammer:0,dagger:0,spear:0,bow:0,crossbow:25250,staff:0,shield:0}}};
+ return {playerId:"hero",nickname:"Hero",level:1,hp:stats.maxHp,maxHp:stats.maxHp,maxAp:stats.maxAp,initiative:stats.initiative,severelyInjured:false,injuries:[],equipment:combatEquipment("axe"),weaponTraining:{loadout:{melee:"axe",ranged:"crossbow"},experience:{sword:0,axe:25250,hammer:0,dagger:0,spear:0,bow:0,crossbow:25250,staff:0,wand:0,shield:0}}};
 }
 function commandFor(s:BattleSnapshot):BattleCommand {
  const actor=s.combatants.find(c=>c.ownerPlayerId==="hero")!,target=s.combatants.find(c=>c.side==="enemy" && c.hp>0)!;

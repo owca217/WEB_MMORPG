@@ -5,7 +5,7 @@ import { HealingService, type HealingServiceDependencies } from "../src/healing/
 
 function setup() {
   let now=1000;
-  const make=(id:string,hp:number)=>({playerId:id,nickname:id,level:1,hp,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],statistics:getCharacterStatistics(1),equipment:combatEquipment("staff"),weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}} as CharacterSnapshot);
+  const make=(id:string,hp:number)=>({playerId:id,nickname:id,level:1,hp,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],statistics:getCharacterStatistics(1),equipment:combatEquipment("staff"),weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,wand:0,shield:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}} as CharacterSnapshot);
   const chars=new Map<string,CharacterSnapshot>([["alice",make("alice",60)],["bob",make("bob",90)],["stranger",make("stranger",40)]]);
   const offline=new Set<string>(),busy=new Set<string>(),battling=new Set<string>();
   const positions=new Map([...chars.keys()].map(id=>[id,{locationId:"forest",x:0,y:0}]));

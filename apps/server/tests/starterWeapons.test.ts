@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ import { ItemCatalogService } from "../src/items/ItemCatalogService";
 import { ItemMetadataRepository } from "../src/items/ItemMetadataRepository";
 import { validateItemDraft } from "../src/items/itemValidation";
 import { seedItemMetadata } from "../src/items/seedItemMetadata";
+import { PROGRESSION_WEAPON_ITEMS } from "../src/items/progressionWeaponItems";
 
 const databaseUrl = process.env.DATABASE_URL;
 const databaseTarget = databaseUrl ? new URL(databaseUrl) : null;
@@ -53,7 +55,7 @@ describeDatabase("starter weapon catalog", () => {
       expect(item).toMatchObject({
         itemId: `starter-${item.subcategoryId}`,
         categoryId: "weapon", status: "PUBLISHED", activeVersionNo: 1,
-        rarity: "COMMON", itemLevel: 1, minimumLevel: 1,
+        rarity: "COMMON", quality: "NORMAL", itemLevel: 1, minimumLevel: 1,
         stackable: false, maxStack: 1
       });
       expect(item.tags).toEqual(expect.arrayContaining(["starter", "weapon"]));
@@ -64,6 +66,34 @@ describeDatabase("starter weapon catalog", () => {
     }
     const legacy = (await catalog.getItem("field-bandage")).item;
     expect(legacy).toMatchObject({ minimumLevel: 0, sellValue: 0, stackable: true, maxStack: 20 });
+  });
+
+  it("publishes all progression tiers with creator-valid profiles and serves each distinct original icon", async () => {
+    const app = express();
+    app.use("/api/item-icons", createItemIconRouter(pool));
+    const creatorMetadata = await metadata.listMetadata();
+    const hashes = new Set<string>();
+    for (const seed of PROGRESSION_WEAPON_ITEMS) {
+      const item = (await catalog.getItem(seed.itemId)).item;
+      expect(item).toMatchObject({
+        itemId: seed.itemId, name: seed.name, description: seed.description,
+        categoryId: "weapon", subcategoryId: seed.subcategoryId, status: "PUBLISHED", activeVersionNo: 1,
+        rarity: seed.rarity, quality: seed.quality, itemLevel: seed.itemLevel, minimumLevel: seed.minimumLevel,
+        sellValue: seed.sellValue, weight: seed.weight, specialData: seed.specialData,
+        stackable: false, maxStack: 1, effects: [], requirements: []
+      });
+      expect(item.stats).toEqual(expect.arrayContaining(seed.stats!.map(({ id: _id, ...stat }) => stat)));
+      expect(item.stats).toHaveLength(seed.stats!.length);
+      expect(validateItemDraft(item, creatorMetadata), seed.itemId).toEqual({ ok: true });
+      expect(item.iconKey).toBe(seed.icon!.key);
+      expect(item.iconUrl).toBe(`${publicBaseUrl}/api/item-icons/${seed.icon!.key}`);
+      const original = await readFile(seed.icon!.assetUrl);
+      const response = await request(app).get(`/api/item-icons/${item.iconKey}`).expect(200);
+      expect(response.headers["content-type"]).toMatch(/^image\/png/);
+      expect(Buffer.from(response.body).equals(original)).toBe(true);
+      hashes.add(createHash("sha256").update(original).digest("hex"));
+    }
+    expect(hashes.size).toBe(66);
   });
 
   it("serves every generated PNG unchanged through the public icon route", async () => {
@@ -114,6 +144,31 @@ describeDatabase("starter weapon catalog", () => {
       (SELECT COUNT(*)::int FROM items) AS items,
       (SELECT COUNT(*)::int FROM item_versions) AS versions,
       (SELECT COUNT(*)::int FROM item_icon_assets) AS icons`)).rows[0]).toEqual(countsBefore);
-    expect(countsBefore.icons).toBe(11);
+    expect(countsBefore.icons).toBe(77);
+  });
+
+  it("preserves authored progression versions, icons and owned-copy state when reseeded", async () => {
+    const itemId = "progression-wand-30";
+    const original = (await catalog.getItem(itemId)).item;
+    const authored = await catalog.updateDraft(itemId, {
+      ...original, name: "Różdżka według autora", quality: "GOOD", minimumLevel: 8,
+      iconKey: "custom-progression-wand", iconUrl: "https://assets.example.test/wand.png",
+      stats: [{ statCode: "MAGIC_DAMAGE", modifierType: "flat", value: 73 }]
+    }, 1, actor);
+    await catalog.publish(itemId, authored.revision, actor);
+    const instanceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    await pool.query(`INSERT INTO item_instances (id, player_id, item_id, quantity, quality,
+      durability, max_durability, upgrade_level, affixes, sockets, bound_to_player_id)
+      SELECT $1, $2, id, 1, 'EXCELLENT', 9, 40, 3, '[{"code":"authored"}]'::jsonb,
+      '["quartz"]'::jsonb, $2 FROM items WHERE item_id = $3`, [instanceId, actor, itemId]);
+    const before = await catalog.getItem(itemId);
+    const instance = (await pool.query("SELECT * FROM item_instances WHERE id = $1", [instanceId])).rows[0];
+    const versions = (await pool.query("SELECT * FROM item_versions WHERE item_id = (SELECT id FROM items WHERE item_id = $1) ORDER BY version_no", [itemId])).rows;
+
+    await seedItemMetadata(pool, publicBaseUrl);
+
+    expect(await catalog.getItem(itemId)).toEqual(before);
+    expect((await pool.query("SELECT * FROM item_versions WHERE item_id = (SELECT id FROM items WHERE item_id = $1) ORDER BY version_no", [itemId])).rows).toEqual(versions);
+    expect((await pool.query("SELECT * FROM item_instances WHERE id = $1", [instanceId])).rows[0]).toEqual(instance);
   });
 });

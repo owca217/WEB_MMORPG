@@ -2,6 +2,7 @@
 import { emptyCharacterEquipment, type CharacterSnapshot, type InventoryItem } from "@web-mmorpg/shared";
 import { afterEach, expect, it, vi } from "vitest";
 import { CharacterPanel } from "../src/ui/CharacterPanel";
+import { equipmentItemSummary } from "../src/ui/EquipmentIcon";
 const hero:CharacterSnapshot={playerId:"hero",nickname:"Alicja",level:2,hp:100,maxHp:130,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
 const sword:InventoryItem={instanceId:"sword",itemId:"sword",itemDefinitionId:"sword-def",name:"Miecz treningowy",category:"weapon",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:1,modifiers:[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:5}]}};
 function click(selector:string){document.querySelector<HTMLButtonElement>(selector)!.click();}
@@ -65,10 +66,20 @@ it("keeps game pointer events inside the panel",()=>{
  try{document.querySelector('[data-character-tab="proficiency"]')!.dispatchEvent(new Event("pointerdown",{bubbles:true}));expect(listener).not.toHaveBeenCalled();}finally{document.removeEventListener("pointerdown",listener);panel.destroy();}
 });
 it("shows proficiency levels with combat-only half-XP rules",()=>{
- const panel=new CharacterPanel();panel.update({...hero,weaponTraining:{experience:{sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow"}}});panel.show();click('[data-character-tab="proficiency"]');
- expect(document.querySelectorAll('[data-weapon-family]')).toHaveLength(9);expect(document.querySelector('[data-weapon-family="sword"] [data-weapon-level]')?.textContent).toBe("1/100");
+ const panel=new CharacterPanel();panel.update({...hero,weaponTraining:{experience:{sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,shield:0,wand:0},loadout:{melee:"sword",ranged:"bow"}}});panel.show();click('[data-character-tab="proficiency"]');
+ expect(document.querySelectorAll('[data-weapon-family]')).toHaveLength(10);expect(document.querySelector('[data-weapon-family="sword"] [data-weapon-level]')?.textContent).toBe("1/100");
+ expect(document.querySelector('[data-weapon-family="wand"] [data-weapon-level]')?.textContent).toBe("0/100");
  expect(document.querySelector('[data-weapon-family="bow"] [role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
  expect(document.querySelector('[data-character-panel="proficiency"]')?.textContent).toContain("połowę");panel.destroy();
+});
+it("shows magical offense and initiative while keeping staff healing wording",()=>{
+ const wand={...sword,equipment:{...sword.equipment!,weaponFamily:"wand" as const,modifiers:[{statCode:"MAGIC_DAMAGE",modifierType:"flat" as const,value:19},{statCode:"SPELL_POWER",modifierType:"flat" as const,value:3},{statCode:"INITIATIVE",modifierType:"flat" as const,value:2}]}};
+ expect(equipmentItemSummary(wand)).toContain("Obrażenia magiczne +19");
+ expect(equipmentItemSummary(wand)).toContain("Moc zaklęć +3");
+ expect(equipmentItemSummary(wand)).toContain("Inicjatywa +2");
+ expect(equipmentItemSummary(wand)).not.toContain("Moc leczenia");
+ const staff={...wand,equipment:{...wand.equipment,weaponFamily:"staff" as const,twoHanded:true}};
+ expect(equipmentItemSummary(staff)).toContain("Moc leczenia +3");
 });
 it("equips once after acknowledgement and displays authoritative equipment/statistics",async()=>{
  const gate=deferred<any>(),request=vi.fn().mockReturnValue(gate.promise),changed=vi.fn();

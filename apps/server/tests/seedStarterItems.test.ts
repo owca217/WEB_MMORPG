@@ -77,9 +77,9 @@ describeDatabase("starter equipment seeding", () => {
 
     expect(await authoredSnapshot()).toEqual(original);
     const equipment = await equipmentSnapshot();
-    // Current training gear plus the original ten other starter weapons;
+    // Current training gear, 66 progression weapons and ten other starter weapons;
     // the author's starter-sword row above must remain untouched.
-    expect(new Set(equipment.map((row) => row.item_id)).size).toBe(25);
+    expect(new Set(equipment.map((row) => row.item_id)).size).toBe(91);
     expect(equipment.find((row) => row.item_id === "training-sword")).toMatchObject({
       stat_code: "PHYSICAL_DAMAGE", modifier_type: "flat", value: "12"
     });
@@ -88,5 +88,31 @@ describeDatabase("starter equipment seeding", () => {
 
     expect(await authoredSnapshot()).toEqual(original);
     expect(await equipmentSnapshot()).toEqual(equipment);
+  });
+
+  it("upgrades initialized system stat lists additively without replacing authored metadata", async () => {
+    await pool.query(`DELETE FROM category_allowed_stats WHERE category_id = 'weapon' AND (
+      (subcategory_id IS NULL AND stat_code IN ('ARMOR', 'INITIATIVE', 'BLOCK_POWER')) OR
+      (subcategory_id IN ('sword', 'hammer') AND stat_code = 'ARMOR') OR
+      (subcategory_id IN ('dagger', 'spear') AND stat_code = 'INITIATIVE') OR
+      (subcategory_id = 'offensive-shield' AND stat_code = 'MAGIC_DAMAGE'))`);
+    await pool.query("INSERT INTO category_allowed_stats(category_id, subcategory_id, stat_code) VALUES ('weapon', 'sword', 'FIRE_DAMAGE')");
+    await pool.query("UPDATE item_subcategories SET system = FALSE WHERE id = 'hammer'");
+    const authoredBefore = (await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows;
+    await pool.query("DELETE FROM schema_migrations WHERE migration_name = '016_progression_weapon_metadata'");
+
+    await runMigrations(pool);
+
+    const after = (await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows;
+    for (const original of authoredBefore) expect(after).toContainEqual(original);
+    const mappings = after.filter((row) => row.category_id === "weapon");
+    for (const [subcategory, code] of [
+      [null, "ARMOR"], [null, "INITIATIVE"], [null, "BLOCK_POWER"],
+      ["sword", "ARMOR"], ["dagger", "INITIATIVE"], ["spear", "INITIATIVE"],
+      ["offensive-shield", "MAGIC_DAMAGE"]
+    ]) expect(mappings.some((row) => row.subcategory_id === subcategory && row.stat_code === code)).toBe(true);
+    expect(mappings.some((row) => row.subcategory_id === "hammer" && row.stat_code === "ARMOR")).toBe(false);
+    await runMigrations(pool);
+    expect((await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows).toEqual(after);
   });
 });

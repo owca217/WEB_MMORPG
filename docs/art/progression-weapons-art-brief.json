@@ -1,0 +1,464 @@
+[
+  {
+    "id": "progression-sword-1",
+    "name": "Miecz brodowego strażnika",
+    "description": "Krótki żelazny miecz z płytkim zbroczem. Jasny sznur oplata rękojeść zakończoną tarczową głowicą.",
+    "category": "sword",
+    "level": 1
+  },
+  {
+    "id": "progression-sword-5",
+    "name": "Miecz leszczynowego szlaku",
+    "description": "Stalowa klinga z prostym jelcem i ciemną skórzaną rękojeścią. Graniasta głowica równoważy ostrze.",
+    "category": "sword",
+    "level": 5
+  },
+  {
+    "id": "progression-sword-10",
+    "name": "Miecz szarej baszty",
+    "description": "Szeroka liściasta klinga z brązowym zakrzywionym jelcem. Rękojeść oplata ciemnoczerwona skóra.",
+    "category": "sword",
+    "level": 10
+  },
+  {
+    "id": "progression-sword-15",
+    "name": "Miecz błękitnej straży",
+    "description": "Polerowane ostrze ze zbroczem i wygiętym żelaznym jelcem. Błękitny oplot osłania długi uchwyt.",
+    "category": "sword",
+    "level": 15
+  },
+  {
+    "id": "progression-sword-20",
+    "name": "Miecz srebrnego przesmyku",
+    "description": "Długa klinga z jasnej stali, oprawiona w skórę i srebrzone okucia z motywem górskiej przełęczy.",
+    "category": "sword",
+    "level": 20
+  },
+  {
+    "id": "progression-sword-30",
+    "name": "Miecz koronnego kowala",
+    "description": "Mistrzowsko szlifowane ostrze z zamkniętą gardą. Na głowicy wybito niewielką koronę kuźniczą.",
+    "category": "sword",
+    "level": 30
+  },
+  {
+    "id": "progression-axe-1",
+    "name": "Topór olchowej przystani",
+    "description": "Szerokie żelazne ostrze na krótkim olchowym stylisku, zabezpieczonym skórzanym wiązaniem.",
+    "category": "axe",
+    "level": 1
+  },
+  {
+    "id": "progression-axe-5",
+    "name": "Topór kamiennego traktu",
+    "description": "Stalowy topór z klinowatym ostrzem i ciemnym dębowym trzonkiem, okutym przy nasadzie.",
+    "category": "axe",
+    "level": 5
+  },
+  {
+    "id": "progression-axe-10",
+    "name": "Topór rudego jaru",
+    "description": "Wyraźnie wyciągnięty dolny narożnik ostrza nadaje temu toporowi kształt brody. Stylisko oplata ruda skóra.",
+    "category": "axe",
+    "level": 10
+  },
+  {
+    "id": "progression-axe-15",
+    "name": "Topór żelaznej bramy",
+    "description": "Ciężkie ostrze z grubym obuchem osadzono na nitowanym stylisku z jesionu.",
+    "category": "axe",
+    "level": 15
+  },
+  {
+    "id": "progression-axe-20",
+    "name": "Topór czarnego granitu",
+    "description": "Ciemna stal i kamienna głowica styliska tworzą surową broń wykonaną w górskiej kuźni.",
+    "category": "axe",
+    "level": 20
+  },
+  {
+    "id": "progression-axe-30",
+    "name": "Topór mistrza z Karwenu",
+    "description": "Szeroka krawędź tnąca jest równo zahartowana. Miedziane linie na policzkach ostrza układają się w znak kuźni Karwenu.",
+    "category": "axe",
+    "level": 30
+  },
+  {
+    "id": "progression-hammer-1",
+    "name": "Młot ceglanej warty",
+    "description": "Żelazny młot bojowy z kwadratowym obuchem i niewielką stalową osłoną dłoni.",
+    "category": "hammer",
+    "level": 1
+  },
+  {
+    "id": "progression-hammer-5",
+    "name": "Młot miedzianych nitów",
+    "description": "Stalowa głowica spoczywa na grubym trzonku. Miedziane nity spinają szeroką osłonę uchwytu.",
+    "category": "hammer",
+    "level": 5
+  },
+  {
+    "id": "progression-hammer-10",
+    "name": "Młot wieżowego zbrojnego",
+    "description": "Krępy młot z żeberkowanym obuchem i rozbudowanym jelcem z kutego żelaza.",
+    "category": "hammer",
+    "level": 10
+  },
+  {
+    "id": "progression-hammer-15",
+    "name": "Młot bastionu Wrzos",
+    "description": "Ośmioboczna głowica nosi znak wrzosowej gałązki. Płytki wokół rękojeści osłaniają nadgarstek.",
+    "category": "hammer",
+    "level": 15
+  },
+  {
+    "id": "progression-hammer-20",
+    "name": "Młot obsydianowej strażnicy",
+    "description": "Ciemna stalowa głowica z polerowanymi krawędziami i szerokim kabłąkiem zdobionym obsydianem.",
+    "category": "hammer",
+    "level": 20
+  },
+  {
+    "id": "progression-hammer-30",
+    "name": "Młot mistrza murów",
+    "description": "Masywny obuch wykuto z jednego kawałka stali. Profilowana osłona uchwytu ma kształt blankowanego muru.",
+    "category": "hammer",
+    "level": 30
+  },
+  {
+    "id": "progression-dagger-1",
+    "name": "Sztylet wierzbowego brodu",
+    "description": "Wąskie żelazne ostrze z krótkim jelcem i jasnym uchwytem z wierzby.",
+    "category": "dagger",
+    "level": 1
+  },
+  {
+    "id": "progression-dagger-5",
+    "name": "Sztylet skórzanego węzła",
+    "description": "Lekki sztylet z ciemnej stali. Pewny uchwyt tworzy ciasny splot skórzanych pasków.",
+    "category": "dagger",
+    "level": 5
+  },
+  {
+    "id": "progression-dagger-10",
+    "name": "Sztylet lisiej ścieżki",
+    "description": "Smukła klinga i mała głowica ułatwiają poręczny chwyt. Na jelcu wyryto trop lisa.",
+    "category": "dagger",
+    "level": 10
+  },
+  {
+    "id": "progression-dagger-15",
+    "name": "Sztylet szafirowego kuriera",
+    "description": "Krótkie ostrze o trójkątnym przekroju, z drobnym szafirem osadzonym w lekkiej głowicy.",
+    "category": "dagger",
+    "level": 15
+  },
+  {
+    "id": "progression-dagger-20",
+    "name": "Sztylet nocnego patrolu",
+    "description": "Matowa klinga z oszczędnym jelcem i fakturowaną rękojeścią z czarnego drewna.",
+    "category": "dagger",
+    "level": 20
+  },
+  {
+    "id": "progression-dagger-30",
+    "name": "Sztylet mistrza cienkiej stali",
+    "description": "Precyzyjnie szlifowany sztylet z ażurowym jelcem. Delikatny srebrny drut wzmacnia hebanowy uchwyt.",
+    "category": "dagger",
+    "level": 30
+  },
+  {
+    "id": "progression-spear-1",
+    "name": "Włócznia trzcinowej grobli",
+    "description": "Liściasty żelazny grot zamocowano na prostym drzewcu ze skórzanym oplotem pośrodku.",
+    "category": "spear",
+    "level": 1
+  },
+  {
+    "id": "progression-spear-5",
+    "name": "Włócznia jesionowego kręgu",
+    "description": "Wysmukły stalowy grot i jesionowy drzewiec połączono tuleją z dwoma miedzianymi pierścieniami.",
+    "category": "spear",
+    "level": 5
+  },
+  {
+    "id": "progression-spear-10",
+    "name": "Włócznia sokolej warty",
+    "description": "Lekka włócznia z wąskim grotem i piórem sokoła przywiązanym poniżej stalowej tulei.",
+    "category": "spear",
+    "level": 10
+  },
+  {
+    "id": "progression-spear-15",
+    "name": "Włócznia chorągwi z Dolin",
+    "description": "Długi grot o ostrym grzbiecie wieńczy ciemne drzewce, ozdobione skrawkiem zielonej chorągwi.",
+    "category": "spear",
+    "level": 15
+  },
+  {
+    "id": "progression-spear-20",
+    "name": "Włócznia stalowego pióra",
+    "description": "Smukły grot z jasnej stali ma zarys pióra. Okręcona drutem przeciwwaga równoważy drzewce.",
+    "category": "spear",
+    "level": 20
+  },
+  {
+    "id": "progression-spear-30",
+    "name": "Włócznia mistrza przedniej straży",
+    "description": "Dokładnie wyważona włócznia z żebrowanym grotem i srebrzonymi obejmami na jesionowym drzewcu.",
+    "category": "spear",
+    "level": 30
+  },
+  {
+    "id": "progression-bow-1",
+    "name": "Łuk leszczynowego zagajnika",
+    "description": "Niewielki łuk z jasnej leszczyny z lnianą cięciwą i prostym skórzanym uchwytem.",
+    "category": "bow",
+    "level": 1
+  },
+  {
+    "id": "progression-bow-5",
+    "name": "Łuk cisowego pagórka",
+    "description": "Cisowe ramiona pokryto cienką warstwą oleju. Uchwyt oplata brązowy rzemień.",
+    "category": "bow",
+    "level": 5
+  },
+  {
+    "id": "progression-bow-10",
+    "name": "Łuk rogowego grzbietu",
+    "description": "Warstwy drewna i rogu tworzą wygięte ramiona tego łuku. Końce osłaniają jasne nakładki.",
+    "category": "bow",
+    "level": 10
+  },
+  {
+    "id": "progression-bow-15",
+    "name": "Łuk zielonej chorągwi",
+    "description": "Smukły łuk klejony z ciemnego drewna, ze wzorem zielonych rombów przy uchwycie.",
+    "category": "bow",
+    "level": 15
+  },
+  {
+    "id": "progression-bow-20",
+    "name": "Łuk srebrnej doliny",
+    "description": "Starannie profilowane ramiona o srebrzonych zakończeniach łączy ciemna, mocno skręcona cięciwa.",
+    "category": "bow",
+    "level": 20
+  },
+  {
+    "id": "progression-bow-30",
+    "name": "Łuk mistrza dalekich wzgórz",
+    "description": "Misterny łuk warstwowy z hebanowym uchwytem. Jasne pasma rogu podkreślają równy łuk ramion.",
+    "category": "bow",
+    "level": 30
+  },
+  {
+    "id": "progression-crossbow-1",
+    "name": "Kusza dębowej furty",
+    "description": "Dębowe łoże, żelazne łuczysko i prosty spust tworzą solidną kuszę wartowniczą.",
+    "category": "crossbow",
+    "level": 1
+  },
+  {
+    "id": "progression-crossbow-5",
+    "name": "Kusza mosiężnej zapadki",
+    "description": "Krótkie stalowe łuczysko osadzono w ciemnym łożu z odsłoniętą mosiężną zapadką.",
+    "category": "crossbow",
+    "level": 5
+  },
+  {
+    "id": "progression-crossbow-10",
+    "name": "Kusza cechu strzelców",
+    "description": "Kusza o orzechowym łożu i wzmocnionym kabłąku. Na boku wybito znak cechu strzelców.",
+    "category": "crossbow",
+    "level": 10
+  },
+  {
+    "id": "progression-crossbow-15",
+    "name": "Kusza szarego bastionu",
+    "description": "Ciężkie łuczysko przytrzymują stalowe obejmy. Grzbiet łoża wyłożono szarą skórą.",
+    "category": "crossbow",
+    "level": 15
+  },
+  {
+    "id": "progression-crossbow-20",
+    "name": "Kusza rubinowego ryngrafu",
+    "description": "Polerowana stal opiera się na ciemnym drewnie. Płytkę nad spustem zdobi niewielki czerwony kamień.",
+    "category": "crossbow",
+    "level": 20
+  },
+  {
+    "id": "progression-crossbow-30",
+    "name": "Kusza mistrza siedmiu nitów",
+    "description": "Precyzyjnie spasowana kusza z czarnym łożem i siedmioma srebrnymi nitami wokół mechanizmu spustowego.",
+    "category": "crossbow",
+    "level": 30
+  },
+  {
+    "id": "progression-staff-1",
+    "name": "Kostur brzozowego kręgu",
+    "description": "Prosty brzozowy kostur ze stalową stopką i mlecznym kryształem ujętym w drewniane rozwidlenie.",
+    "category": "staff",
+    "level": 1
+  },
+  {
+    "id": "progression-staff-5",
+    "name": "Kostur ametystowej gałęzi",
+    "description": "Skręcona gałąź podtrzymuje mały ametyst. Dolny koniec chroni nitowana żelazna tuleja.",
+    "category": "staff",
+    "level": 5
+  },
+  {
+    "id": "progression-staff-10",
+    "name": "Kostur miedzianych obręczy",
+    "description": "Ciemny kostur z trzema miedzianymi obejmami i przejrzystym kryształem w otwartej oprawie.",
+    "category": "staff",
+    "level": 10
+  },
+  {
+    "id": "progression-staff-15",
+    "name": "Kostur błękitnej komnaty",
+    "description": "Głowicę jesionowego kostura wieńczy błękitny kamień osłonięty czterema stalowymi ramionami.",
+    "category": "staff",
+    "level": 15
+  },
+  {
+    "id": "progression-staff-20",
+    "name": "Kostur srebrnego splotu",
+    "description": "Srebrny drut oplata hebanowy trzon i przechodzi w koszyk podtrzymujący duży fioletowy kryształ.",
+    "category": "staff",
+    "level": 20
+  },
+  {
+    "id": "progression-staff-30",
+    "name": "Kostur mistrza kryształowych wież",
+    "description": "Starannie obrobiony kostur z graniastym kryształem w wysokiej oprawie. Stalowa stopka równoważy rozbudowaną głowicę.",
+    "category": "staff",
+    "level": 30
+  },
+  {
+    "id": "progression-wand-1",
+    "name": "Różdżka lipowego sęka",
+    "description": "Krótka lipowa różdżka z niewielkim kwarcem osadzonym w naturalnym zagłębieniu drewna.",
+    "category": "wand",
+    "level": 1
+  },
+  {
+    "id": "progression-wand-5",
+    "name": "Różdżka miedzianej spirali",
+    "description": "Polerowany drewniany trzon oplata miedziana spirala kończąca się pod bursztynowym kryształem.",
+    "category": "wand",
+    "level": 5
+  },
+  {
+    "id": "progression-wand-10",
+    "name": "Różdżka fiołkowego szkła",
+    "description": "Smukła różdżka z ciemnego drewna i fiołkowym kryształem o starannie oszlifowanych ściankach.",
+    "category": "wand",
+    "level": 10
+  },
+  {
+    "id": "progression-wand-15",
+    "name": "Różdżka srebrnej łuski",
+    "description": "Srebrne płytki układają się wokół uchwytu w drobne łuski. Koniec wieńczy niebieski kamień.",
+    "category": "wand",
+    "level": 15
+  },
+  {
+    "id": "progression-wand-20",
+    "name": "Różdżka gwiezdnego kwarcu",
+    "description": "Hebanowy trzon podtrzymuje przejrzysty kwarc z jasnymi wtrąceniami przypominającymi gwiazdy.",
+    "category": "wand",
+    "level": 20
+  },
+  {
+    "id": "progression-wand-30",
+    "name": "Różdżka mistrza opraw",
+    "description": "Sześć cienkich złoconych ramion obejmuje duży kryształ. Rękojeść wykonano z gładkiego czarnego drewna.",
+    "category": "wand",
+    "level": 30
+  },
+  {
+    "id": "progression-offensive-shield-1",
+    "name": "Puklerz kwarcowego guza",
+    "description": "Mały puklerz z cienkiego drewna i wydatnym żelaznym guzem. U jego podstawy tkwi drobny kwarc.",
+    "category": "offensive-shield",
+    "level": 1
+  },
+  {
+    "id": "progression-offensive-shield-5",
+    "name": "Puklerz miedzianego dzioba",
+    "description": "Wąska tarcza z wystającym stalowym dziobem i miedzianą oprawą zielonego kamienia.",
+    "category": "offensive-shield",
+    "level": 5
+  },
+  {
+    "id": "progression-offensive-shield-10",
+    "name": "Puklerz rozszczepionej skały",
+    "description": "Otwarta stalowa obręcz otacza kanciasty guz z osadzonym kryształem. Uchwyt osłania tylko niewielka płyta.",
+    "category": "offensive-shield",
+    "level": 10
+  },
+  {
+    "id": "progression-offensive-shield-15",
+    "name": "Puklerz bursztynowego kolca",
+    "description": "Mała tarcza z szerokim kolcem ponad bursztynową oprawą. Cienki korpus pozostawia dużo miejsca na ruch ręki.",
+    "category": "offensive-shield",
+    "level": 15
+  },
+  {
+    "id": "progression-offensive-shield-20",
+    "name": "Puklerz szafirowego grotu",
+    "description": "Stalowe żebra zbiegają się w wysunięty grot. Pomiędzy nimi osadzono ciemnoniebieski kryształ.",
+    "category": "offensive-shield",
+    "level": 20
+  },
+  {
+    "id": "progression-offensive-shield-30",
+    "name": "Puklerz mistrza dwóch opraw",
+    "description": "Ażurowy puklerz z kutym ostrzem na krawędzi i dwoma kryształami przy centralnym guzie.",
+    "category": "offensive-shield",
+    "level": 30
+  },
+  {
+    "id": "progression-two-handed-1",
+    "name": "Miecz dwuręczny dębowej palisady",
+    "description": "Długie żelazne ostrze z prostym jelcem i obszernym uchwytem z dębowych okładzin.",
+    "category": "two-handed",
+    "level": 1
+  },
+  {
+    "id": "progression-two-handed-5",
+    "name": "Miecz dwuręczny przełęczy Wilczej",
+    "description": "Szeroka stalowa klinga nad długą skórzaną rękojeścią. Na ciężkiej głowicy wyryto wilczy trop.",
+    "category": "two-handed",
+    "level": 5
+  },
+  {
+    "id": "progression-two-handed-10",
+    "name": "Miecz dwuręczny kamiennej chorągwi",
+    "description": "Pogrubiona nasada ostrza i masywny jelec nadają tej broni surowy wygląd oręża z górskiej strażnicy.",
+    "category": "two-handed",
+    "level": 10
+  },
+  {
+    "id": "progression-two-handed-15",
+    "name": "Miecz dwuręczny czerwonej baszty",
+    "description": "Długa klinga z dwoma zbroczami i uchwytem oplecionym czerwonym rzemieniem pod stalową głowicą.",
+    "category": "two-handed",
+    "level": 15
+  },
+  {
+    "id": "progression-two-handed-20",
+    "name": "Miecz dwuręczny srebrnego sztandaru",
+    "description": "Jasna stalowa klinga wznosi się nad srebrzonym jelcem. Ciemną rękojeść spinają pierścienie z motywem sztandaru.",
+    "category": "two-handed",
+    "level": 20
+  },
+  {
+    "id": "progression-two-handed-30",
+    "name": "Miecz dwuręczny mistrza wielkiej kuźni",
+    "description": "Okazała klinga z równym szlifem i rozbudowanym jelcem. Złocone nity zdobią długi uchwyt przeznaczony dla obu dłoni.",
+    "category": "two-handed",
+    "level": 30
+  }
+]

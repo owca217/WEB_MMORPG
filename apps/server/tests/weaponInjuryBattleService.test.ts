@@ -9,14 +9,15 @@ function live(service: BattleService): BattleState {
   return (service as unknown as { battlesByPlayer: Map<string, { state: BattleState }> }).battlesByPlayer.get("p")!.state;
 }
 
-it("copies a validated equipped weapon roll into battle and exposes its temporary proc", () => {
+it.each(["sword","wand"] as const)("copies a validated equipped %s roll into battle and exposes its temporary proc", family => {
   const service = new BattleService(), hero = character();
+  hero.equipment=combatEquipment(family);
   hero.equipment!.mainHand!.quality = "EXCELLENT";
   hero.equipment!.mainHand!.injuryUpgrade = { kind: "bleeding", chancePercent: 15, duration: 2 };
   service.startBattle(hero, "wolves");
   const battle = live(service), actor = battle.combatants["hero:p"]!, enemy = Object.values(battle.combatants).find(unit => unit.side === "enemy")!;
   battle.injuryRandomState = 1; battle.arena.blockedCells = []; actor.position = { q: 0, r: 0 }; enemy.position = { q: 1, r: 0 };
-  const result = service.applyCommand("p", { type: "meleeAttack", combatantId: actor.id, targetId: enemy.id });
+  const result = service.applyCommand("p", { type: family==="wand"?"rangedAttack":"meleeAttack", combatantId: actor.id, targetId: enemy.id });
   expect(result.result.ok).toBe(true);
   expect(result.snapshot?.combatants.find(unit => unit.id === enemy.id)?.temporaryInjuries).toEqual([{ kind: "bleeding", remainingTurns: 2 }]);
   expect(actor.weaponInjuryUpgrade).not.toBe(hero.equipment!.mainHand!.injuryUpgrade);

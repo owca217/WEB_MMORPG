@@ -9,7 +9,7 @@ function training(level = 100) {
 
 describe('weapon skill trees', () => {
   it('provides two connected branches per family and requires a specialization at level100', () => {
-    expect(new Set(WEAPON_SKILLS.map(skill => skill.id)).size).toBe(36);
+    expect(new Set(WEAPON_SKILLS.map(skill => skill.id)).size).toBe(40);
     for (const family of WEAPON_FAMILIES) {
       const tree = WEAPON_SKILLS.filter(skill => skill.family === family.id);
       expect(tree).toHaveLength(4);
@@ -30,6 +30,28 @@ describe('weapon skill trees', () => {
     expect(learnWeaponSkill(learned, 'sword:power')).toEqual(learned);
     expect(learned.experience).toEqual(old.experience);
     expect(getLearnedWeaponSkills(old)).toEqual([]);
+  });
+  it('preserves wand XP when learning and resetting another family', () => {
+    const old = normalizeWeaponTraining({ experience: { sword: 275, wand: 6375 } });
+    const learned = learnWeaponSkill(old, 'sword:power');
+    expect(learned.experience.wand).toBe(6375);
+    expect(getWeaponSkillProgress(learned, 'wand')).toMatchObject({ level: 50, earnedPoints: 10, availablePoints: 10 });
+    expect(resetWeaponSkillFamily(learned, 'sword').experience).toEqual(old.experience);
+  });
+  it('learns ranged wand techniques and resets them without losing another tree', () => {
+    let value = learnWeaponSkill(training(), 'sword:power');
+    value = learnWeaponSkill(value, 'wand:power');
+    value = learnWeaponSkill(value, 'wand:technique');
+    value = learnWeaponSkill(value, 'wand:ultimate');
+    expect(getWeaponSkillProgress(value, 'wand')).toMatchObject({ level: 100, earnedPoints: 20, spentPoints: 16, availablePoints: 4 });
+    expect(getLearnedWeaponSkills(normalizeWeaponTraining(value), ['wand'])).toEqual(['wand:power', 'wand:technique', 'wand:ultimate']);
+    expect(WEAPON_SKILLS.filter(skill => skill.family === 'wand' && skill.kind === 'attack')).toHaveLength(3);
+    for (const skill of WEAPON_SKILLS.filter(skill => skill.family === 'wand' && skill.kind === 'attack')) {
+      expect(skill).toMatchObject({ attackMode: 'rangedAttack', range: 6 });
+    }
+    const reset = resetWeaponSkillFamily(value, 'wand');
+    expect(getLearnedWeaponSkills(reset)).toEqual(['sword:power']);
+    expect(reset.experience).toEqual(value.experience);
   });
   it('rejects missing level, predecessor and insufficient points without mutation', () => {
     expect(() => learnWeaponSkill(training(5), 'sword:power')).toThrow('WEAPON_LEVEL_REQUIRED');

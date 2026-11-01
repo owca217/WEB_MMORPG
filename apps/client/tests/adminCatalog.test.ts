@@ -260,6 +260,61 @@ describe("ItemCatalogView", () => {
     });
   });
 
+  it("browses later pages with applied filters and resets to page one for a new search", async () => {
+    const host = document.createElement("div");
+    const api = createApi();
+    vi.mocked(api.listItems).mockImplementation(async query => ({
+      items: [catalogItem({ name: query?.page === 2 ? "Kostur ostatniej strony" : "Miecz pierwszej strony" })],
+      total: query?.search === "kostur" ? 1 : 21, page: query?.page ?? 1, pageSize: 20
+    }));
+    const view = new ItemCatalogView(host, api, { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn() });
+    await view.show();
+    const search = host.querySelector<HTMLInputElement>("[data-filter='search']")!;
+    search.value = "miecz";
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flush();
+    search.value = "jeszcze niewysłany tekst";
+    const next = host.querySelector<HTMLButtonElement>("[data-catalog-page='next']");
+    expect(next).not.toBeNull();
+    next!.click();
+    await flush();
+    expect(api.listItems).toHaveBeenLastCalledWith({ search: "miecz", page: 2, pageSize: 20 });
+    expect(host.querySelector("[data-list]")?.textContent).toContain("Kostur ostatniej strony");
+    expect(host.querySelector("[data-catalog-page-status]")?.textContent).toBe("Strona 2 z 2");
+    expect(next!.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>("[data-catalog-page='previous']")!.disabled).toBe(false);
+    search.value = "kostur";
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flush();
+    expect(api.listItems).toHaveBeenLastCalledWith({ search: "kostur", page: 1, pageSize: 20 });
+    expect(host.querySelector("[data-catalog-page-status]")?.textContent).toBe("Strona 1 z 1");
+    view.destroy();
+  });
+
+  it("ignores a late page response after a newer filtered result", async () => {
+    const host = document.createElement("div");
+    const api = createApi();
+    let finishPage!: (page: ItemCatalogPage) => void;
+    vi.mocked(api.listItems)
+      .mockResolvedValueOnce({ ...page(), total: 21 })
+      .mockImplementationOnce(() => new Promise(resolve => { finishPage = resolve; }))
+      .mockResolvedValueOnce(page([catalogItem({ name: "Nowy wynik" })]));
+    const view = new ItemCatalogView(host, api, { onPreview: vi.fn(), onEdit: vi.fn(), onHistory: vi.fn() });
+    await view.show();
+    const next = host.querySelector<HTMLButtonElement>("[data-catalog-page='next']");
+    expect(next).not.toBeNull();
+    next!.click();
+    (host.querySelector("[data-filter='search']") as HTMLInputElement).value = "nowy";
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flush();
+    finishPage({ items: [catalogItem({ name: "Stary wynik" })], total: 21, page: 2, pageSize: 20 });
+    await flush();
+    expect(host.querySelector("[data-list]")?.textContent).toContain("Nowy wynik");
+    expect(host.querySelector("[data-list]")?.textContent).not.toContain("Stary wynik");
+    expect(host.querySelector("[data-catalog-page-status]")?.textContent).toBe("Strona 1 z 1");
+    view.destroy();
+  });
+
   it("runs preview/edit/history and confirmed duplicate/archive actions", async () => {
     const host = document.createElement("div");
     const api = createApi();

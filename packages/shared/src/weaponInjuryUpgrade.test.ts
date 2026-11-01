@@ -77,6 +77,10 @@ describe("weapon injury upgrades", () => {
     expect(shared.canApplyWeaponInjury(withoutEquipment)).toBe(false);
     expect(shared.canApplyWeaponInjury({ ...weapon(), durability: 0 })).toBe(false);
     expect(shared.canApplyWeaponInjury({ ...weapon(), equippedSlot: "mainHand" })).toBe(true);
+    const wand={...weapon(),equipment:{...weapon().equipment!,weaponFamily:"wand" as const}};
+    expect(shared.canApplyWeaponInjury(wand)).toBe(true);
+    expect(shared.canApplyWeaponInjury({...wand,quality:"GOOD"})).toBe(false);
+    expect(shared.canApplyWeaponInjury({...weapon(),equipment:{...weapon().equipment!,slot:"offHand",weaponFamily:"shield"}})).toBe(false);
     expect(shared.isWeaponInjuryStone({ itemId: "injury-stone", category: "upgrade-item" })).toBe(true);
     expect(shared.isWeaponInjuryStone({ itemId: "injury-stone", category: "consumable" })).toBe(false);
   });

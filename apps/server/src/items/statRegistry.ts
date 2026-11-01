@@ -94,6 +94,7 @@ export const ENGINE_STATS: Readonly<Record<string, EngineStatDefinition>> = {
   CAST_SPEED: numericStat("CAST_SPEED", "Szybkość rzucania zaklęć"),
 
   ARMOR: numericStat("ARMOR", "Pancerz fizyczny"),
+  INITIATIVE: numericStat("INITIATIVE", "Inicjatywa", { formattingKind: "integer" }),
   MAGIC_RESIST: percentStat("MAGIC_RESIST", "Odporność magiczna"),
   FIRE_RESIST: percentStat("FIRE_RESIST", "Odporność na ogień"),
   FROST_RESIST: percentStat("FROST_RESIST", "Odporność na lód"),
@@ -331,6 +332,9 @@ export interface SystemSubcategorySeed {
 }
 
 const WEAPON_STATS = [
+  "ARMOR",
+  "INITIATIVE",
+  "BLOCK_POWER",
   "MIN_DAMAGE",
   "MAX_DAMAGE",
   "PHYSICAL_DAMAGE",
@@ -483,6 +487,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
     categoryId: "weapon",
     name: "Miecze",
     allowedStatCodes: [
+      "ARMOR",
       "MIN_DAMAGE",
       "MAX_DAMAGE",
       "PHYSICAL_DAMAGE",
@@ -514,6 +519,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
     categoryId: "weapon",
     name: "Młoty",
     allowedStatCodes: [
+      "ARMOR",
       "MIN_DAMAGE",
       "MAX_DAMAGE",
       "PHYSICAL_DAMAGE",
@@ -528,6 +534,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
     categoryId: "weapon",
     name: "Sztylety",
     allowedStatCodes: [
+      "INITIATIVE",
       "PHYSICAL_DAMAGE",
       "ATTACK_SPEED",
       "CRIT_CHANCE",
@@ -541,6 +548,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
     categoryId: "weapon",
     name: "Włócznie",
     allowedStatCodes: [
+      "INITIATIVE",
       "PHYSICAL_DAMAGE",
       "ATTACK_SPEED",
       "ATTACK_RANGE",
@@ -601,7 +609,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
     id: "offensive-shield",
     categoryId: "weapon",
     name: "Tarcze ofensywne",
-    allowedStatCodes: ["PHYSICAL_DAMAGE", "ARMOR", "BLOCK_CHANCE", "BLOCK_POWER", "STUN_CHANCE"]
+    allowedStatCodes: ["PHYSICAL_DAMAGE", "MAGIC_DAMAGE", "ARMOR", "BLOCK_CHANCE", "BLOCK_POWER", "STUN_CHANCE"]
   },
   {
     id: "two-handed",

@@ -21,6 +21,9 @@ export class ItemCatalogView {
   private metadata: ItemCreatorMetadata | null = null;
   private destroyed = false;
   private loadRevision = 0;
+  private currentQuery: ItemCatalogQuery = { page: 1, pageSize: 20 };
+  private totalPages = 1;
+  private loading = false;
   private grantPending = false;
   private retryGrant: { itemId: string; input: AdminItemGrantInput } | null = null;
   private readonly clickHandler = (event: Event) => void this.handleClick(event);
@@ -36,6 +39,7 @@ export class ItemCatalogView {
   }
 
   async show(): Promise<void> {
+    this.totalPages = 1;
     this.renderShell();
     this.setState("Ładowanie katalogu...");
 
@@ -85,6 +89,11 @@ export class ItemCatalogView {
         </form>
         <div class="admin-catalog__state" data-state role="status" aria-live="polite"></div>
         <div class="admin-catalog__list" data-list></div>
+        <nav class="admin-catalog__pagination" aria-label="Strony katalogu">
+          <button type="button" data-catalog-page="previous" disabled>Poprzednia</button>
+          <span data-catalog-page-status aria-live="polite">Strona 1 z 1</span>
+          <button type="button" data-catalog-page="next" disabled>Następna</button>
+        </nav>
       </section>
     `;
   }
@@ -105,12 +114,21 @@ export class ItemCatalogView {
   private async loadItems(query: ItemCatalogQuery): Promise<void> {
     if (this.destroyed) return;
     const revision = ++this.loadRevision;
+    this.currentQuery = { ...query };
+    this.loading = true;
+    this.updatePagination();
     this.setState("Ładowanie przedmiotów...");
     this.require<HTMLElement>("[data-list]").replaceChildren();
 
     try {
       const page = await this.api.listItems(query);
       if (this.destroyed || revision !== this.loadRevision) return;
+      this.totalPages = Math.max(1, Math.ceil(page.total / page.pageSize));
+      if (page.page > this.totalPages) {
+        await this.loadItems({ ...query, page: this.totalPages });
+        return;
+      }
+      this.currentQuery = { ...query, page: page.page, pageSize: page.pageSize };
       const list = this.require<HTMLElement>("[data-list]");
       list.replaceChildren();
       if (page.items.length === 0) {
@@ -123,7 +141,19 @@ export class ItemCatalogView {
     } catch (error) {
       if (revision !== this.loadRevision) return;
       this.renderError(error);
+    } finally {
+      if (!this.destroyed && revision === this.loadRevision) {
+        this.loading = false;
+        this.updatePagination();
+      }
     }
+  }
+
+  private updatePagination(): void {
+    const current = this.currentQuery.page ?? 1;
+    this.require<HTMLElement>("[data-catalog-page-status]").textContent = `Strona ${current} z ${this.totalPages}`;
+    this.require<HTMLButtonElement>("[data-catalog-page='previous']").disabled = this.loading || current <= 1;
+    this.require<HTMLButtonElement>("[data-catalog-page='next']").disabled = this.loading || current >= this.totalPages;
   }
 
   private renderItem(item: ItemDefinition): HTMLElement {
@@ -202,6 +232,14 @@ export class ItemCatalogView {
   }
 
   private async handleClick(event: Event): Promise<void> {
+    const pageButton = (event.target as Element | null)?.closest<HTMLButtonElement>("button[data-catalog-page]");
+    if (pageButton && this.host.contains(pageButton)) {
+      if (pageButton.disabled || this.loading) return;
+      const direction = pageButton.dataset.catalogPage === "next" ? 1 : -1;
+      const page = (this.currentQuery.page ?? 1) + direction;
+      if (page >= 1 && page <= this.totalPages) await this.loadItems({ ...this.currentQuery, page });
+      return;
+    }
     const button = (event.target as Element | null)?.closest<HTMLButtonElement>("button[data-action]");
     if (!button || !this.host.contains(button)) return;
     const itemId = button.dataset.itemId;
@@ -232,7 +270,7 @@ export class ItemCatalogView {
       if (!proposed) return;
       try {
         await this.api.duplicateItem(itemId, proposed);
-        await this.loadItems(this.readFilters());
+        await this.loadItems(this.currentQuery);
       } catch (error) {
         this.renderError(error);
       }
@@ -243,7 +281,7 @@ export class ItemCatalogView {
       if (!window.confirm(`Zarchiwizować ${itemId}?`)) return;
       try {
         await this.api.archiveItem(itemId);
-        await this.loadItems(this.readFilters());
+        await this.loadItems(this.currentQuery);
       } catch (error) {
         this.renderError(error);
       }
@@ -254,6 +292,7 @@ export class ItemCatalogView {
     const form = event.target as HTMLFormElement | null;
     if (!form?.matches("[data-filters]")) return;
     event.preventDefault();
+    this.totalPages = 1;
     await this.loadItems(this.readFilters());
   }
 

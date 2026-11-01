@@ -28,7 +28,9 @@ describeDatabase("persistent weapon proficiency migration",()=>{
     const repository=new CharacterRepository(pool);
     const legacy=await repository.findById(id);
     expect(legacy).toMatchObject({accountId,level:4,experience:600,hp:150,appearance:{gender:"female",skinId:"female-guard"},weaponTraining:normalizeWeaponTraining(undefined)});
-    const training=normalizeWeaponTraining({experience:{sword:15,axe:6,crossbow:40},loadout:{melee:"axe",ranged:"crossbow"}});
+    await pool.query("UPDATE characters SET weapon_training=$2::jsonb WHERE id=$1",[id,JSON.stringify({experience:{sword:15,axe:6,crossbow:40},loadout:{melee:"axe",ranged:"crossbow"}})]);
+    expect((await repository.findById(id))?.weaponTraining?.experience).toMatchObject({sword:15,axe:6,crossbow:40,wand:0});
+    const training=normalizeWeaponTraining({experience:{sword:15,axe:6,crossbow:40,wand:6375},loadout:{melee:"axe",ranged:"wand"}});
     const state={locationId:legacy!.locationId,x:legacy!.x,y:legacy!.y,level:legacy!.level,experience:legacy!.experience,hp:legacy!.hp,maxHp:legacy!.maxHp,maxAp:legacy!.maxAp,initiative:legacy!.initiative,severelyInjured:legacy!.severelyInjured,injuries:legacy!.injuries};
     await repository.updateGameplayState(id,{...state,weaponTraining:training});
     expect((await repository.findById(id))?.weaponTraining).toEqual(training);

@@ -13,6 +13,7 @@ export const WEAPON_FAMILIES = [
   {id:"bow",label:"Łuki",mode:"ranged"},
   {id:"crossbow",label:"Kusze",mode:"ranged"},
   {id:"staff",label:"Kostury leczące",mode:"support"},
+  {id:"wand",label:"Różdżki",mode:"ranged"},
   {id:"shield",label:"Tarcze",mode:"defense"}
 ] as const;
 export type WeaponFamily = (typeof WEAPON_FAMILIES)[number]["id"];

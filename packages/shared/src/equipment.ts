@@ -32,7 +32,9 @@ export function emptyCharacterEquipment():CharacterEquipment {
 export function getEquipmentItemProperties(input:{category:string;subcategory?:string;minimumLevel:number;stats:ItemStatModifier[];specialData?:Record<string,unknown>}):EquipmentItemProperties|undefined {
   const special=input.specialData??{};
   let slot:EquipmentSlot,weaponFamily:WeaponFamily|undefined,twoHanded=false;
-  if(input.category==="weapon") {
+  if(input.category==="weapon" && input.subcategory==="offensive-shield") {
+    slot="offHand";weaponFamily="shield";
+  }else if(input.category==="weapon") {
     const family=special.weaponFamily??input.subcategory;
     if(!WEAPON_FAMILIES.some(item=>item.id===family && item.id!=="shield"))return undefined;
     weaponFamily=family as WeaponFamily;slot="mainHand";

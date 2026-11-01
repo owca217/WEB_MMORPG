@@ -84,7 +84,8 @@ describeDatabase("additive account auth migration", () => {
       { migration_name: "012_item_quality" },
       { migration_name: "013_permanent_backpack" },
       { migration_name: "014_container_positions" },
-      { migration_name: "015_weapon_injury_upgrades" }
+      { migration_name: "015_weapon_injury_upgrades" },
+      { migration_name: "016_progression_weapon_metadata" }
     ]);
   });
 

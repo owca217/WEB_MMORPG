@@ -52,6 +52,26 @@ Server startup applies additive migration `015_weapon_injury_upgrades` and seeds
 the stone. The agreed balance algorithm is recorded in
 [the injury design](docs/superpowers/specs/2026-10-31-weapon-injury-algorithm-design.md).
 
+## Progression weapon package
+
+The ADMIN catalog includes 66 additional weapons: six per weapon subcategory,
+at levels 1, 5, 10, 15, 20 and 30. Each definition has a Polish name, an original
+transparent inventory icon and explicit level, quality and stat requirements.
+Browse the [weapon gallery](docs/art/progression-weapons.html) or inspect the
+[balance measurements](docs/weapon-package-balance.md).
+
+Wands are one-handed ranged weapons with independent proficiency and magical
+damage; they can be paired with a shield. Offensive shields use the off-hand
+slot, providing less block than the training shield while adding the matching
+physical or magical damage bonus to the main weapon. They do not increase healing.
+Magic uses the existing armor/block resolution. New definitions do not add shop
+stock, loot drops or items to existing player inventories.
+
+Startup applies additive migration `016_progression_weapon_metadata` and inserts
+the new definitions and bundled icons without overwriting existing authored
+versions. The ADMIN catalog supports pagination. Reproduce the documented balance
+measurements with `node --import tsx scripts/verify-weapon-balance.mjs`.
+
 ## MVP direction
 
 - 2D world split into separate locations

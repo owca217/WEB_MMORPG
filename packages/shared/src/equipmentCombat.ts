@@ -28,6 +28,12 @@ function apply(base:number,modifiers:readonly ItemStatModifier[],code:string):nu
   }
   return bounded((bounded(base)+flat)*Math.max(0,1+percent/100)*multiplier);
 }
+/** Only the main weapon's attack channel can use an off-hand damage bonus. */
+export function getEquippedShieldAttackBonus(equipment?:CharacterEquipment):number {
+  const weapon=mainHand(equipment);
+  if(!weapon || !hasEquippedShield(equipment))return 0;
+  return apply(0,equipment!.offHand!.equipment!.modifiers,weapon.equipment!.weaponFamily==="wand"?"MAGIC_DAMAGE":"PHYSICAL_DAMAGE");
+}
 /** Gear is the only source of weapon modes; persisted free styles are ignored. */
 export function getEquipmentCombatStatistics<T extends CharacterStatistics>(base:T,value:unknown,equipment?:CharacterEquipment):T {
   const weapon=mainHand(equipment),family=weapon?.equipment?.weaponFamily;
@@ -41,13 +47,15 @@ export function getEquipmentCombatStatistics<T extends CharacterStatistics>(base
   const hasMinimum=weaponModifiers.some(m=>m.statCode==="MIN_DAMAGE"),hasMaximum=weaponModifiers.some(m=>m.statCode==="MAX_DAMAGE");
   const minimum=apply(0,weaponModifiers,hasMinimum?"MIN_DAMAGE":"MAX_DAMAGE"),maximum=apply(0,weaponModifiers,hasMaximum?"MAX_DAMAGE":"MIN_DAMAGE");
   const weaponDamage=hasMinimum||hasMaximum?(minimum+maximum)/2:apply(0,weaponModifiers,"PHYSICAL_DAMAGE");
-  const ranged=family==="bow"||family==="crossbow",melee=!ranged;
+  const magic=family==="wand",ranged=family==="bow"||family==="crossbow"||magic,melee=!ranged;
+  const shieldDamage=getEquippedShieldAttackBonus(equipment);
+  const rangedBonus=magic?apply(0,weaponModifiers,"MAGIC_DAMAGE")+apply(0,modifiers,"SPELL_POWER"):dexterity-base.dexterity+weaponDamage;
   const statistics:T={...base,strength,dexterity,vitality,
     maxHp:Math.max(1,Math.round(apply(base.maxHp+(vitality-base.vitality)*10,modifiers,"MAX_HP"))),
     maxAp:Math.max(1,Math.min(8,Math.round(apply(base.maxAp,modifiers,"MAX_AP")))),
     initiative:Math.max(1,Math.round(apply(base.initiative,modifiers,"INITIATIVE"))),
-    meleeDamage:melee?Math.max(1,Math.round(bounded(base.meleeDamage+strength-base.strength+weaponDamage)*(family?bonus(family):1))):0,
-    rangedDamage:ranged?Math.max(1,Math.round(bounded(base.rangedDamage+dexterity-base.dexterity+weaponDamage)*bonus(family))):0,
+    meleeDamage:melee?Math.max(1,Math.round(bounded(base.meleeDamage+strength-base.strength+weaponDamage+shieldDamage)*(family?bonus(family):1))):0,
+    rangedDamage:ranged?Math.max(1,Math.round(bounded(base.rangedDamage+rangedBonus+shieldDamage)*bonus(family))):0,
     armor:Math.round(apply(base.armor,modifiers,"ARMOR")),meleeEnabled:melee,rangedEnabled:ranged};
   delete statistics.healingPower;delete statistics.blockPercent;
   if(family==="staff")statistics.healingPower=Math.max(1,Math.round(apply(base.meleeDamage,modifiers,"SPELL_POWER")*bonus("staff")));

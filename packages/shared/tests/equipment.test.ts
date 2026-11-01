@@ -10,7 +10,8 @@ describe("equipment metadata and projection",()=>{
     expect(getEquipmentItemProperties({category:"weapon",subcategory:"two-handed",specialData:{weaponFamily:"axe"},minimumLevel:1,stats:[]})).toMatchObject({slot:"mainHand",weaponFamily:"axe",twoHanded:true});
     expect(getEquipmentItemProperties({category:"armor",subcategory:"shield",minimumLevel:1,stats:[]})).toMatchObject({slot:"offHand",weaponFamily:"shield"});
     expect(getEquipmentItemProperties({category:"armor",subcategory:"boots",minimumLevel:1,stats:[]})).toMatchObject({slot:"boots"});
-    expect(getEquipmentItemProperties({category:"weapon",subcategory:"wand",minimumLevel:1,stats:[]})).toBeUndefined();
+    expect(getEquipmentItemProperties({category:"weapon",subcategory:"wand",minimumLevel:1,stats:[]})).toMatchObject({slot:"mainHand",weaponFamily:"wand",twoHanded:false});
+    expect(getEquipmentItemProperties({category:"weapon",subcategory:"offensive-shield",minimumLevel:1,stats:[]})).toMatchObject({slot:"offHand",weaponFamily:"shield",twoHanded:false});
     expect(getEquipmentItemProperties({category:"consumable",minimumLevel:1,stats:[]})).toBeUndefined();
   });
   it("projects only usable actually equipped single items",()=>{

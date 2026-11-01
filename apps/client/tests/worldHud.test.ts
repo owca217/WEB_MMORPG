@@ -247,7 +247,7 @@ it("exposes an empty inline contents host and only selects a bag after the scene
 
 it("offers healing only for a usable equipped staff and positive authoritative healing power",()=>{
  const onHealing=vi.fn(),hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onHealing});
- const character:CharacterSnapshot={playerId:"hero",nickname:"Hero",level:1,hp:50,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],statistics:{...getCharacterStatistics(1),healingPower:20},weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}};
+ const character:CharacterSnapshot={playerId:"hero",nickname:"Hero",level:1,hp:50,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],statistics:{...getCharacterStatistics(1),healingPower:20},weaponTraining:{experience:{sword:0,axe:0,hammer:0,dagger:0,spear:0,bow:0,crossbow:0,staff:0,shield:0,wand:0},loadout:{melee:"sword",ranged:"bow",support:"staff"}}};
  hud.update({character,inventory:{items:[]}});
  const healing=document.querySelector<HTMLButtonElement>('[data-healing]')!;
  expect(healing.hidden).toBe(true);healing.click();expect(onHealing).not.toHaveBeenCalled();

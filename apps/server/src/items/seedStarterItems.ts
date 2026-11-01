@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import type { PoolClient } from "pg";
 import { BASIC_EQUIPMENT_ITEMS } from "./basicEquipment";
 import { STARTER_WEAPON_ITEMS } from "./starterWeaponItems";
+import { PROGRESSION_WEAPON_ITEMS } from "./progressionWeaponItems";
+import type { ItemQuality, ItemRarity } from "@web-mmorpg/shared";
 import { WEAPON_INJURY_STONE_ITEM_ID, WEAPON_INJURY_STONE_CATEGORY } from "@web-mmorpg/shared";
 
 export interface StarterItemSeed {
@@ -17,6 +19,9 @@ export interface StarterItemSeed {
   maxStack: number;
   weight: number;
   minimumLevel?:number;
+  itemLevel?: number;
+  rarity?: ItemRarity;
+  quality?: ItemQuality;
   sellValue?: number;
   tags?: readonly string[];
   icon?: { key: string; assetUrl: URL };
@@ -163,7 +168,7 @@ export async function seedStarterItems(client: PoolClient, publicBaseUrl = `http
     specialData:item.weaponFamily?{weaponFamily:item.weaponFamily}:{armorSlot:item.subcategoryId},
     stats:item.stats.map((stat)=>({...stat,id:randomUUID()}))
   }));
-  for (const seed of [...STARTER_ITEMS,...equipment,...STARTER_WEAPON_ITEMS]) {
+  for (const seed of [...STARTER_ITEMS,...equipment,...STARTER_WEAPON_ITEMS,...PROGRESSION_WEAPON_ITEMS]) {
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO items (id, item_id, status, active_version_no)
        VALUES ($1, $2, 'PUBLISHED', 1)
@@ -203,10 +208,10 @@ export async function seedStarterItems(client: PoolClient, publicBaseUrl = `http
         id, item_id, version_no, revision, state, name, category_id,
         subcategory_id, description, rarity, item_level, minimum_level,
         sell_value, sellable, tradable, droppable, stackable, max_stack,
-        weight, soulbound, unique_item, special_data, created_by, icon_key, icon_url
+        weight, soulbound, unique_item, special_data, created_by, icon_key, icon_url, quality
       ) VALUES (
-        $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, 'COMMON', 1, $12,
-        $13, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, $10::jsonb, $11, $14, $15
+        $1, $2, 1, 1, 'PUBLISHED', $3, $4, $5, $6, $16, $17, $12,
+        $13, TRUE, TRUE, TRUE, $7, $8, $9, 'NONE', FALSE, $10::jsonb, $11, $14, $15, $18
       )`,
       [
         seed.versionUuid,
@@ -223,7 +228,10 @@ export async function seedStarterItems(client: PoolClient, publicBaseUrl = `http
         seed.minimumLevel??0,
         seed.sellValue ?? 0,
         seed.icon?.key ?? null,
-        seed.icon ? `${publicBaseUrl.replace(/\/+$/, "")}/api/item-icons/${seed.icon.key}` : null
+        seed.icon ? `${publicBaseUrl.replace(/\/+$/, "")}/api/item-icons/${seed.icon.key}` : null,
+        seed.rarity ?? "COMMON",
+        seed.itemLevel ?? 1,
+        seed.quality ?? "NORMAL"
       ]
     );
 

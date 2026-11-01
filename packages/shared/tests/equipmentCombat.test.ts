@@ -37,17 +37,53 @@ it("applies finite attribute and flat/percent/multiplier modifiers without mutat
 it("allocates exactly half final XP only among distinct used families with stable remainder",()=>{
   expect(allocateWeaponExperience(45,["shield","axe","axe"])).toEqual({axe:11,shield:11});
   expect(allocateWeaponExperience(42,["shield","axe"])).toEqual({axe:11,shield:10});
+  expect(allocateWeaponExperience(42,["shield","wand","shield"])).toEqual({wand:11,shield:10});
   expect(allocateWeaponExperience(100,[])).toEqual({});expect(allocateWeaponExperience(0,["sword"])).toEqual({});
 });
 it("applies learned passives only to their equipped weapon or shield and never compounds them",()=>{
-  let training=normalizeWeaponTraining({experience:{sword:25250,staff:25250,shield:25250}});
-  for(const family of ["sword","staff","shield"] as const){training=learnWeaponSkill(training,`${family}:technique`);training=learnWeaponSkill(training,`${family}:mastery`);}
+  let training=normalizeWeaponTraining({experience:{sword:25250,staff:25250,wand:25250,shield:25250}});
+  for(const family of ["sword","staff","wand","shield"] as const){training=learnWeaponSkill(training,`${family}:technique`);training=learnWeaponSkill(training,`${family}:mastery`);}
   const base=getCharacterStatistics(1), sword=gear("sword");sword.offHand=gear("shield").offHand;
   const swordStats=getEquipmentCombatStatistics(base,training,sword);
   expect(swordStats).toMatchObject({meleeDamage:28,blockPercent:30});
   expect(getEquipmentCombatStatistics(base,training,sword)).toEqual(swordStats);
   expect(getEquipmentCombatStatistics(base,training,gear("staff")).healingPower).toBe(28);
   expect(getEquipmentCombatStatistics(base,training,gear("axe")).meleeDamage).toBe(20);
+  const wand=gear("wand",[{statCode:"MAGIC_DAMAGE",modifierType:"flat",value:12}]);wand.offHand=offensiveShield();
+  expect(getEquipmentCombatStatistics(base,training,wand)).toMatchObject({meleeDamage:0,rangedDamage:43,blockPercent:30});
   sword.mainHand!.durability=0;
   expect(getEquipmentCombatStatistics(base,training,sword).meleeDamage).toBe(20);
+});
+
+const offensiveShield=()=>gear("shield",[
+  {statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:4},
+  {statCode:"MAGIC_DAMAGE",modifierType:"flat",value:4},
+  {statCode:"BLOCK_POWER",modifierType:"flat",value:0}
+]).offHand;
+
+it("adds only the matching shield damage once before main-hand mastery",()=>{
+  const equipment=gear("sword",[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:12}]);equipment.offHand=offensiveShield();
+  expect(getEquipmentCombatStatistics(getCharacterStatistics(1),{experience:{sword:25250,shield:25250}},equipment)).toMatchObject({meleeDamage:45,blockPercent:25});
+});
+
+it("uses a one-handed wand for ranged magic plus spell power, without melee or healing",()=>{
+  const equipment=gear("wand",[
+    {statCode:"MAGIC_DAMAGE",modifierType:"flat",value:12},
+    {statCode:"SPELL_POWER",modifierType:"flat",value:5},
+    {statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:999}
+  ]);equipment.offHand=offensiveShield();
+  const stats=getEquipmentCombatStatistics(getCharacterStatistics(1),{experience:{wand:25250}},equipment);
+  expect(stats).toMatchObject({meleeDamage:0,rangedDamage:45,meleeEnabled:false,rangedEnabled:true,blockPercent:10});
+  expect(stats).not.toHaveProperty("healingPower");
+});
+
+it("excludes shield offense for bare hands, two-handed weapons and staff healing",()=>{
+  const bare=gear("shield");bare.offHand=offensiveShield();
+  expect(getEquipmentCombatStatistics(getCharacterStatistics(1),undefined,bare).meleeDamage).toBe(20);
+  const sword=gear("sword",[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:25}]);sword.mainHand!.equipment!.twoHanded=true;sword.offHand=offensiveShield();
+  expect(getEquipmentCombatStatistics(getCharacterStatistics(1),undefined,sword).meleeDamage).toBe(45);
+  const staff=gear("staff",[{statCode:"SPELL_POWER",modifierType:"flat",value:12}]);staff.offHand=offensiveShield();
+  expect(getEquipmentCombatStatistics(getCharacterStatistics(1),undefined,staff).healingPower).toBe(32);
+  const wand=gear("wand",[{statCode:"MAGIC_DAMAGE",modifierType:"flat",value:12}]);wand.offHand=offensiveShield();wand.offHand!.durability=0;
+  expect(getEquipmentCombatStatistics(getCharacterStatistics(1),undefined,wand).rangedDamage).toBe(27);
 });

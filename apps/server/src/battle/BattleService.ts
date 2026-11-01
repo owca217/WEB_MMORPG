@@ -4,6 +4,7 @@ import {
   getEnemyDefinition,
   getEquipmentCombatStatistics,
   getEquippedWeaponFamily,
+  getEquippedShieldAttackBonus,
   hasEquippedShield,
   getLearnedWeaponSkills,
   getWeaponSkill,
@@ -37,7 +38,7 @@ import { chooseAutoBattleCommand } from "./AutoBattleAi";
 import { getEncounterDefinition, LEGACY_WOLF_DEFINITION } from "../world/encounterDefinitions";
 
 interface ActiveBattle {
-  participants: Map<PlayerId, { weaponFamily:WeaponFamily|undefined; shield:boolean; used:Set<WeaponFamily>; auto: boolean }>;
+  participants: Map<PlayerId, { weaponFamily:WeaponFamily|undefined; shield:boolean; shieldAttackBonus:boolean; used:Set<WeaponFamily>; auto: boolean }>;
   initialParticipantCount: number;
   encounterId: string;
   seed: number;
@@ -132,7 +133,7 @@ id: enemy ? `enemy:${encounterId}` : index === 0 ? `${definition.enemyKind}:${en
 }))
       ]
 }));
-    const participants = new Map(characters.map(character => [character.playerId, { weaponFamily:getEquippedWeaponFamily(character.equipment),shield:hasEquippedShield(character.equipment),used:new Set<WeaponFamily>(),auto: false }]));
+    const participants = new Map(characters.map(character => [character.playerId, { weaponFamily:getEquippedWeaponFamily(character.equipment),shield:hasEquippedShield(character.equipment),shieldAttackBonus:getEquippedShieldAttackBonus(character.equipment)>0,used:new Set<WeaponFamily>(),auto: false }]));
     const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: enemy?.experienceReward ?? wolfCount * (25 + 15 * level) };
     for (const id of participants.keys()) this.battlesByPlayer.set(id, active);
     return this.snapshotFor(active, initiator.playerId);
@@ -227,6 +228,7 @@ id: enemy ? `enemy:${encounterId}` : index === 0 ? `${definition.enemyKind}:${en
       const family = getWeaponSkill(command.skillId)?.family;
       if(family && (family === actor.weaponFamily || family === "shield" && actor.shield))actor.used.add(family);
     }
+    if(command && actor?.shieldAttackBonus && (command.type==="meleeAttack"||command.type==="rangedAttack"||command.type==="useWeaponSkill"&&getWeaponSkill(command.skillId)?.kind==="attack"))actor.used.add("shield");
     const playerOutcomes: Record<PlayerId, PlayerBattleOutcome> = {};
     for (const unit of Object.values(active.state.combatants)) if (unit.ownerPlayerId && active.participants.has(unit.ownerPlayerId)) playerOutcomes[unit.ownerPlayerId] = { hp: unit.hp, severelyInjured: unit.severelyInjured, injuries: [...unit.injuries] };
     const victory = active.state.finished && Object.values(active.state.combatants).some(unit => unit.side === "player" && unit.hp > 0);

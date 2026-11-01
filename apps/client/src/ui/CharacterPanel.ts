@@ -1,17 +1,21 @@
 import {
  getCharacterStatistics,getWeaponProficiency,normalizeWeaponTraining,WEAPON_FAMILIES,MAX_CHARACTER_LEVEL,
  EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,resolveCharacterSkin,INJURY_LABELS,
- type CharacterSnapshot,type EquipmentSlot,type EquipmentUpdateRequest,type EquipmentUpdateResult,type InventoryItem,type InventorySnapshot
+ type CharacterSnapshot,type EquipmentSlot,type EquipmentUpdateRequest,type EquipmentUpdateResult,type InventoryItem,type InventorySnapshot,type WeaponFamily,type WeaponSkillId,type WeaponSkillUpdateResult
 } from "@web-mmorpg/shared";
 import { experienceProgressMarkup } from "./ExperienceProgress";
 import {equipmentDisabledReason,equipmentIcon,equipmentItemSummary} from "./EquipmentIcon";
 import { CHARACTER_SKIN_ATLASES, getCharacterSkinFrame } from "../characters/characterSkinAssets";
 import "./ItemPanels.css";
+import { WeaponSkillTreeView } from "./WeaponSkillTreeView";
 type CharacterTab="statistics"|"proficiency"|"equipment";
 interface CharacterPanelHandlers {
  onSetEquipmentSlot:(request:EquipmentUpdateRequest)=>Promise<EquipmentUpdateResult>;
  onChanged?:(result:Extract<EquipmentUpdateResult,{ok:true}>)=>void;
  onTypingChange?:()=>void;
+ onLearnWeaponSkill?:(id:WeaponSkillId)=>Promise<WeaponSkillUpdateResult>;
+ onResetWeaponSkills?:(family:WeaponFamily)=>Promise<WeaponSkillUpdateResult>;
+ onSkillsChanged?:(result:Extract<WeaponSkillUpdateResult,{ok:true}>)=>void;
 }
 export class CharacterPanel {
  private readonly root:HTMLDivElement;
@@ -25,6 +29,8 @@ export class CharacterPanel {
  private destroyed=false;
  private status="";
  private returnFocus:HTMLElement|null=null;
+ private readonly skillTree:WeaponSkillTreeView;
+ private skillStatus="";
  constructor(private readonly handlers?:CharacterPanelHandlers){
   this.root=document.createElement("div");this.root.className="game-panel game-panel--character item-panel is-hidden";this.root.dataset.characterSheet="";
   this.root.setAttribute("role","dialog");this.root.setAttribute("aria-labelledby","character-panel-title");
@@ -35,6 +41,7 @@ export class CharacterPanel {
     <button type="button" role="tab" id="character-tab-equipment" data-character-tab="equipment" aria-controls="character-panel-equipment">Uzbrojenie</button>
    </nav><div class="character-sheet" data-content></div>`;
   document.body.append(this.root);this.content=this.require<HTMLDivElement>("[data-content]");
+  this.skillTree=new WeaponSkillTreeView({onLearn:id=>{void this.changeSkills({skillId:id});},onReset:family=>{void this.changeSkills({family});}});
   for(const type of["pointerdown","pointerup","mousedown","mouseup","touchstart","touchend","click"])this.root.addEventListener(type,event=>event.stopPropagation());
   this.require<HTMLButtonElement>("[data-close]").addEventListener("click",()=>this.hide());
   for(const button of this.root.querySelectorAll<HTMLButtonElement>("[data-character-tab]")){
@@ -46,7 +53,7 @@ export class CharacterPanel {
  }
  update(character:CharacterSnapshot,inventory?:InventorySnapshot):void {
   if(this.destroyed)return;
-  if(this.character?.playerId!==character.playerId){this.requestVersion++;this.saving=false;this.status="";this.activeTab="statistics";this.inventory={items:[]};}
+  if(this.character?.playerId!==character.playerId){this.requestVersion++;this.saving=false;this.status="";this.skillStatus="";this.skillTree.resetSelection();this.activeTab="statistics";this.inventory={items:[]};}
   this.character=structuredClone(character);if(inventory)this.inventory=structuredClone(inventory);this.dataVersion++;this.render();
  }
  private selectTab(tab:CharacterTab):void{this.activeTab=tab;this.syncTabs();this.handlers?.onTypingChange?.();}
@@ -63,6 +70,7 @@ export class CharacterPanel {
  private render():void {
   const character=this.character;if(!character)return;
   const focusKey=document.activeElement instanceof HTMLElement&&this.root.contains(document.activeElement)?document.activeElement.dataset.equipmentAction:undefined;
+  const skillFocus=document.activeElement instanceof HTMLElement&&this.root.contains(document.activeElement)?document.activeElement.dataset.skillFocus:undefined;
   const training=normalizeWeaponTraining(character.weaponTraining),statistics=character.statistics??getCharacterStatistics(character.level),currentBase=getCharacterStatistics(character.level),next=getCharacterStatistics(character.level+1);
   const growth=character.level>=MAX_CHARACTER_LEVEL?"Osiągnięto maksymalny poziom.":`Poziom ${character.level+1}: +${next.strength-currentBase.strength} STR, +${next.dexterity-currentBase.dexterity} DEX, +${next.vitality-currentBase.vitality} VIT, +${next.maxHp-currentBase.maxHp} HP, +${next.meleeDamage-currentBase.meleeDamage} obrażeń wręcz, +${next.rangedDamage-currentBase.rangedDamage} obrażeń dystansowych, +${next.armor-currentBase.armor} pancerza${next.maxAp>currentBase.maxAp?`, +${next.maxAp-currentBase.maxAp} AP`:""}${next.initiative>currentBase.initiative?`, +${next.initiative-currentBase.initiative} inicjatywy`:""}.`;
   this.content.innerHTML=`<section role="tabpanel" id="character-panel-statistics" aria-labelledby="character-tab-statistics" data-character-panel="statistics">
@@ -74,6 +82,11 @@ export class CharacterPanel {
    <section role="tabpanel" id="character-panel-proficiency" aria-labelledby="character-tab-proficiency" data-character-panel="proficiency"><h3>Władanie bronią</h3><p>Używanie założonej broni podczas walki rozwija jej władanie. Po walce otrzymujesz na trening połowę zdobytego XP, dzieloną między używane rodzaje broni i tarczę. Leczenie poza walką nie daje XP. Trening działa także w Auto; biegłości mają poziomy 0–100.</p><div class="weapon-proficiencies">
    ${WEAPON_FAMILIES.map(family=>{const skill=getWeaponProficiency(training.experience[family.id]);const format=(value:number)=>new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(value);const bonus=family.mode==="defense"?`+${format(skill.level*0.15)}% redukcji`:`+${format(skill.damageBonusPercent)}% ${family.mode==="support"?"leczenia":"obrażeń"}`;return`<div class="weapon-proficiency" data-weapon-family="${family.id}"><div class="weapon-proficiency__summary"><strong>${family.label}</strong><span data-weapon-level>${skill.level}/100</span><span data-weapon-bonus>${bonus}</span></div><div class="weapon-proficiency__bar" role="progressbar" aria-label="Biegłość: ${family.label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${skill.percentage}"><span style="width:${skill.percentage}%"></span></div><small>${skill.level===100?"Maksymalna biegłość":`${skill.current} / ${skill.required} punktów do kolejnego poziomu`}</small></div>`;}).join("")}</div></section>
    <section role="tabpanel" id="character-panel-equipment" aria-labelledby="character-tab-equipment" data-character-panel="equipment"><p>Załóż przedmioty, aby korzystać z ich obrażeń i ochrony. Broń dwuręczna zajmuje obie ręce i zdejmuje tarczę. Uzbrojenie zmienisz poza walką.</p><div class="equipment-slots" data-equipment-slots></div><h3>Przedmioty do założenia</h3><div class="equipment-candidates" data-equipment-candidates></div><p role="status" aria-live="polite" data-equipment-status></p></section>`;
+  const proficiency=this.require("[data-character-panel='proficiency']"),legacy=proficiency.querySelector<HTMLElement>(".weapon-proficiencies")!;
+  proficiency.insertBefore(this.skillTree.element,legacy);
+  const allProgress=document.createElement("details");allProgress.className="weapon-skill-tree__all-progress";
+  const progressSummary=document.createElement("summary");progressSummary.textContent="Postęp wszystkich rodzajów broni";allProgress.append(progressSummary);legacy.replaceWith(allProgress);allProgress.append(legacy);
+  this.skillTree.update(character.weaponTraining,{editable:!!this.handlers?.onLearnWeaponSkill&&!!this.handlers?.onResetWeaponSkills,busy:this.saving,status:this.skillStatus});
   this.require("[data-name]").textContent=character.nickname;this.require("[data-injuries]").textContent=character.injuries.length?character.injuries.map(injury=>INJURY_LABELS[injury]).join(", "):"Brak";
   const skin=resolveCharacterSkin(character.appearance),atlas=CHARACTER_SKIN_ATLASES[skin.id],frame=getCharacterSkinFrame(skin.id,0),sprite=this.require("[data-character-sprite]"),scale=.42;
   sprite.style.backgroundImage=`url("${atlas.url}")`;sprite.style.backgroundSize=`${atlas.columns*atlas.frameWidth*scale}px ${atlas.rows*atlas.frameHeight*scale}px`;sprite.style.backgroundPosition=`${-frame.x*scale}px ${-frame.y*scale}px`;sprite.style.width=`${frame.width*scale}px`;sprite.style.height=`${frame.height*scale}px`;
@@ -85,9 +98,26 @@ export class CharacterPanel {
   for(const item of candidates){const row=document.createElement("article");row.className="equipment-candidate";row.dataset.equipmentItem=item.instanceId;row.append(this.itemIdentity(item));const reason=equipmentDisabledReason(item,character,this.inventory);if(reason){const note=document.createElement("small");note.className="equipment-requirement";note.textContent=reason;row.append(note);}const equip=document.createElement("button");equip.type="button";equip.textContent="Załóż";equip.dataset.equipmentEquip=item.instanceId;equip.dataset.equipmentAction=`equip:${item.instanceId}`;equip.setAttribute("aria-label",`Załóż ${item.name}`);equip.disabled=this.saving||!this.handlers||!!reason;if(reason)equip.title=reason;equip.addEventListener("click",()=>{void this.changeEquipment({slot:item.equipment!.slot,itemInstanceId:item.instanceId});});row.append(equip);list.append(row);}
   this.require("[data-equipment-status]").textContent=this.status;this.root.setAttribute("aria-busy",String(this.saving));this.syncTabs();
   if(focusKey&&!this.saving){const focus=[...this.content.querySelectorAll<HTMLButtonElement>("[data-equipment-action]")].find(button=>button.dataset.equipmentAction===focusKey);focus?.focus();}
+  if(skillFocus){[...this.content.querySelectorAll<HTMLElement>("[data-skill-focus]")].find(element=>element.dataset.skillFocus===skillFocus)?.focus();}
   this.handlers?.onTypingChange?.();
  }
  private itemIdentity(item:InventoryItem):HTMLElement {const identity=document.createElement("div");identity.className="equipment-item";const text=document.createElement("div"),name=document.createElement("strong"),summary=document.createElement("small");name.textContent=item.name;summary.textContent=equipmentItemSummary(item);text.append(name,summary);identity.append(equipmentIcon(item),text);return identity;}
+ private async changeSkills(request:{skillId:WeaponSkillId}|{family:WeaponFamily}):Promise<void>{
+  if(this.saving||this.destroyed||!this.character)return;
+  const action="skillId" in request?this.handlers?.onLearnWeaponSkill:this.handlers?.onResetWeaponSkills;
+  if(!action)return;
+  const version=++this.requestVersion,playerId=this.character.playerId,dataVersion=this.dataVersion;
+  this.saving=true;this.skillStatus="Zapisywanie drzewka…";this.render();let result:WeaponSkillUpdateResult;
+  try{result="skillId" in request?await this.handlers!.onLearnWeaponSkill!(request.skillId):await this.handlers!.onResetWeaponSkills!(request.family);}
+  catch{result={ok:false,code:"WEAPON_SKILL_UPDATE_UNCERTAIN",message:"Brak potwierdzenia. Otwórz panel ponownie, aby sprawdzić drzewko."};}
+  if(this.destroyed||version!==this.requestVersion||this.character?.playerId!==playerId)return;
+  this.saving=false;
+  if(result.ok&&result.character.playerId===playerId){
+   if(this.dataVersion===dataVersion)this.character=structuredClone(result.character);
+   this.skillStatus="skillId" in request?"Nauczono umiejętności.":"Zresetowano umiejętności tej rodziny.";this.handlers?.onSkillsChanged?.(result);
+  }else this.skillStatus=result.ok?"Połączenie postaci zmieniło się. Otwórz panel ponownie.":result.message;
+  this.render();
+ }
  private async changeEquipment(request:EquipmentUpdateRequest):Promise<void>{
   if(this.saving||this.destroyed||!this.handlers||!this.character)return;
   const version=++this.requestVersion,playerId=this.character.playerId,dataVersion=this.dataVersion;this.saving=true;this.status="Zmienianie uzbrojenia…";this.render();let result:EquipmentUpdateResult;

@@ -3,16 +3,20 @@ import {
   INJURY_LABELS,
   type BattleSnapshot,
   getBattleHealingPreview,
+  effectiveBattleArmor,
+  effectiveBattleBlock,
   receivedBattleHealing,
   type CharacterSnapshot,
   type CombatantSnapshot,
   type InventoryItem,
   type InventorySnapshot,
-  type InventoryUpdateResult
+  type InventoryUpdateResult,
+  type WeaponSkillId
 } from "@web-mmorpg/shared";
 import type { BattleHudRegions, LayoutRect } from "../scenes/battleLayout";
 import "./BattleHud.css";
 import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
+import { BattleWeaponSkills } from "./BattleWeaponSkills";
 
 interface BattleHudHandlers {
   onEndTurn: () => void;
@@ -24,6 +28,7 @@ interface BattleHudHandlers {
   onToggleAuto?: () => void;
   onToggleZoom?: () => void;
   onLayoutChanged?: () => void;
+  onUseWeaponSkill?: (skillId:WeaponSkillId,targetId?:string) => void;
 }
 
 function temporaryInjurySummary(combatant: CombatantSnapshot): string {
@@ -42,6 +47,7 @@ export class BattleHud {
   private readonly feedbackElement: HTMLElement;
   private readonly endButton: HTMLButtonElement;
   private readonly autoButton: HTMLButtonElement;
+  private readonly skills:BattleWeaponSkills;
   private team:BattleHudTeam|undefined;
   private healingPreview:ReturnType<typeof getBattleHealingPreview>|undefined;
   private ownCombatant: CombatantSnapshot | undefined;
@@ -118,7 +124,7 @@ export class BattleHud {
           <div><dt>Żywotność</dt><dd data-stat="vitality">—</dd></div>
         </dl>
       </details>
-      <section class="battle-hud__section"><h2>Urazy</h2><p class="battle-hud__injuries" data-injuries>Brak urazów</p></section>
+      <section class="battle-hud__section"><h2>Urazy i osłony</h2><p class="battle-hud__injuries" data-injuries>Brak urazów</p><p class="battle-hud__temporary-injuries" data-battle-buffs hidden></p></section>
       <section class="battle-hud__section" data-battle-injury-effects hidden><h2>Urazy czasowe uczestników</h2><div data-battle-injury-list></div></section>
       <details class="battle-hud__section battle-hud__consumables" aria-label="Przedmioty do użycia w walce" open>
         <summary>Przedmioty <span class="battle-hud__cost">${BATTLE_ITEM_AP_COST} AP / użycie</span></summary>
@@ -139,6 +145,8 @@ export class BattleHud {
       </section>
     `;
     this.itemsElement = this.requireElement("[data-battle-items]");
+    this.skills=new BattleWeaponSkills((skillId,targetId)=>{if(this.canAct())this.handlers.onUseWeaponSkill?.(skillId,targetId);});
+    this.requireElement("[data-battle-actions]").append(this.skills.element);
     this.feedbackElement = this.requireElement("[data-battle-feedback]");
     this.endButton = this.requireElement<HTMLButtonElement>("[data-action='end']");
     this.autoButton = this.requireElement<HTMLButtonElement>("[data-action='auto']");
@@ -196,7 +204,8 @@ export class BattleHud {
     const actions = measure("[data-battle-actions]");
     const healing = this.root.dataset.hasHealing === "true";
     const portrait = this.root.dataset.portrait === "true";
-    const fallbackHeight = this.compact ? portrait ? healing ? 228 : 160 : healing ? 136 : 76 : healing ? 166 : 112;
+    const hasSkills=this.root.dataset.hasSkills==="true";
+    const fallbackHeight = hasSkills?(this.compact?portrait?(healing?272:204):(healing?180:120):(healing?284:230)):(this.compact ? portrait ? healing ? 228 : 160 : healing ? 136 : 76 : healing ? 166 : 112);
     // Chat/social live outside this root and share its actual action clearance.
     document.body.style.setProperty("--battle-ui-dock-height", `${actions?.height ?? fallbackHeight}px`);
     return { ...(header ? { header } : {}), ...(sidebar ? { sidebar } : {}), ...(actions ? { actions } : {}) };
@@ -204,6 +213,7 @@ export class BattleHud {
 
   setViewport(width: number, height: number): void {
     this.compact = width < 1100 || height < 600;
+    this.skills.setCompact(this.compact);
     this.root.dataset.compact = String(this.compact);
     this.root.dataset.portrait = String(width < 600);
     this.requireElement("[data-battle-sidebar]").hidden = this.compact && !this.detailsOpen;
@@ -271,6 +281,7 @@ export class BattleHud {
     this.pending = false;
     document.removeEventListener("game-ui-back", this.onBack);
     document.removeEventListener("keydown", this.onKeyDown);
+    this.skills.destroy();
     this.root.remove();
     document.body.classList.remove("has-battle-hud");
     document.body.style.removeProperty("--battle-ui-dock-height");
@@ -290,8 +301,9 @@ export class BattleHud {
     this.requireElement("[data-ap-fill]").style.setProperty("--battle-ap-segments", String(Math.max(1, combatant?.maxAp ?? 1)));
     this.requireElement("[data-melee-damage]").textContent = combatant?.combatStats ? `${combatant.combatStats.meleeDamage}` : "—";
     this.requireElement("[data-ranged-damage]").textContent = combatant?.combatStats ? `${combatant.combatStats.rangedDamage}` : "—";
-    this.requireElement("[data-armor]").textContent = combatant?.combatStats ? `${combatant.combatStats.armor}` : "—";
-    const healingPower=combatant?.combatStats?.healingPower??0,blockPercent=combatant?.combatStats?.blockPercent??0;
+    this.requireElement("[data-armor]").textContent = combatant?.combatStats ? `${effectiveBattleArmor(combatant)}` : "—";
+    const healingPower=combatant?.combatStats?.healingPower??0,blockPercent=combatant?effectiveBattleBlock(combatant):0;
+    const buffs=this.requireElement("[data-battle-buffs]");buffs.textContent=(combatant?.weaponSkillBuffs??[]).filter(buff=>buff.remainingTurns>0).map(buff=>`Osłona: +${buff.armorBonus} pancerza, +${buff.blockBonus} pkt proc. redukcji · ${buff.remainingTurns} pełne własne tury`).join(" · ");buffs.hidden=!buffs.textContent;
     this.requireElement("[data-staff-stat]").hidden=healingPower<=0;
     this.requireElement("[data-healing-power]").textContent=`${healingPower} HP`;
     this.requireElement("[data-shield-stat]").hidden=blockPercent<=0;
@@ -334,6 +346,8 @@ export class BattleHud {
     heal.title=this.healingPreview?.reason??"Leczenie kosturem raz na turę";
     this.renderTeam();
     this.renderItems();
+    this.skills.update(this.battle,combatant,this.canAct()&&!!this.handlers.onUseWeaponSkill);
+    this.root.dataset.hasSkills=String(!this.skills.element.hidden);
   }
 
   private renderTeam():void {

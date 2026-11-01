@@ -93,6 +93,17 @@ export class CharacterService {
     return this.clone(character);
   }
 
+  setWeaponTraining(playerId: PlayerId, training: unknown): CharacterSnapshot {
+    const character = this.require(playerId);
+    character.weaponTraining = normalizeWeaponTraining(training);
+    character.statistics = getEquipmentCombatStatistics(getCharacterStatistics(character.level), character.weaponTraining, character.equipment);
+    character.maxHp = character.statistics.maxHp;
+    character.maxAp = character.statistics.maxAp;
+    character.initiative = character.statistics.initiative;
+    character.hp = Math.min(character.hp, character.maxHp);
+    return this.clone(character);
+  }
+
   trainWeapon(playerId:PlayerId,family:WeaponFamily,amount=1):CharacterSnapshot {
     if(!WEAPON_FAMILIES.some(item=>item.id===family))throw new Error("INVALID_WEAPON_FAMILY");
     if(!Number.isSafeInteger(amount) || amount<0)throw new Error("INVALID_WEAPON_EXPERIENCE");

@@ -4,6 +4,7 @@ import {
   getEnemyDefinition,
   getBattleHealingPreview,
   getReachableBattleCells,
+  getWeaponSkillPreview,
   hexKey,
   type InventorySnapshot,
   type InventoryUpdateResult,
@@ -11,7 +12,8 @@ import {
   type CombatantSnapshot,
   type EntityId,
   type HexCoord,
-  type PlayerId
+  type PlayerId,
+  type WeaponSkillId
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { getEnemySkinAsset, getEnemySkinDisplaySize, getEnemySkinTextureKey, preloadEnemySkins, registerEnemySkinFrames } from "../characters/enemySkinAssets";
@@ -85,6 +87,7 @@ export class BattleScene extends Phaser.Scene {
       onInventoryChanged: (inventory) => this.applyInventory(inventory),
       onEndTurn: () => this.requestEndTurn(),
       onHealSelf: () => this.requestHealSelf(),
+      onUseWeaponSkill:(skillId,targetId)=>this.requestWeaponSkill(skillId,targetId),
       onSelectHealingTarget: id=>this.selectHealingTarget(id),
       onTypingChange:()=>this.updateKeyboardCapture(),
       onToggleAuto:()=>{void this.toggleAuto();},
@@ -354,6 +357,13 @@ export class BattleScene extends Phaser.Scene {
       type: "endTurn",
       combatantId: active.id
     });
+  }
+
+  private requestWeaponSkill(skillId:WeaponSkillId,targetId?:string):void {
+    const active=this.activeOwnedCombatant();
+    if(!active||!this.snapshot||!getWeaponSkillPreview(this.snapshot,active.id,skillId,targetId).available)return;
+    this.pendingCommand=true;this.selectedTargetId=null;this.attackCard?.hide();this.refreshHud();
+    gameSocket.sendBattleCommand({type:"useWeaponSkill",combatantId:active.id,skillId,...(targetId?{targetId}:{})});
   }
 
   private refreshHud(): void {

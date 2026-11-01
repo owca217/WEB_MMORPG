@@ -1,5 +1,8 @@
 import type { CharacterSnapshot } from "./character";
 import type { CombatStatistics } from "./characterProgression";
+import { normalizeLearnedWeaponSkills, type WeaponSkillId } from "./weaponSkills";
+import { getWeaponProficiency, MAX_WEAPON_EXPERIENCE, normalizeWeaponExperience } from "./weaponProgression";
+export { getWeaponProficiency, MAX_WEAPON_EXPERIENCE } from "./weaponProgression";
 
 export const WEAPON_FAMILIES = [
   {id:"sword",label:"Miecze",mode:"melee"},
@@ -16,16 +19,15 @@ export type WeaponFamily = (typeof WEAPON_FAMILIES)[number]["id"];
 export type MeleeWeaponFamily = Extract<(typeof WEAPON_FAMILIES)[number],{mode:"melee"}>["id"];
 export type RangedWeaponFamily = Extract<(typeof WEAPON_FAMILIES)[number],{mode:"ranged"}>["id"];
 export interface WeaponLoadout {melee:MeleeWeaponFamily;ranged:RangedWeaponFamily;support?:"staff"|"none";defense?:"shield"|"none"}
-export interface WeaponTraining {experience:Record<WeaponFamily,number>;loadout:WeaponLoadout}
+export interface WeaponTraining {experience:Record<WeaponFamily,number>;loadout:WeaponLoadout;learnedSkills?:WeaponSkillId[]}
 export type WeaponLoadoutResult = {ok:true;character:CharacterSnapshot}|{ok:false;code:string;message:string};
-export const MAX_WEAPON_EXPERIENCE = 25250;
 export const STAFF_HEAL_AP_COST = 3;
 
 function record(value:unknown):Record<string,unknown> {
   return value!==null && typeof value==="object" && !Array.isArray(value) ? value as Record<string,unknown> : {};
 }
 function normalizeExperience(value:unknown):number {
-  return typeof value==="number" && Number.isFinite(value) ? Math.max(0,Math.min(MAX_WEAPON_EXPERIENCE,Math.floor(value))) : 0;
+  return normalizeWeaponExperience(value);
 }
 export function isWeaponLoadout(value:unknown):value is WeaponLoadout {
   const loadout=record(value);
@@ -36,8 +38,11 @@ export function isWeaponLoadout(value:unknown):value is WeaponLoadout {
 }
 export function normalizeWeaponTraining(value:unknown):WeaponTraining {
   const stored=record(value),experience=record(stored.experience),loadout=record(stored.loadout);
+  const normalizedExperience=Object.fromEntries(WEAPON_FAMILIES.map(family=>[family.id,normalizeExperience(Object.hasOwn(experience,family.id) ? experience[family.id] : undefined)])) as Record<WeaponFamily,number>;
+  const learnedSkills=normalizeLearnedWeaponSkills(normalizedExperience,stored.learnedSkills);
   return {
-    experience:Object.fromEntries(WEAPON_FAMILIES.map(family=>[family.id,normalizeExperience(Object.hasOwn(experience,family.id) ? experience[family.id] : undefined)])) as Record<WeaponFamily,number>,
+    experience:normalizedExperience,
+    ...(learnedSkills.length ? {learnedSkills} : {}),
     loadout:{
       melee:WEAPON_FAMILIES.some(family=>family.mode==="melee" && family.id===loadout.melee) ? loadout.melee as MeleeWeaponFamily : "sword",
       ranged:WEAPON_FAMILIES.some(family=>family.mode==="ranged" && family.id===loadout.ranged) ? loadout.ranged as RangedWeaponFamily : "bow",
@@ -45,15 +50,6 @@ export function normalizeWeaponTraining(value:unknown):WeaponTraining {
       ...(loadout.defense==="shield" ? {defense:"shield"} : {})
     }
   };
-}
-export function getWeaponProficiency(totalExperience:number):{
-  level:number;experience:number;current:number;required:number;percentage:number;damageBonusPercent:number;
-} {
-  const experience=normalizeExperience(totalExperience);
-  const level=Math.min(100,Math.floor((Math.sqrt(1+8*experience/5)-1)/2));
-  const current=level===100 ? 0 : experience-5*level*(level+1)/2;
-  const required=level===100 ? 0 : 5*(level+1);
-  return {level,experience,current,required,percentage:level===100 ? 100 : current/required*100,damageBonusPercent:level*0.25};
 }
 export function getWeaponCombatStatistics<T extends CombatStatistics>(base:T,value:unknown):T {
   const training=normalizeWeaponTraining(value);

@@ -1,0 +1,23 @@
+.weapon-skill-tree{margin-top:18px;padding-top:16px;border-top:1px solid var(--rpg-border,#806b48);min-width:0}
+.weapon-skill-tree h3,.weapon-skill-tree h4,.weapon-skill-tree h5,.weapon-skill-tree h6{margin:0;color:var(--rpg-gold,#dec084)}
+.weapon-skill-tree h3{font:600 22px var(--rpg-title-font,Georgia,serif)}
+.weapon-skill-tree__intro,.weapon-skill-tree__footer small{color:var(--rpg-muted,#bfb39b);line-height:1.45}
+.weapon-skill-tree__families{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0}
+.weapon-skill-tree__families button{min-height:38px;padding:6px 9px;font-size:12px}
+.weapon-skill-tree__families [aria-pressed="true"]{border-color:var(--rpg-gold,#dec084);background:#5f4d31;color:#fff0cb}
+.weapon-skill-tree__summary{padding:12px;border:1px solid var(--rpg-border-soft,#514a39);background:#161913}
+.weapon-skill-tree__summary h4{font-size:16px}.weapon-skill-tree__summary p{margin:7px 0 0;font-variant-numeric:tabular-nums}
+.weapon-skill-tree__branches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}
+.weapon-skill-tree__branch{display:flex;flex-direction:column;gap:22px;min-width:0}
+.weapon-skill-tree__branch h5{font-size:13px;text-align:center}
+.weapon-skill-tree__node{position:relative;display:grid;align-content:start;gap:9px;padding:12px;border:1px solid var(--rpg-border-soft,#514a39);background:linear-gradient(#302d24,#1e211a);min-width:0}
+.weapon-skill-tree__node+.weapon-skill-tree__node::before{content:"↓";position:absolute;top:-23px;left:calc(50% - 6px);font-size:20px;line-height:22px;color:var(--rpg-gold,#dec084)}
+.weapon-skill-tree__node[data-learned="true"]{border-color:#a6be7c;box-shadow:inset 0 0 0 1px #8aa75944}
+.weapon-skill-tree__node[data-locked="true"]{background:#20221d}.weapon-skill-tree__node h6{font-size:15px;overflow-wrap:anywhere}
+.weapon-skill-tree__node p{margin:0;line-height:1.4}.weapon-skill-tree__node small{color:var(--rpg-muted,#bfb39b);line-height:1.35}
+.weapon-skill-tree__kind{text-transform:uppercase;letter-spacing:.08em;font-size:10px;color:var(--rpg-muted,#bfb39b)}
+.weapon-skill-tree__requirement{font-size:11px;color:#d5c49f}.weapon-skill-tree__node[data-learned="true"] .weapon-skill-tree__requirement{color:#bdd79c}
+.weapon-skill-tree__node button{min-height:42px}.weapon-skill-tree__footer{display:grid;gap:9px;margin-top:16px}.weapon-skill-tree__footer button{justify-self:start;min-height:42px}
+.weapon-skill-tree [data-skill-status]{margin:0;color:var(--rpg-gold,#dec084)}
+.weapon-skill-tree__all-progress{margin-top:18px;border-top:1px solid var(--rpg-border-soft,#514a39);padding-top:8px}.weapon-skill-tree__all-progress>summary{padding:10px 0;cursor:pointer;color:var(--rpg-muted,#bfb39b)}
+@media(max-width:480px){.weapon-skill-tree__branches{gap:9px}.weapon-skill-tree__node{padding:9px}.weapon-skill-tree__node h6{font-size:13px}.weapon-skill-tree__node p,.weapon-skill-tree__node small{font-size:11px}.weapon-skill-tree__families button{min-height:42px;flex:1 0 auto}}

@@ -5,6 +5,8 @@ import {
   getEquipmentCombatStatistics,
   getEquippedWeaponFamily,
   hasEquippedShield,
+  getLearnedWeaponSkills,
+  getWeaponSkill,
   canApplyWeaponInjury,
   calculateWeaponInjuryDuration,
   isWeaponInjuryUpgrade,
@@ -119,6 +121,7 @@ meleeDamage: equipped.meleeEnabled?stats.meleeDamage:0, rangedDamage: equipped.r
 };
           return {
 id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "player" as const, name: character.nickname, level: characterLevel, combatStats,
+            weaponSkills: getLearnedWeaponSkills(character.weaponTraining,[...(getEquippedWeaponFamily(character.equipment) ? [getEquippedWeaponFamily(character.equipment)!] : []), ...(hasEquippedShield(character.equipment) ? ["shield" as const] : [])]),
             ...(weaponInjuryUpgrade ? { weaponInjuryUpgrade } : {}),
             hp: character.hp, maxHp: character.maxHp, maxAp: character.maxAp, initiative: character.initiative, position: arena.playerStartCells[index]!, severelyInjured: character.severelyInjured, injuries: [...character.injuries]
 };
@@ -220,6 +223,10 @@ id: enemy ? `enemy:${encounterId}` : index === 0 ? `${definition.enemyKind}:${en
     }
     const actor=active.participants.get(actorId);
     if(command && actor?.weaponFamily && ["meleeAttack","rangedAttack","healSelf","healAlly"].includes(command.type))actor.used.add(actor.weaponFamily);
+    if(command?.type === "useWeaponSkill" && actor) {
+      const family = getWeaponSkill(command.skillId)?.family;
+      if(family && (family === actor.weaponFamily || family === "shield" && actor.shield))actor.used.add(family);
+    }
     const playerOutcomes: Record<PlayerId, PlayerBattleOutcome> = {};
     for (const unit of Object.values(active.state.combatants)) if (unit.ownerPlayerId && active.participants.has(unit.ownerPlayerId)) playerOutcomes[unit.ownerPlayerId] = { hp: unit.hp, severelyInjured: unit.severelyInjured, injuries: [...unit.injuries] };
     const victory = active.state.finished && Object.values(active.state.combatants).some(unit => unit.side === "player" && unit.hp > 0);
@@ -345,6 +352,9 @@ result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, ac
         ...(combatant.backInjuryMovementUsedThisTurn ? { backInjuryMovementUsedThisTurn: true } : {}),
         ...(combatant.movedHexesThisTurn !== undefined ? { movedHexesThisTurn: combatant.movedHexesThisTurn } : {}),
         ...(combatant.temporaryInjuries ? { temporaryInjuries: combatant.temporaryInjuries.map(effect => ({ ...effect })) } : {}),
+        ...(combatant.weaponSkills ? { weaponSkills: [...combatant.weaponSkills] } : {}),
+        ...(combatant.weaponSkillCooldowns ? { weaponSkillCooldowns: {...combatant.weaponSkillCooldowns} } : {}),
+        ...(combatant.weaponSkillBuffs ? { weaponSkillBuffs: combatant.weaponSkillBuffs.map(buff => ({...buff})) } : {}),
         hp: combatant.hp,
         maxHp: combatant.maxHp,
         ap: combatant.ap,

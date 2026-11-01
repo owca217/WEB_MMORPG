@@ -21,6 +21,8 @@ import type {
   EquipmentUpdateResult,
   WeaponInjuryUpgradeRequest,
   WeaponInjuryUpgradeResult,
+  WeaponFamily,
+  WeaponSkillUpdateResult,
   ClientToServerEvents,
   InventorySnapshot,
   InventoryUpdateResult,
@@ -262,6 +264,26 @@ export class GameSocket {
     } catch {
       return {ok:false,code:"WEAPON_INJURY_REQUEST_UNCERTAIN",message:"Brak potwierdzenia. Sprawdź wynik tego samego ulepszenia bez zużywania kolejnego kamienia."};
     }
+  }
+
+  async learnWeaponSkill(skillId:string):Promise<WeaponSkillUpdateResult> {
+    return this.weaponSkillRequest({skillId});
+  }
+
+  async resetWeaponSkills(family:WeaponFamily):Promise<WeaponSkillUpdateResult> {
+    return this.weaponSkillRequest({family});
+  }
+
+  private async weaponSkillRequest(payload:{skillId:string}|{family:WeaponFamily}):Promise<WeaponSkillUpdateResult> {
+    const socket=this.connect(),version=this.authenticationVersion,playerId=this.socialCharacterId;
+    if(!this.sessionToken||this.authenticating||!socket.connected||!playerId)return {ok:false,code:"AUTHENTICATION_REQUIRED",message:"Połącz się z grą, aby rozwijać umiejętności."};
+    try {
+      const result="skillId" in payload
+        ? await socket.timeout(10000).emitWithAck("learnWeaponSkill",payload)
+        : await socket.timeout(10000).emitWithAck("resetWeaponSkills",payload);
+      if(this.socket!==socket||version!==this.authenticationVersion||playerId!==this.socialCharacterId||(result.ok&&result.character.playerId!==playerId))return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
+      return result;
+    }catch{return {ok:false,code:"WEAPON_SKILL_UPDATE_UNCERTAIN",message:"Brak potwierdzenia. Odśwież stan postaci i sprawdź drzewko."};}
   }
 
   purchaseMerchantItem(payload: MerchantPurchase): Promise<MerchantResult> {

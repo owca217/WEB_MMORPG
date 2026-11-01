@@ -46,6 +46,13 @@ function handlers(onUseItem: (instanceId: string) => Promise<InventoryUpdateResu
 
 beforeEach(() => document.body.replaceChildren());
 
+it("shows temporary shield protection and the effective armor without changing base statistics",()=>{
+  const hud=new BattleHud(handlers());
+  hud.update({...hero,combatStats:{...hero.combatStats!,blockPercent:10},weaponSkillBuffs:[{armorBonus:15,blockBonus:30,remainingTurns:2}]},true,{items:[]},character);
+  expect(text('[data-armor]')).toBe("35");expect(text('[data-shield-block]')).toBe("40%");
+  expect(text('[data-battle-buffs]')).toContain("2");hud.destroy();
+});
+
 it("keeps healing in the compact dock while Back closes details and preserves real turn order", () => {
   const hud = new BattleHud({ ...handlers(), onHealSelf: vi.fn(), onSelectHealingTarget: vi.fn() });
   const healer = { ...hero, combatStats: { ...hero.combatStats!, healingPower: 20, blockPercent: 10 } };

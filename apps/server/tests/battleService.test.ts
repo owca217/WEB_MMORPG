@@ -50,7 +50,7 @@ function simulateBattle(level: number, family:"sword"|"bow"="sword") {
   const service = new BattleService();
   const modifiers=family==="bow"?[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat" as const,value:12}]:[];
   let snapshot = service.startBattle({...leveledCharacter(level),equipment:combatEquipment(family,false,modifiers)}, "encounter:wolf");
-  const actions = { meleeAttack: 0, rangedAttack: 0, move: 0, endTurn: 0, healSelf: 0, healAlly: 0 };
+  const actions = { meleeAttack: 0, rangedAttack: 0, move: 0, endTurn: 0, healSelf: 0, healAlly: 0, useWeaponSkill: 0 };
   for (let guard = 0; guard < 2_000; guard += 1) {
     const command = chooseHeroCommand(snapshot);
     actions[command.type] += 1;

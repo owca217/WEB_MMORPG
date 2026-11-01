@@ -5,7 +5,7 @@ import type {
   HexCoord,
   PlayerId
 } from "@web-mmorpg/shared";
-import { hasInjury, injuryAdjustedAttackDamage, isBattleAttackEnabled, isWeaponInjuryUpgrade, meleeAttackApCost, mitigatedBattleDamage, rangedAttackRange, receivedBattleHealing, remainingMovementHexes, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
+import { effectiveBattleArmor, effectiveBattleBlock, getWeaponSkill, getWeaponSkillPreview, hasInjury, injuryAdjustedAttackDamage, isBattleAttackEnabled, isWeaponInjuryUpgrade, meleeAttackApCost, mitigatedBattleDamage, rangedAttackRange, receivedBattleHealing, remainingMovementHexes, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
 import { findPath, hexDistance, hexKey } from "./hex";
 import { hasLineOfSight } from "./lineOfSight";
 import {
@@ -80,7 +80,10 @@ function cloneState(state: BattleState): BattleState {
           ...(combatant.weaponInjuryUpgrade ? { weaponInjuryUpgrade: { ...combatant.weaponInjuryUpgrade } } : {}),
           ...(combatant.injuryAttemptedTargetsThisTurn ? { injuryAttemptedTargetsThisTurn: [...combatant.injuryAttemptedTargetsThisTurn] } : {}),
           ...(combatant.fullTurnInjuryKinds ? { fullTurnInjuryKinds: [...combatant.fullTurnInjuryKinds] } : {}),
-          ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {})
+          ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {}),
+          ...(combatant.weaponSkills ? { weaponSkills: [...combatant.weaponSkills] } : {}),
+          ...(combatant.weaponSkillCooldowns ? { weaponSkillCooldowns: {...combatant.weaponSkillCooldowns} } : {}),
+          ...(combatant.weaponSkillBuffs ? { weaponSkillBuffs: combatant.weaponSkillBuffs.map(buff => ({...buff})) } : {})
         }
       ])
     )
@@ -106,6 +109,9 @@ export function createBattleState(input: CreateBattleStateInput): BattleState {
       ...(inputCombatant.temporaryInjuries ? { temporaryInjuries: inputCombatant.temporaryInjuries.map(effect => ({ ...effect })) } : {}),
       ...(inputCombatant.weaponInjuryUpgrade ? { weaponInjuryUpgrade: { ...inputCombatant.weaponInjuryUpgrade } } : {}),
       ...(inputCombatant.combatStats ? { combatStats: { ...inputCombatant.combatStats } } : {}),
+      ...(inputCombatant.weaponSkills ? { weaponSkills: [...inputCombatant.weaponSkills] } : {}),
+      ...(inputCombatant.weaponSkillCooldowns ? { weaponSkillCooldowns: {...inputCombatant.weaponSkillCooldowns} } : {}),
+      ...(inputCombatant.weaponSkillBuffs ? { weaponSkillBuffs: inputCombatant.weaponSkillBuffs.map(buff => ({...buff})) } : {}),
       ap: 0
     });
   }
@@ -229,21 +235,24 @@ function applyAttack(
   targetId: string,
   damage: number,
   apCost: number,
-  melee: boolean
+  melee: boolean,
+  armorPenetration = 0,
+  applyWeaponEffect = true
 ): BattleState {
   const next = cloneState(state);
   const attacker = next.combatants[attackerId]!;
   const target = next.combatants[targetId]!;
   const adjustedDamage = injuryAdjustedAttackDamage(attacker, target, damage);
-  const armorDamage = mitigatedBattleDamage(adjustedDamage, target.combatStats?.armor ?? 0);
-  const mitigatedDamage = mitigatedBattleDamage(adjustedDamage, target.combatStats?.armor ?? 0, target.combatStats?.blockPercent ?? 0);
+  const armor = effectiveBattleArmor(target) * (1 - armorPenetration);
+  const armorDamage = mitigatedBattleDamage(adjustedDamage, armor);
+  const mitigatedDamage = mitigatedBattleDamage(adjustedDamage, armor, effectiveBattleBlock(target));
   if (mitigatedDamage < armorDamage) target.shieldBlocks = (target.shieldBlocks ?? 0) + 1;
   attacker.ap -= apCost;
   attacker.attackedThisTurn = true;
   if (melee) attacker.meleeAttackUsedThisTurn = true;
   next.combatants[targetId] = applyDamageWithInjuries(target, mitigatedDamage, next.seed + next.round);
   const upgrade = attacker.weaponInjuryUpgrade;
-  if (next.combatants[targetId]!.hp > 0 && isWeaponInjuryUpgrade(upgrade) && !(attacker.injuryAttemptedTargetsThisTurn ?? []).includes(targetId)) {
+  if (applyWeaponEffect && next.combatants[targetId]!.hp > 0 && isWeaponInjuryUpgrade(upgrade) && !(attacker.injuryAttemptedTargetsThisTurn ?? []).includes(targetId)) {
     attacker.injuryAttemptedTargetsThisTurn = [...(attacker.injuryAttemptedTargetsThisTurn ?? []), targetId];
     // Persist a separate stream: repeated attack commands must never reuse a round's roll.
     let randomState = next.injuryRandomState ?? ((next.seed >>> 0) || 0x9e3779b9);
@@ -260,6 +269,32 @@ function applyValidatedCommand(
   actor: CombatantState,
   command: BattleCommand
 ): BattleResult {
+  if (command.type === "useWeaponSkill") {
+    const skill = getWeaponSkill(command.skillId);
+    const preview = getWeaponSkillPreview({id:state.id,round:state.round,activeCombatantId:state.activeCombatantId,turnOrder:state.turnOrder,cells:state.arena.cells,blockedCells:state.arena.blockedCells,coverCells:state.arena.coverCells,combatants:Object.values(state.combatants),finished:state.finished},actor.id,command.skillId,command.targetId);
+    if (!skill || !preview.available) return reject(preview.code ?? "WEAPON_SKILL_UNAVAILABLE", preview.reason ?? "Technika jest niedostępna.");
+    let next: BattleState;
+    if (skill.kind === "attack") {
+      const melee = skill.attackMode !== "rangedAttack";
+      const base = melee ? actor.combatStats?.meleeDamage ?? 20 : actor.combatStats?.rangedDamage ?? 15;
+      next = applyAttack(state,actor.id,preview.targetId!,base * (skill.damageMultiplier ?? 1),preview.apCost,melee,skill.armorPenetration ?? 0,skill.family !== "shield");
+      const target = next.combatants[preview.targetId!]!;
+      if (!next.finished && target.hp > 0 && skill.injury) next.combatants[target.id] = applyTemporaryInjury(target,{kind:skill.injury.kind,chancePercent:100,duration:skill.injury.duration});
+    } else {
+      next = cloneState(state);
+      next.combatants[actor.id]!.ap -= preview.apCost;
+      if (skill.kind === "heal") {
+        next.combatants[preview.targetId!]!.hp += preview.amount;
+        if (skill.family === "staff") next.combatants[actor.id]!.healingUsedThisTurn = true;
+      } else if (skill.kind === "guard") {
+        const caster = next.combatants[actor.id]!;
+        caster.weaponSkillBuffs = [...(caster.weaponSkillBuffs ?? []),{armorBonus:skill.armorBonus ?? 0,blockBonus:skill.blockBonus ?? 0,remainingTurns:skill.durationTurns ?? 1}];
+      }
+    }
+    const caster = next.combatants[actor.id]!;
+    caster.weaponSkillCooldowns = {...caster.weaponSkillCooldowns,[skill.id]:skill.cooldownTurns};
+    return {ok:true,state:next};
+  }
   if (command.type === "healSelf" || command.type === "healAlly") {
     const power = actor.combatStats?.healingPower ?? 0;
     if (!Number.isFinite(power) || power <= 0) return reject("HEAL_NO_STAFF", "Załóż kostur leczący przed walką.");
@@ -329,6 +364,7 @@ function applyValidatedCommand(
     return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.rangedDamage ?? 15, cost, false) };
   }
 
+  if (command.type !== "endTurn") return reject("INVALID_BATTLE_COMMAND", "Nieznane polecenie walki.");
   const next = cloneState(state);
   const current = next.combatants[actor.id]!;
   next.combatants[actor.id] = expireTurnInjuries(applyEndTurnInjuries(current, next.seed + next.round));
@@ -342,6 +378,7 @@ export function applyBattleCommand(
   actorPlayerId: PlayerId,
   command: BattleCommand
 ): BattleResult {
+  if (!command || typeof command !== "object" || typeof command.combatantId !== "string") return reject("INVALID_BATTLE_COMMAND", "Niepoprawne polecenie walki.");
   const validation = validatePlayerActor(state, actorPlayerId, command.combatantId);
   if (!validation.ok) return validation;
   return applyValidatedCommand(state, validation.combatant, command);

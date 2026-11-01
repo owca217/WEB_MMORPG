@@ -56,6 +56,14 @@ export function mitigatedBattleDamage(damage: number, armor: number, blockPercen
   return Math.max(1, Math.round(afterArmor * (1 - block / 100)));
 }
 
+export function effectiveBattleArmor(combatant: Pick<CombatantSnapshot, "combatStats" | "weaponSkillBuffs">): number {
+  return Math.max(0, (combatant.combatStats?.armor ?? 0) + (combatant.weaponSkillBuffs ?? []).filter(buff => buff.remainingTurns > 0).reduce((sum, buff) => sum + buff.armorBonus, 0));
+}
+
+export function effectiveBattleBlock(combatant: Pick<CombatantSnapshot, "combatStats" | "weaponSkillBuffs">): number {
+  return Math.max(0, Math.min(100, (combatant.combatStats?.blockPercent ?? 0) + (combatant.weaponSkillBuffs ?? []).filter(buff => buff.remainingTurns > 0).reduce((sum, buff) => sum + buff.blockBonus, 0)));
+}
+
 export function isBattleAttackEnabled(actor:Pick<CombatantSnapshot,"combatStats">,type:"meleeAttack"|"rangedAttack"):boolean {
   return type==="meleeAttack"
     ? actor.combatStats?.meleeEnabled!==false && (actor.combatStats?.meleeDamage??20)>0
@@ -108,7 +116,7 @@ export function getBattleAttackPreview(snapshot: BattleSnapshot, actorId: string
             : actor.ap < apCost ? `Potrzeba ${apCost} AP.` : undefined;
   return {
     targetId, type, apCost, hitChance: possible ? 100 : 0,
-    averageDamage: possible ? mitigatedBattleDamage(injuryAdjustedAttackDamage(actor, target, damage), target.combatStats?.armor ?? 0, target.combatStats?.blockPercent ?? 0) : 0,
+    averageDamage: possible ? mitigatedBattleDamage(injuryAdjustedAttackDamage(actor, target, damage), effectiveBattleArmor(target), effectiveBattleBlock(target)) : 0,
     available: !reason, ...(reason ? { reason } : {})
   };
 }

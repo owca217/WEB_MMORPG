@@ -1,5 +1,5 @@
 import { expect,it } from "vitest";
-import { allocateWeaponExperience,emptyCharacterEquipment,getCharacterStatistics,getEquipmentCombatStatistics,normalizeWeaponTraining,type CharacterEquipment,type InventoryItem,type ItemStatModifier,type WeaponFamily } from "../src/index";
+import { allocateWeaponExperience,emptyCharacterEquipment,getCharacterStatistics,getEquipmentCombatStatistics,normalizeWeaponTraining,learnWeaponSkill,type CharacterEquipment,type InventoryItem,type ItemStatModifier,type WeaponFamily } from "../src/index";
 
 function gear(family:WeaponFamily,modifiers:ItemStatModifier[]=[]):CharacterEquipment {
   const equipment=emptyCharacterEquipment(),slot=family==="shield"?"offHand":"mainHand";
@@ -38,4 +38,16 @@ it("allocates exactly half final XP only among distinct used families with stabl
   expect(allocateWeaponExperience(45,["shield","axe","axe"])).toEqual({axe:11,shield:11});
   expect(allocateWeaponExperience(42,["shield","axe"])).toEqual({axe:11,shield:10});
   expect(allocateWeaponExperience(100,[])).toEqual({});expect(allocateWeaponExperience(0,["sword"])).toEqual({});
+});
+it("applies learned passives only to their equipped weapon or shield and never compounds them",()=>{
+  let training=normalizeWeaponTraining({experience:{sword:25250,staff:25250,shield:25250}});
+  for(const family of ["sword","staff","shield"] as const){training=learnWeaponSkill(training,`${family}:technique`);training=learnWeaponSkill(training,`${family}:mastery`);}
+  const base=getCharacterStatistics(1), sword=gear("sword");sword.offHand=gear("shield").offHand;
+  const swordStats=getEquipmentCombatStatistics(base,training,sword);
+  expect(swordStats).toMatchObject({meleeDamage:28,blockPercent:30});
+  expect(getEquipmentCombatStatistics(base,training,sword)).toEqual(swordStats);
+  expect(getEquipmentCombatStatistics(base,training,gear("staff")).healingPower).toBe(28);
+  expect(getEquipmentCombatStatistics(base,training,gear("axe")).meleeDamage).toBe(20);
+  sword.mainHand!.durability=0;
+  expect(getEquipmentCombatStatistics(base,training,sword).meleeDamage).toBe(20);
 });

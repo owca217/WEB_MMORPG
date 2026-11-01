@@ -79,7 +79,7 @@ export class WorldHud {
     this.root.className = "world-hud";
     this.root.innerHTML = `
       <header class="world-hud__topbar">
-        <div class="world-hud__brand"><span class="world-hud__crest" aria-hidden="true">W</span><strong>WEB <span>MMORPG</span></strong></div>
+        <div class="world-hud__brand"><span class="world-hud__crest" aria-hidden="true">K</span><strong>Kroniki <span>Pogranicza</span></strong></div>
         <div class="world-hud__location"><span aria-hidden="true">◆</span><strong data-location-name>Osada Zielony Brzeg</strong><small>Świat gry</small></div>
         <div class="world-hud__compact-resources"><strong data-compact-name>Podróżnik</strong><span data-compact-hp>HP —</span><div class="world-hud__compact-meter"><span data-compact-hp-fill></span></div><div class="world-hud__compact-xp" data-compact-experience></div></div>
         <span class="world-hud__connection" data-connection role="status">Łączenie…</span>

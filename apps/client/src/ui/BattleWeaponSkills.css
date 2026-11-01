@@ -1,0 +1,23 @@
+.battle-weapon-skills{grid-column:1/-1;display:grid;gap:6px;min-width:0;border-top:1px solid var(--rpg-border-soft,#514a39);padding-top:6px}
+.battle-weapon-skills__panel{display:grid;gap:6px}.battle-weapon-skills__list{display:flex;gap:5px;overflow-x:auto;padding:1px 1px 4px;overscroll-behavior:contain;touch-action:pan-x}
+.battle-weapon-skills__list button{flex:0 0 auto;max-width:220px;min-height:36px;padding:5px 9px;font:inherit;font-size:11px;white-space:normal}
+.battle-weapon-skills__list [aria-pressed="true"]{border-color:var(--rpg-gold,#dec084);background:#5f4d31;color:#fff0cb}
+.battle-weapon-skills__controls{display:grid;grid-template-columns:minmax(100px,1fr) minmax(100px,1fr) minmax(130px,auto);gap:7px;align-items:end;min-width:0}
+.battle-weapon-skills label{display:grid;gap:3px;min-width:0;font-size:10px;color:var(--rpg-muted,#bfb39b)}
+.battle-weapon-skills select{width:100%;min-width:0;min-height:42px;padding:5px;background:#151b16;color:var(--rpg-text,#eee5d2);border:1px solid var(--rpg-border,#806b48);font:inherit}
+.battle-weapon-skills__preview{margin:0;font-size:10px;line-height:1.3;color:var(--rpg-muted,#bfb39b);overflow-wrap:anywhere}
+.battle-weapon-skills [data-use-weapon-skill]{min-height:42px;padding:5px 9px;font:inherit;font-size:11px}
+.battle-weapon-skills :is(button,select):focus-visible{outline:2px solid var(--rpg-focus,#f2d590);outline-offset:1px}
+.battle-hud[data-has-skills="true"]{--battle-dock-height:230px}
+.battle-hud[data-compact="true"][data-has-skills="true"]{--battle-dock-height:120px}
+.battle-hud[data-portrait="true"][data-has-skills="true"]{--battle-dock-height:204px}
+.battle-hud[data-has-skills="true"][data-has-healing="true"]{--battle-dock-height:284px}
+.battle-hud[data-compact="true"][data-has-skills="true"][data-has-healing="true"]{--battle-dock-height:180px}
+.battle-hud[data-portrait="true"][data-has-skills="true"][data-has-healing="true"]{--battle-dock-height:272px}
+.battle-hud[data-has-skills="true"] .battle-hud__dock{grid-template-rows:auto auto auto;overflow-y:auto;max-height:calc(100dvh - var(--battle-top) - var(--battle-header-height) - var(--battle-bottom) - 24px)}
+.battle-hud[data-portrait="true"][data-has-skills="true"] .battle-weapon-skills__controls{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.battle-hud[data-portrait="true"][data-has-skills="true"] .battle-weapon-skills__preview{grid-column:1/-1;grid-row:2}
+.battle-hud[data-portrait="true"][data-has-skills="true"] .battle-weapon-skills [data-use-weapon-skill]{grid-column:2;grid-row:1}
+.battle-hud[data-compact="true"][data-has-skills="true"] .battle-hud__dock{overflow:visible;max-height:none;grid-template-rows:auto auto auto auto}
+.battle-weapon-skills__toggle{min-height:38px;width:100%;padding:5px 9px;font:inherit;color:var(--rpg-gold,#dec084);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.battle-weapon-skills[data-compact="true"] .battle-weapon-skills__panel{position:absolute;bottom:calc(100% + 8px);left:0;right:0;z-index:3;max-height:min(280px,calc(100dvh - var(--battle-dock-height) - var(--battle-bottom) - 24px));overflow-y:auto;padding:10px;border:1px solid var(--rpg-border,#806b48);background:var(--rpg-panel,#24221e);box-shadow:0 5px 20px #0009;pointer-events:auto}

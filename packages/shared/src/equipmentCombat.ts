@@ -3,6 +3,7 @@ import { EQUIPMENT_SLOTS,type CharacterEquipment,type EquipmentSlot } from "./eq
 import type { InventoryItem } from "./inventory";
 import type { ItemStatModifier } from "./items";
 import { getWeaponProficiency,normalizeWeaponTraining,WEAPON_FAMILIES,type WeaponFamily } from "./weapons";
+import { getLearnedWeaponSkills, getWeaponSkill } from "./weaponSkills";
 
 const MAX_STAT=1_000_000;
 const bounded=(value:number,min=0,max=MAX_STAT)=>Number.isFinite(value)?Math.max(min,Math.min(max,value)):min;
@@ -51,6 +52,17 @@ export function getEquipmentCombatStatistics<T extends CharacterStatistics>(base
   delete statistics.healingPower;delete statistics.blockPercent;
   if(family==="staff")statistics.healingPower=Math.max(1,Math.round(apply(base.meleeDamage,modifiers,"SPELL_POWER")*bonus("staff")));
   if(shield)statistics.blockPercent=Math.min(95,apply(10,modifiers,"BLOCK_POWER")+getWeaponProficiency(training.experience.shield).level*0.15);
+  for(const id of getLearnedWeaponSkills(training)) {
+    const skill=getWeaponSkill(id)!;
+    if(skill.kind!=="passive")continue;
+    const percent=skill.passiveBonusPercent??0;
+    if(skill.family==="shield"&&shield)statistics.blockPercent=Math.min(95,(statistics.blockPercent??0)+percent);
+    else if(skill.family===family) {
+      if(family==="staff")statistics.healingPower=Math.round((statistics.healingPower??0)*(1+percent/100));
+      else if(ranged)statistics.rangedDamage=Math.round(statistics.rangedDamage*(1+percent/100));
+      else statistics.meleeDamage=Math.round(statistics.meleeDamage*(1+percent/100));
+    }
+  }
   return statistics;
 }
 

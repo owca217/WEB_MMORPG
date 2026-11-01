@@ -7,6 +7,7 @@ import type {
   NpcInteractionPayload,
   PlayerId,
   BattleSnapshot,
+  WeaponSkillUpdateResult,
   ServerToClientEvents
 } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
@@ -16,6 +17,7 @@ import { BattleService, type AppliedBattleCommand } from "../battle/BattleServic
 import { ChatService } from "../chat/ChatService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
+import { WeaponSkillService, WeaponSkillWriteUncertainError, type WeaponSkillMutation } from "../character/WeaponSkillService";
 import { InventoryService } from "../inventory/InventoryService";
 import { WeaponInjuryUpgradeService } from "../inventory/WeaponInjuryUpgradeService";
 import { EquipmentService } from "../equipment/EquipmentService";
@@ -145,6 +147,20 @@ const EQUIPMENT_ERRORS:Record<string,string>={
   SESSION_REPLACED:"Połączenie zmieniło się. Otwórz uzbrojenie ponownie."
 };
 
+const WEAPON_SKILL_ERRORS: Readonly<Record<string, string>> = {
+  INVALID_WEAPON_SKILL: "Wybierz umiejętność z drzewka broni.",
+  INVALID_WEAPON_FAMILY: "Wybierz poprawną rodzinę broni.",
+  WEAPON_LEVEL_REQUIRED: "Najpierw osiągnij wymagany poziom władania.",
+  SKILL_PREREQUISITE_REQUIRED: "Najpierw naucz się poprzedniej umiejętności w tej gałęzi.",
+  INSUFFICIENT_SKILL_POINTS: "Nie masz wystarczającej liczby punktów tej rodziny broni.",
+  CHARACTER_NOT_FOUND: "Postać jest niedostępna.",
+  SESSION_REPLACED: "Połączenie zmieniło się. Otwórz drzewko ponownie.",
+  BATTLE_IN_PROGRESS: "Drzewka można zmieniać poza walką.",
+  TRADE_IN_PROGRESS: "Zakończ handel przed zmianą drzewka.",
+  EQUIPMENT_ACTION_PENDING: "Poczekaj na zakończenie poprzedniej czynności.",
+  WEAPON_SKILL_REQUEST_UNCERTAIN: "Wybór mógł zostać zapisany. Sprawdź drzewko lub ponów tę samą czynność."
+};
+
 export function createGameServer(
   httpServer: HttpServer,
   options: GameServerOptions
@@ -158,6 +174,7 @@ export function createGameServer(
   const battles = new BattleService();
   const chat = new ChatService(world, (playerId) => battles.hasBattle(playerId));
   const characters = new CharacterService();
+  const weaponSkills = new WeaponSkillService(options.pool);
   const connections = options.connections ?? new ActiveConnectionRegistry();
   const characterOwners = new Map<PlayerId, string>();
   const pendingCharacterSaves = new Map<PlayerId, Promise<void>>();
@@ -692,6 +709,51 @@ export function createGameServer(
       ack({ok:false,code:"WEAPON_STYLES_REMOVED",message:"Style walki zostały zastąpione uzbrojeniem. Zaktualizuj klienta i załóż przedmiot."});
     });
 
+    const mutateWeaponSkills = (request: WeaponSkillMutation, ack: (result: WeaponSkillUpdateResult) => void): void => {
+      if (typeof ack !== "function") return;
+      const id = characterId, version = characterVersion;
+      const fail = (error: unknown): void => {
+        const code = error instanceof Error && WEAPON_SKILL_ERRORS[error.message] ? error.message : "WEAPON_SKILL_FAILED";
+        ack({ ok: false, code, message: WEAPON_SKILL_ERRORS[code] ?? "Nie udało się zapisać drzewka. Spróbuj ponownie." });
+      };
+      if (!id || !ownsCharacter(id, version)) {
+        ack({ ok: false, code: "AUTHENTICATION_REQUIRED", message: "Zaloguj się, aby rozwijać drzewko." }); return;
+      }
+      const assertCurrent = (): void => {
+        if (!ownsCharacter(id, version)) throw new Error("SESSION_REPLACED");
+        if (battles.hasBattle(id)) throw new Error("BATTLE_IN_PROGRESS");
+        const trade = social.trades.getSnapshot(id);
+        if (trade && (trade.status === "invited" || trade.status === "active")) throw new Error("TRADE_IN_PROGRESS");
+      };
+      try {
+        assertCurrent();
+        if (pendingPartyStarts.has(id) || pendingEquipmentOperations.has(id) || pendingBattleRewards.has(id) || pendingBattleItemUses.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id) || healing.pendingFor(id)) throw new Error("EQUIPMENT_ACTION_PENDING");
+      } catch (error) { fail(error); return; }
+      let release!: () => void;
+      const mutation = new Promise<void>(resolve => { release = resolve; });
+      pendingEquipmentOperations.set(id, mutation);
+      equipmentRevisions.set(id, (equipmentRevisions.get(id) ?? 0) + 1);
+      const finish = (): void => { release(); if (pendingEquipmentOperations.get(id) === mutation) pendingEquipmentOperations.delete(id); };
+      void (async () => {
+        try {
+          await pendingCharacterSaves.get(id);
+          assertCurrent();
+          const training = await weaponSkills.apply(id, request, assertCurrent);
+          // Cleanup waits for this reservation, including a disconnect during COMMIT.
+          if (characterOwners.get(id) === socket.id) characters.setWeaponTraining(id, training);
+          finish();
+          assertCurrent();
+          ack({ ok: true, character: characters.getSnapshot(id)! });
+          void emitPlayerState(id).catch(() => undefined);
+        } catch (error) {
+          if (error instanceof WeaponSkillWriteUncertainError && characterOwners.get(id) === socket.id) characters.setWeaponTraining(id, error.training);
+          fail(error);
+        } finally { finish(); }
+      })();
+    };
+    socket.on("learnWeaponSkill", (payload, ack) => mutateWeaponSkills({ kind: "learn", skillId: payload?.skillId }, ack));
+    socket.on("resetWeaponSkills", (payload, ack) => mutateWeaponSkills({ kind: "reset", family: payload?.family }, ack));
+
     socket.on("applyWeaponInjury",(payload,ack)=>{
       if(typeof ack!=="function")return;
       const id=characterId,version=characterVersion;
@@ -857,7 +919,7 @@ export function createGameServer(
     });
 
     socket.on("moveIntent", (intent) => {
-      if (!characterId || !ownsCharacter(characterId,characterVersion) || battles.hasBattle(characterId) || pendingPartyStarts.has(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
+      if (!characterId || !ownsCharacter(characterId,characterVersion) || battles.hasBattle(characterId) || pendingPartyStarts.has(characterId) || pendingEquipmentOperations.has(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
       if (!currentLocationId) return;
@@ -957,6 +1019,7 @@ export function createGameServer(
 
       try {
         if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_IN_PROGRESS");
+        if (pendingEquipmentOperations.has(currentCharacterId)) throw new Error("EQUIPMENT_ACTION_PENDING");
         const npc = world.interactNpc(currentCharacterId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
         characters.healHp(currentCharacterId);
@@ -1213,6 +1276,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, equipment, weaponInjuryUpgrades, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
+    services: { world, inventory, equipment, weaponInjuryUpgrades, weaponSkills, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
   };
 }

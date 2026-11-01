@@ -1,4 +1,4 @@
-import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult, WeaponFamily, WeaponSkillId, WeaponSkillUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
 import { EQUIPMENT_SLOTS, PERMANENT_BACKPACK_SLOT_INDEX, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
@@ -259,6 +259,8 @@ export class WorldScene extends Phaser.Scene {
     this.healingPanel=new HealingPanel({requestTargets:()=>gameSocket.requestHealingTargets(),cast:request=>gameSocket.castHealing(request)});
     this.characterPanel = new CharacterPanel({
       onSetEquipmentSlot: request=>this.setEquipmentSlot(request),
+      onLearnWeaponSkill:skillId=>this.updateWeaponSkills({skillId}),
+      onResetWeaponSkills:family=>this.updateWeaponSkills({family}),
       onTypingChange:()=>this.updateKeyboardCapture()
     });
     this.dialoguePanel = new DialoguePanel({
@@ -632,6 +634,23 @@ export class WorldScene extends Phaser.Scene {
         if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character,inventory:result.inventory});
         else gameSocket.requestPlayerState();
       }
+      return result;
+    }finally{if(version===this.equipmentRequestVersion)this.equipmentPending=false;}
+  }
+
+  private async updateWeaponSkills(request:{skillId:WeaponSkillId}|{family:WeaponFamily}):Promise<WeaponSkillUpdateResult> {
+    if(this.equipmentPending)return {ok:false,code:"EQUIPMENT_ACTION_PENDING",message:"Poczekaj na zakończenie poprzedniej czynności."};
+    const version=this.equipmentRequestVersion,revision=this.playerStateRevision,playerId=this.playerId;
+    this.equipmentPending=true;
+    try {
+      const result="skillId" in request?await gameSocket.learnWeaponSkill(request.skillId):await gameSocket.resetWeaponSkills(request.family);
+      const state=playerStateStore.get();
+      if(version!==this.equipmentRequestVersion||playerId!==this.playerId||state?.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
+      if(result.ok){
+        if(result.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
+        if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character});
+        else gameSocket.requestPlayerState();
+      }else if(result.code==="WEAPON_SKILL_UPDATE_UNCERTAIN")gameSocket.requestPlayerState();
       return result;
     }finally{if(version===this.equipmentRequestVersion)this.equipmentPending=false;}
   }

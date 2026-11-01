@@ -1,4 +1,4 @@
-import { hasInjury, type BattleInjuryEffect, type CombatStatistics, type EnemyId, type HexCoord, type InjuryKind, type PlayerId, type WeaponInjuryUpgrade } from "@web-mmorpg/shared";
+import { hasInjury, type BattleInjuryEffect, type CombatStatistics, type EnemyId, type HexCoord, type InjuryKind, type PlayerId, type WeaponInjuryUpgrade, type WeaponSkillId, type WeaponSkillBuff } from "@web-mmorpg/shared";
 export { movementApCost, rangedAttackApCost } from "@web-mmorpg/shared";
 
 export interface CombatantState {
@@ -29,6 +29,9 @@ export interface CombatantState {
   thighWoundDamageThisTurn?: number;
   injuryAttemptedTargetsThisTurn?: string[];
   fullTurnInjuryKinds?: InjuryKind[];
+  weaponSkills?: WeaponSkillId[];
+  weaponSkillCooldowns?: Partial<Record<WeaponSkillId, number>>;
+  weaponSkillBuffs?: WeaponSkillBuff[];
 }
 
 const INJURIES: InjuryKind[] = [
@@ -77,6 +80,8 @@ export function updateInjuryHpCap(combatant: CombatantState): CombatantState {
 }
 
 export function beginCombatantTurn(combatant: CombatantState): void {
+  if (combatant.weaponSkillCooldowns) combatant.weaponSkillCooldowns = Object.fromEntries(Object.entries(combatant.weaponSkillCooldowns).map(([id, remaining]) => [id, Math.max(0, (remaining ?? 0) - 1)]));
+  if (combatant.weaponSkillBuffs) combatant.weaponSkillBuffs = combatant.weaponSkillBuffs.map(buff => ({...buff, remainingTurns: buff.remainingTurns - 1})).filter(buff => buff.remainingTurns > 0);
   combatant.ap = Math.max(0, combatant.maxAp - (hasInjury(combatant, "chestWound") ? 1 : 0));
   delete combatant.healingUsedThisTurn;
   delete combatant.meleeAttackUsedThisTurn;
@@ -88,7 +93,7 @@ export function beginCombatantTurn(combatant: CombatantState): void {
   combatant.fullTurnInjuryKinds = (combatant.temporaryInjuries ?? []).map(effect => effect.kind);
 }
 
-export function applyTemporaryInjury(combatant: CombatantState, upgrade: WeaponInjuryUpgrade): CombatantState {
+export function applyTemporaryInjury(combatant: CombatantState, upgrade: Pick<WeaponInjuryUpgrade, "kind"> & {duration: number | "battle"; chancePercent?: number}): CombatantState {
   const temporaryInjuries = (combatant.temporaryInjuries ?? []).map(effect => ({ ...effect }));
   const existing = temporaryInjuries.find(effect => effect.kind === upgrade.kind);
   const remainingTurns = upgrade.duration === "battle" ? null : upgrade.duration;

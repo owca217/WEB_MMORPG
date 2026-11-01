@@ -47,6 +47,18 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it.each(["learnWeaponSkill","resetWeaponSkills"] as const)("forwards %s and rejects replies from a replaced session",async(event)=>{
+    const pending=deferred<(value:unknown)=>void>();
+    const payload=event==="learnWeaponSkill"?{skillId:"sword:power"}:{family:"sword"};
+    const game=await startServer((_token,ack,socket)=>{
+      socket.removeAllListeners(event);socket.on(event,(received,reply)=>{expect(received).toEqual(payload);pending.resolve(reply);});ack(authenticated);
+    });
+    const request=()=>event==="learnWeaponSkill"?game.learnWeaponSkill("sword:power"):game.resetWeaponSkills("sword");
+    expect(await request()).toMatchObject({ok:false,code:"AUTHENTICATION_REQUIRED"});
+    await game.authenticate("skills");const result=request(),reply=await pending.promise;
+    await game.authenticate("replacement");reply({ok:true,character:{playerId:"character-1"}});
+    expect(await result).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+  });
   it("forwards injury receipt inputs and rejects late acknowledgements after reauthentication",async()=>{
     const pending=deferred<(value:unknown)=>void>();
     const request={requestId:"injury-request",weaponInstanceId:"sword",stoneInstanceId:"stone"};

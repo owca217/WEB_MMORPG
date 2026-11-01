@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [Kroniki-Pogranicza-0.1.26.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.26/Kroniki-Pogranicza-0.1.26.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [Kroniki-Pogranicza-0.1.27.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.27/Kroniki-Pogranicza-0.1.27.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -57,6 +57,8 @@ Wersja 0.1.23 pozwala przypisać pojemnik przez upuszczenie go na jeden ze zwyk�
 Wersja 0.1.24 porządkuje panel kategorii przedmiotów administratora. Wyszukiwarka filtruje kategorie i podkategorie, karty oraz grupy można zwijać, a pola wyboru są ułożone w siatce. Tworzenie kategorii i podkategorii ma osobne sekcje formularza.
 
 Wersja 0.1.26 nadaje grze nazwę „Kroniki Pogranicza”. Nowa nazwa jest widoczna w aplikacji i na liście zainstalowanych aplikacji Androida. Aktualizacja zachowuje identyfikator aplikacji, podpis oraz istniejące konto i dane.
+
+Wersja 0.1.27 dodaje drzewka umiejętności dziewięciu rodzin broni w zakładce Postać → Władanie. Co 5 poziomów władania otrzymujesz 1 punkt danej rodziny, również za wcześniej zdobyte poziomy. Każde drzewko ma dwie gałęzie i cztery węzły: trzy techniki aktywne oraz pasyw. Pełne drzewko kosztuje 24 punkty, a poziom 100 daje 20. Wybrane techniki wymagają odpowiedniej założonej broni lub tarczy i mają koszt AP oraz odnowienie w walce. Auto korzysta z wyuczonych technik; reset jednej rodziny poza walką jest darmowy i zachowuje XP.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

@@ -107,6 +107,18 @@ function createScene(snapshot = initialBattle, width = 800, height = 600, loaded
 }
 
 describe("BattleScene completion", () => {
+  it("sends a learned technique once through the dock and waits for the server",()=>{
+    const hero={...initialBattle.combatants[0]!,side:"player" as const,weaponSkills:["sword:power" as const],combatStats:{meleeDamage:30,rangedDamage:0,armor:0}};
+    const enemy:BattleSnapshot["combatants"][number]={...hero,id:"wolf",side:"enemy",name:"Wilk",position:{q:1,r:0},weaponSkills:[]};
+    delete enemy.ownerPlayerId;
+    const {events}=createScene({...initialBattle,combatants:[hero,enemy],cells:[{q:0,r:0},{q:1,r:0}]});
+    const commands:unknown[]=[];transport.on("battleCommand",command=>commands.push(command));
+    document.querySelector<HTMLButtonElement>('[data-toggle-skills]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-use-weapon-skill]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-use-weapon-skill]')!.click();
+    expect(commands).toEqual([{type:"useWeaponSkill",combatantId:hero.id,skillId:"sword:power",targetId:enemy.id}]);
+    expect(document.querySelector<HTMLButtonElement>('[data-use-weapon-skill]')!.disabled).toBe(true);events.emit("shutdown");
+  });
   it("loads enemy art on direct battle entry and keeps sprites inside phone hexes with active interactions and dead state", () => {
     const enemy={...initialBattle.combatants[0]!,id:"forest-bandit-01",ownerPlayerId:"enemy",name:"Bandyta",enemyId:"forest-bandit" as const,position:{q:1,r:0}};
     const snapshot={...initialBattle,cells:[{q:0,r:0},{q:1,r:0}],combatants:[...initialBattle.combatants,enemy]};

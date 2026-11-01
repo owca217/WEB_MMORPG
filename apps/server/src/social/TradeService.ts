@@ -230,9 +230,9 @@ export class TradeService {
             // Copy every persisted instance attribute, including creation time and custom rolls.
             await client.query(
               `INSERT INTO item_instances (id,player_id,item_id,quantity,durability,max_durability,upgrade_level,
-                affixes,sockets,bound_to_player_id,created_at,updated_at,character_id,container_capacity,container_instance_id,container_slot,quality)
+                affixes,sockets,bound_to_player_id,created_at,updated_at,character_id,container_capacity,container_instance_id,container_slot,quality,injury_upgrade)
                SELECT $2,NULL,item_id,$3,durability,max_durability,upgrade_level,affixes,sockets,bound_to_player_id,
-                created_at,NOW(),$4,container_capacity,NULL,NULL,quality
+                created_at,NOW(),$4,container_capacity,NULL,NULL,quality,injury_upgrade
                FROM item_instances WHERE id=$1`,
               [instance.id, randomUUID(), offer.quantity, recipientId]
             );

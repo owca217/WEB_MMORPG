@@ -135,3 +135,5 @@
 .battle-hud[data-portrait="true"] .battle-hud__healing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .battle-hud[data-portrait="true"] .battle-hud__heal-target { display: grid; gap: 1px; }
 .battle-hud[data-portrait="true"] .battle-hud__heal-target select { width: 100%; }
+
+.battle-hud__temporary-injuries{display:block;color:#edbc8b;font-size:11px;line-height:1.3;white-space:normal;margin-top:4px}

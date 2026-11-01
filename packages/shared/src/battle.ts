@@ -1,6 +1,7 @@
 import type { BattleId, EntityId, PlayerId } from "./ids";
 import type { CombatStatistics } from "./characterProgression";
 import type { EnemyId } from "./enemies";
+import type { BattleInjuryEffect } from "./injuries";
 
 export interface HexCoord {
   q: number;
@@ -20,7 +21,15 @@ export type InjuryKind =
   | "concussion"
   | "chestWound"
   | "burn"
-  | "poison";
+  | "poison"
+  | "dislocatedShoulder"
+  | "handInjury"
+  | "eyeInjury"
+  | "tendonStrain"
+  | "thighWound"
+  | "abdominalWound"
+  | "backInjury"
+  | "deepWound";
 
 export interface CombatantSnapshot {
   id: EntityId;
@@ -39,6 +48,11 @@ export interface CombatantSnapshot {
   position: HexCoord;
   severelyInjured: boolean;
   injuries: InjuryKind[];
+  temporaryInjuries?: BattleInjuryEffect[];
+  meleeAttackUsedThisTurn?: boolean;
+  attackedThisTurn?: boolean;
+  backInjuryMovementUsedThisTurn?: boolean;
+  movedHexesThisTurn?: number;
 }
 
 export interface BattleSnapshot {

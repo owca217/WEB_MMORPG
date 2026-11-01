@@ -1,4 +1,4 @@
-import type { BattleCommand } from "@web-mmorpg/shared";
+import { affordableMovementHexes, isBattleAttackEnabled, meleeAttackApCost, type BattleCommand } from "@web-mmorpg/shared";
 import type { BattleState } from "./BattleEngine";
 import { findPath, hexDistance, hexKey, hexNeighbors } from "./hex";
 
@@ -19,7 +19,7 @@ export function chooseWolfCommand(state: BattleState, wolfId: string): BattleCom
 
   const distance = hexDistance(wolf.position, target.position);
   if (distance === 1) {
-    if (wolf.ap >= 2) {
+    if (wolf.ap >= meleeAttackApCost(wolf) && isBattleAttackEnabled(wolf, "meleeAttack")) {
       return {
         type: "meleeAttack",
         combatantId: wolf.id,
@@ -29,6 +29,8 @@ export function chooseWolfCommand(state: BattleState, wolfId: string): BattleCom
 
     return { type: "endTurn", combatantId: wolf.id };
   }
+
+  if (affordableMovementHexes(wolf) < 1) return { type: "endTurn", combatantId: wolf.id };
 
   const allowed = new Set(state.arena.cells.map(hexKey));
   const blocked = new Set(state.arena.blockedCells.map(hexKey));

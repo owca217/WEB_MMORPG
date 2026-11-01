@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getEquipmentItemProperties, type InventorySnapshot, type ItemStatModifier, type MerchantOffer, type MerchantPurchase, type MerchantSnapshot } from "@web-mmorpg/shared";
+import { getEquipmentItemProperties, WEAPON_INJURY_STONE_ITEM_ID, WEAPON_INJURY_STONE_CATEGORY, WEAPON_INJURY_STONE_PRICE, type InventorySnapshot, type ItemStatModifier, type MerchantOffer, type MerchantPurchase, type MerchantSnapshot } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 import { InventoryService } from "../inventory/InventoryService";
 import { autoStoreOwnedItems, getStorageDestinations } from "../inventory/autoStorage";
@@ -10,6 +10,7 @@ const MERCHANT_ID = "merchant-miro";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_GOLD = 2_147_483_647;
 const STOCK = [
+  { itemId: WEAPON_INJURY_STONE_ITEM_ID, unitPrice: WEAPON_INJURY_STONE_PRICE, category: WEAPON_INJURY_STONE_CATEGORY, maxQuantity: 20 },
   { itemId: "field-bandage", unitPrice: 5, category: "consumable", maxQuantity: 20 },
   { itemId: "rag-bag", unitPrice: 30, category: "container", maxQuantity: 1 },
   { itemId: "minor-healing-potion", unitPrice: 10, category: "consumable", maxQuantity: 20 },
@@ -224,6 +225,7 @@ export class MerchantService {
         `SELECT id,quantity FROM item_instances WHERE character_id=$1 AND item_id=$2 AND quantity<$3
            AND (container_instance_id IS NULL OR container_instance_id=ANY($6::uuid[])) AND container_slot IS NULL AND equipment_slot IS NULL AND durability IS NULL
            AND max_durability IS NULL AND upgrade_level=0 AND affixes='[]'::jsonb AND sockets='[]'::jsonb
+           AND injury_upgrade IS NULL
            AND bound_to_player_id IS NOT DISTINCT FROM $4::uuid
            AND quality=$5
          ORDER BY array_position($6::uuid[],container_instance_id) ASC NULLS LAST,created_at,id FOR UPDATE`, [characterId, row.id, row.max_stack, boundTo, row.quality,storageIds]

@@ -1,10 +1,11 @@
 import {
   BATTLE_ITEM_AP_COST,
+  INJURY_LABELS,
   type BattleSnapshot,
   getBattleHealingPreview,
+  receivedBattleHealing,
   type CharacterSnapshot,
   type CombatantSnapshot,
-  type InjuryKind,
   type InventoryItem,
   type InventorySnapshot,
   type InventoryUpdateResult
@@ -25,10 +26,9 @@ interface BattleHudHandlers {
   onLayoutChanged?: () => void;
 }
 
-const INJURY_LABELS: Record<InjuryKind, string> = {
-  brokenArm: "Złamana ręka", legTrauma: "Uraz nogi", bleeding: "Krwawienie",
-  concussion: "Wstrząśnienie", chestWound: "Rana klatki piersiowej", burn: "Oparzenie", poison: "Zatrucie"
-};
+function temporaryInjurySummary(combatant: CombatantSnapshot): string {
+  return (combatant.temporaryInjuries ?? []).map(effect => `${INJURY_LABELS[effect.kind]} — ${effect.remainingTurns === null ? "do końca walki" : `${effect.remainingTurns} pełne własne tury`}`).join(" · ");
+}
 
 function positiveEffect(value: number | undefined): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : 0;
@@ -119,6 +119,7 @@ export class BattleHud {
         </dl>
       </details>
       <section class="battle-hud__section"><h2>Urazy</h2><p class="battle-hud__injuries" data-injuries>Brak urazów</p></section>
+      <section class="battle-hud__section" data-battle-injury-effects hidden><h2>Urazy czasowe uczestników</h2><div data-battle-injury-list></div></section>
       <details class="battle-hud__section battle-hud__consumables" aria-label="Przedmioty do użycia w walce" open>
         <summary>Przedmioty <span class="battle-hud__cost">${BATTLE_ITEM_AP_COST} AP / użycie</span></summary>
         <div class="battle-hud__items" data-battle-items></div>
@@ -303,8 +304,9 @@ export class BattleHud {
     this.requireElement("[data-injuries]").textContent = !combatant ? ""
       : [
         ...(combatant.severelyInjured ? ["Ciężko ranny"] : []),
-        ...(combatant.injuries.length ? combatant.injuries.map((injury) => INJURY_LABELS[injury]) : [])
-      ].join(" · ") || "Brak urazów";
+        ...(combatant.injuries.length ? combatant.injuries.map((injury) => INJURY_LABELS[injury]) : []),
+        temporaryInjurySummary(combatant)
+      ].filter(Boolean).join(" · ") || "Brak urazów";
     const activeAlly=this.team?.members.find(member=>member.id===this.team?.activeCombatantId);
     const active = this.battle?.combatants.find(unit => unit.id === this.battle?.activeCombatantId);
     this.requireElement("[data-turn-status]").textContent = this.commandPending ? "Oczekiwanie na serwer…" : !combatant ? "Oczekiwanie na postać"
@@ -367,10 +369,24 @@ export class BattleHud {
       entry.dataset.turnCombatant = id;
       entry.textContent = unit.name;
       entry.title = `${unit.name} · ${unit.hp}/${unit.maxHp} HP`;
+      const injuries = temporaryInjurySummary(unit);
+      if (injuries) entry.title += ` · ${injuries}`;
       entry.setAttribute("aria-current", String(id === this.battle?.activeCombatantId));
       entry.dataset.defeated = String(unit.hp <= 0);
       list.appendChild(entry);
     }
+    const effectsList = this.requireElement("[data-battle-injury-list]");
+    effectsList.replaceChildren();
+    for (const combatant of this.battle?.combatants ?? []) {
+      const injuries = temporaryInjurySummary(combatant);
+      if (!injuries) continue;
+      const effects = document.createElement("p");
+      effects.className = "battle-hud__temporary-injuries";
+      effects.dataset.combatantInjuries = combatant.id;
+      effects.textContent = `${combatant.name}: ${injuries}`;
+      effectsList.append(effects);
+    }
+    this.requireElement("[data-battle-injury-effects]").hidden = !effectsList.childElementCount;
   }
 
   private renderItems(): void {
@@ -411,7 +427,8 @@ export class BattleHud {
       heading.append(icon, name, quantity);
       const effects = document.createElement("p");
       effects.className = "battle-hud__item-effects";
-      const healHp = positiveEffect(item.consumableEffects?.healHp);
+      const baseHealHp = positiveEffect(item.consumableEffects?.healHp);
+      const healHp = this.ownCombatant ? receivedBattleHealing(this.ownCombatant, baseHealHp) : baseHealHp;
       const restoreAp = positiveEffect(item.consumableEffects?.restoreAp);
       effects.textContent = [
         ...(healHp ? [`+${healHp} HP`] : []),
@@ -443,7 +460,8 @@ export class BattleHud {
   }
 
   private itemDisabledReason(item: InventoryItem): string | undefined {
-    const healHp = positiveEffect(item.consumableEffects?.healHp);
+    const baseHealHp = positiveEffect(item.consumableEffects?.healHp);
+    const healHp = this.ownCombatant ? receivedBattleHealing(this.ownCombatant, baseHealHp) : baseHealHp;
     const restoreAp = positiveEffect(item.consumableEffects?.restoreAp);
     if (!healHp && !restoreAp) return "Brak działania w walce";
     if (item.quantity < 1) return "Brak przedmiotu";

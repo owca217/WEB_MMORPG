@@ -125,6 +125,28 @@ it("applies equipment from the authoritative acknowledgement and preserves gold"
   expect(document.querySelector('[data-equipment-slot="mainHand"]')?.textContent).toContain("Topór");events.emit("shutdown");
 });
 
+it("applies an injury roll to the equipped object and prevents an older ACK replacing newer state",async()=>{
+  let finish!:(value:any)=>void;vi.spyOn(gameSocket,"applyWeaponInjury").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const refresh=vi.spyOn(gameSocket,"requestPlayerState");
+  const scene=new WorldScene(),events=new EventEmitter();Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});scene.init({playerId:"hero"});scene.create();
+  const pack:InventoryItem={instanceId:"pack",itemId:"permanent-backpack",itemDefinitionId:"pack",name:"Plecak",category:"container",description:"",quantity:1,rarity:"COMMON",upgradeLevel:0,permanentContainer:true,containerCapacity:16};
+  const stone:InventoryItem={...pack,instanceId:"stone",itemId:"injury-stone",name:"Kamień",category:"upgrade-item",permanentContainer:false,containerInstanceId:"pack"};
+  const sword:InventoryItem={...pack,instanceId:"sword",itemId:"sword",name:"Miecz",category:"weapon",permanentContainer:false,quality:"EXCELLENT",equippedSlot:"mainHand",equipment:{slot:"mainHand",weaponFamily:"sword",minimumLevel:1,twoHanded:false,modifiers:[]}};
+  const character:PlayerStateSnapshot["character"]={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:{...emptyCharacterEquipment(),mainHand:sword}};
+  const initial={character,inventory:{items:[pack,stone,sword],containerSlots:["pack",null,null,null]},gold:100};
+  const openAndApply=()=>{document.querySelector<HTMLButtonElement>('[data-container-item="stone"]')!.click();document.querySelector<HTMLButtonElement>('[data-apply-injury]')!.click();};
+  transport.emit("playerState",initial);document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyI",bubbles:true}));openAndApply();
+  const upgrade={kind:"handInjury" as const,chancePercent:8,duration:3 as const},upgraded={...sword,injuryUpgrade:upgrade};
+  finish({ok:true,character:{...character,equipment:{...emptyCharacterEquipment(),mainHand:upgraded}},inventory:{...initial.inventory,items:[pack,upgraded]},upgrade});
+  await vi.waitFor(()=>expect(playerStateStore.get()?.character.equipment?.mainHand?.injuryUpgrade).toEqual(upgrade));
+  expect(document.querySelector<HTMLButtonElement>('[data-hud-equipment-slot="mainHand"]')!.title).toContain("Uszkodzona dłoń");expect(playerStateStore.get()?.gold).toBe(100);
+  // A fresh authoritative push while another request is in flight wins over that ACK.
+  transport.emit("playerState",initial);openAndApply();transport.emit("playerState",{...initial,gold:65,character:{...character,hp:77}});
+  const previous=refresh.mock.calls.length;finish({ok:true,character,inventory:{items:[]},upgrade});
+  await vi.waitFor(()=>expect(refresh.mock.calls.length).toBeGreaterThan(previous));
+  expect(playerStateStore.get()).toMatchObject({gold:65,character:{hp:77}});expect(playerStateStore.get()?.inventory.items).toHaveLength(3);events.emit("shutdown");
+});
+
 it("keeps newer player state when an older equipment acknowledgement arrives and refreshes authority",async()=>{
  let finish!:(value:any)=>void;vi.spyOn(gameSocket,"setEquipmentSlot").mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));const refresh=vi.spyOn(gameSocket,"requestPlayerState");
  const scene=new WorldScene(),events=new EventEmitter();Object.assign(scene,{events,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false},input:{on(){}}});scene.init({playerId:"hero"});scene.create();

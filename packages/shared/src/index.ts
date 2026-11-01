@@ -4,6 +4,8 @@ export * from "./worldLayouts";
 export * from "./worldCollision";
 export * from "./worldNavigation";
 export * from "./battle";
+export * from "./injuries";
+export * from "./weaponInjuryUpgrade";
 export * from "./battleTopology";
 export * from "./battleRules";
 export * from "./inventory";

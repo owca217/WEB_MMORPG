@@ -2,6 +2,7 @@ import type { ItemInstanceId } from "./ids";
 import type { ItemRarity } from "./items";
 import type { ItemQuality } from "./itemQuality";
 import type { EquipmentItemProperties, EquipmentSlot, EquipmentSlots } from "./equipment";
+import type { WeaponInjuryUpgrade } from "./injuries";
 
 export type ItemCategory = string;
 
@@ -41,6 +42,7 @@ export interface InventoryItem {
   durability?: number;
   maxDurability?: number;
   upgradeLevel: number;
+  injuryUpgrade?: WeaponInjuryUpgrade;
   boundToPlayerId?: string;
   containerInstanceId?: ItemInstanceId;
   /** Zero-based persistent cell within containerInstanceId. */

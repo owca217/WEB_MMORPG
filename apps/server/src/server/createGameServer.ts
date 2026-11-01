@@ -17,6 +17,7 @@ import { ChatService } from "../chat/ChatService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
 import { InventoryService } from "../inventory/InventoryService";
+import { WeaponInjuryUpgradeService } from "../inventory/WeaponInjuryUpgradeService";
 import { EquipmentService } from "../equipment/EquipmentService";
 import { LootService } from "../loot/LootService";
 import { WorldService } from "../world/WorldService";
@@ -119,6 +120,15 @@ function merchantFailure(error: unknown): {ok:false;code:string;message:string} 
 }
 
 const EQUIPMENT_ERRORS:Record<string,string>={
+  WEAPON_INJURY_INVALID_REQUEST:"Wybierz poprawną broń i kamień urazu.",
+  WEAPON_INJURY_INELIGIBLE:"Wybierz sprawną broń jakości Znakomitej lub wyższej.",
+  WEAPON_INJURY_INVALID_STONE:"Wybierz posiadany kamień urazu.",
+  WEAPON_INJURY_REQUEST_CONFLICT:"Ten identyfikator dotyczy innego ulepszenia.",
+  WEAPON_INJURY_REQUEST_UNCERTAIN:"Ulepszenie mogło zostać zapisane. Ponów tę samą próbę, aby sprawdzić wynik.",
+  INVENTORY_ITEM_NOT_OWNED:"Nie posiadasz wybranej broni lub kamienia.",
+  BATTLE_IN_PROGRESS:"Broń można ulepszać poza walką.",
+  TRADE_IN_PROGRESS:"Zakończ wymianę przed ulepszaniem broni.",
+  EQUIPMENT_ACTION_PENDING:"Poczekaj na zakończenie poprzedniej czynności.",
   PERMANENT_BACKPACK_FIXED:"Plecak podróżnika jest na stałe i nie można zmienić jego miejsca.",
   INVALID_EQUIPMENT_SLOT:"Wybierz poprawne miejsce uzbrojenia.",
   INVALID_ITEM_INSTANCE_ID:"Wybierz przedmiot ze swojego ekwipunku.",
@@ -141,6 +151,7 @@ export function createGameServer(
 ) {
   const world = new WorldService();
   const inventory = new InventoryService(options.pool);
+  const weaponInjuryUpgrades = new WeaponInjuryUpgradeService(options.pool,inventory);
   const equipment = new EquipmentService(options.pool,inventory);
   const merchant = new MerchantService(options.pool);
   const loot = new LootService();
@@ -681,6 +692,46 @@ export function createGameServer(
       ack({ok:false,code:"WEAPON_STYLES_REMOVED",message:"Style walki zostały zastąpione uzbrojeniem. Zaktualizuj klienta i załóż przedmiot."});
     });
 
+    socket.on("applyWeaponInjury",(payload,ack)=>{
+      if(typeof ack!=="function")return;
+      const id=characterId,version=characterVersion;
+      const fail=(error:unknown)=>{
+        const code=error instanceof Error && EQUIPMENT_ERRORS[error.message]?error.message:"WEAPON_INJURY_FAILED";
+        ack({ok:false,code,message:EQUIPMENT_ERRORS[code]??"Nie udało się ulepszyć broni. Ponów tę samą próbę."});
+      };
+      if(!id || !ownsCharacter(id,version)){ack({ok:false,code:"AUTHENTICATION_REQUIRED",message:"Zaloguj się, aby ulepszyć broń."});return;}
+      const assertCurrent=()=>{
+        if(!ownsCharacter(id,version))throw new Error("SESSION_REPLACED");
+        if(battles.hasBattle(id))throw new Error("BATTLE_IN_PROGRESS");
+        const trade=social.trades.getSnapshot(id);
+        if(trade && (trade.status==="invited" || trade.status==="active"))throw new Error("TRADE_IN_PROGRESS");
+      };
+      try {
+        assertCurrent();
+        if(pendingPartyStarts.has(id) || pendingEquipmentOperations.has(id) || pendingBattleRewards.has(id) || pendingBattleItemUses.has(id) || pendingMerchantOperations.has(id) || social.isBusy(id) || healing.pendingFor(id))throw new Error("EQUIPMENT_ACTION_PENDING");
+      }catch(error){fail(error);return;}
+      let release!:()=>void;const mutation=new Promise<void>(resolve=>{release=resolve;});
+      pendingEquipmentOperations.set(id,mutation);
+      equipmentRevisions.set(id,(equipmentRevisions.get(id)??0)+1);
+      const finish=()=>{release();if(pendingEquipmentOperations.get(id)===mutation)pendingEquipmentOperations.delete(id);};
+      void(async()=>{
+        try {
+          await pendingCharacterSaves.get(id);
+          assertCurrent();
+          const result=await weaponInjuryUpgrades.apply(id,payload,assertCurrent);
+          // Refresh copied equipment objects, including a weapon currently in mainHand.
+          if(characterOwners.get(id)===socket.id){
+            const character=characters.getSnapshot(id);
+            if(character)characters.setEquipment(id,getCharacterEquipment(result.inventory,character.level));
+          }
+          finish();
+          assertCurrent();
+          ack({ok:true,...result,character:characters.getSnapshot(id)!});
+          void emitPlayerState(id).catch(()=>undefined);
+        }catch(error){fail(error);}finally{finish();}
+      })();
+    });
+
     socket.on("setEquipmentSlot",(payload,ack)=>{
       if(typeof ack!=="function")return;
       const id=characterId,version=characterVersion;
@@ -1162,6 +1213,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, equipment, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
+    services: { world, inventory, equipment, weaponInjuryUpgrades, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
   };
 }

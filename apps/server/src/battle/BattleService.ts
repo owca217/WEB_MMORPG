@@ -1,10 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import {
   getCharacterStatistics,
   getEnemyDefinition,
   getEquipmentCombatStatistics,
   getEquippedWeaponFamily,
   hasEquippedShield,
+  canApplyWeaponInjury,
+  calculateWeaponInjuryDuration,
+  isWeaponInjuryUpgrade,
+  receivedBattleHealing,
   MAX_CHARACTER_LEVEL,
   BATTLE_ITEM_AP_COST,
   type ConsumableEffects,
@@ -101,17 +105,21 @@ export class BattleService {
     const enemyStarts = arena.enemyStartCells.slice(0, wolfCount);
     if (arena.playerStartCells.length < characters.length || enemyStarts.length !== wolfCount) throw new Error("ARENA_START_POSITION_MISSING");
     const state = this.runNpcTurns(createBattleState({
-id: `battle:${initiator.playerId}:${encounterId}:${randomUUID()}`, seed, arena, combatants: [
+id: `battle:${initiator.playerId}:${encounterId}:${randomUUID()}`, seed, injuryRandomSeed: randomInt(1, 0x100000000), arena, combatants: [
         ...characters.map((character, index) => {
           const characterLevel = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
           const equipped=getEquipmentCombatStatistics(getCharacterStatistics(characterLevel),character.weaponTraining,character.equipment);
           const stats=character.statistics??equipped;
+          const weapon = character.equipment?.mainHand;
+          const weaponInjuryUpgrade = weapon && canApplyWeaponInjury(weapon) && isWeaponInjuryUpgrade(weapon.injuryUpgrade) &&
+            weapon.injuryUpgrade.duration === calculateWeaponInjuryDuration(weapon.quality!, weapon.injuryUpgrade.kind, weapon.injuryUpgrade.chancePercent) ? { ...weapon.injuryUpgrade } : undefined;
           const combatStats: CombatStatistics = {
 meleeDamage: equipped.meleeEnabled?stats.meleeDamage:0, rangedDamage: equipped.rangedEnabled?stats.rangedDamage:0, armor: stats.armor,meleeEnabled:Boolean(equipped.meleeEnabled),rangedEnabled:Boolean(equipped.rangedEnabled),
             ...(equipped.healingPower !== undefined ? { healingPower: equipped.healingPower } : {}), ...(equipped.blockPercent !== undefined ? { blockPercent: equipped.blockPercent } : {})
 };
           return {
 id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "player" as const, name: character.nickname, level: characterLevel, combatStats,
+            ...(weaponInjuryUpgrade ? { weaponInjuryUpgrade } : {}),
             hp: character.hp, maxHp: character.maxHp, maxAp: character.maxAp, initiative: character.initiative, position: arena.playerStartCells[index]!, severelyInjured: character.severelyInjured, injuries: [...character.injuries]
 };
         }),
@@ -259,7 +267,7 @@ result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, ac
     try {
       const inventory = await consume((effects) => {
         if (staged) throw new Error("ITEM_ALREADY_PREPARED");
-        const hp = Math.min(actor.maxHp, actor.hp + Math.max(0, Math.floor(effects.healHp ?? 0)));
+        const hp = Math.min(actor.maxHp, actor.hp + receivedBattleHealing(actor, effects.healHp ?? 0));
         const ap = Math.min(actor.maxAp, actor.ap - BATTLE_ITEM_AP_COST + Math.max(0, Math.floor(effects.restoreAp ?? 0)));
         if (!Number.isFinite(hp) || !Number.isFinite(ap) || (hp <= actor.hp && ap <= actor.ap)) {
           throw new Error("ITEM_NO_EFFECT");
@@ -332,6 +340,11 @@ result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, ac
         ...(combatant.level !== undefined ? { level: combatant.level } : {}),
         ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {}),
         ...(combatant.healingUsedThisTurn ? { healingUsedThisTurn: true } : {}),
+        ...(combatant.meleeAttackUsedThisTurn ? { meleeAttackUsedThisTurn: true } : {}),
+        ...(combatant.attackedThisTurn ? { attackedThisTurn: true } : {}),
+        ...(combatant.backInjuryMovementUsedThisTurn ? { backInjuryMovementUsedThisTurn: true } : {}),
+        ...(combatant.movedHexesThisTurn !== undefined ? { movedHexesThisTurn: combatant.movedHexesThisTurn } : {}),
+        ...(combatant.temporaryInjuries ? { temporaryInjuries: combatant.temporaryInjuries.map(effect => ({ ...effect })) } : {}),
         hp: combatant.hp,
         maxHp: combatant.maxHp,
         ap: combatant.ap,

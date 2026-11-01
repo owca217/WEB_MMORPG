@@ -5,13 +5,17 @@ import type {
   HexCoord,
   PlayerId
 } from "@web-mmorpg/shared";
-import { isBattleAttackEnabled, mitigatedBattleDamage, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
+import { hasInjury, injuryAdjustedAttackDamage, isBattleAttackEnabled, isWeaponInjuryUpgrade, meleeAttackApCost, mitigatedBattleDamage, rangedAttackRange, receivedBattleHealing, remainingMovementHexes, STAFF_HEAL_AP_COST } from "@web-mmorpg/shared";
 import { findPath, hexDistance, hexKey } from "./hex";
 import { hasLineOfSight } from "./lineOfSight";
 import {
   applyDamageWithInjuries,
   applyEndTurnInjuries,
   effectiveInitiative,
+  applyTemporaryInjury,
+  beginCombatantTurn,
+  expireTurnInjuries,
+  updateInjuryHpCap,
   movementApCost,
   rangedAttackApCost,
   type CombatantState
@@ -28,6 +32,8 @@ export interface BattleState {
   arena: GeneratedArena;
   combatants: Record<string, CombatantState>;
   finished: boolean;
+  injuryRandomState?: number;
+  actedCombatantIds?: string[];
 }
 
 export type BattleResult =
@@ -41,6 +47,7 @@ type ActorValidationResult =
 export interface CreateBattleStateInput {
   id: BattleId;
   seed: number;
+  injuryRandomSeed?: number;
   arena: GeneratedArena;
   combatants: CreateCombatantInput[];
 }
@@ -61,6 +68,7 @@ function cloneState(state: BattleState): BattleState {
       enemyStartCells: [...state.arena.enemyStartCells]
     },
     turnOrder: [...state.turnOrder],
+    ...(state.actedCombatantIds ? { actedCombatantIds: [...state.actedCombatantIds] } : {}),
     combatants: Object.fromEntries(
       Object.entries(state.combatants).map(([id, combatant]) => [
         id,
@@ -68,6 +76,10 @@ function cloneState(state: BattleState): BattleState {
           ...combatant,
           position: { ...combatant.position },
           injuries: [...combatant.injuries],
+          ...(combatant.temporaryInjuries ? { temporaryInjuries: combatant.temporaryInjuries.map(effect => ({ ...effect })) } : {}),
+          ...(combatant.weaponInjuryUpgrade ? { weaponInjuryUpgrade: { ...combatant.weaponInjuryUpgrade } } : {}),
+          ...(combatant.injuryAttemptedTargetsThisTurn ? { injuryAttemptedTargetsThisTurn: [...combatant.injuryAttemptedTargetsThisTurn] } : {}),
+          ...(combatant.fullTurnInjuryKinds ? { fullTurnInjuryKinds: [...combatant.fullTurnInjuryKinds] } : {}),
           ...(combatant.combatStats ? { combatStats: { ...combatant.combatStats } } : {})
         }
       ])
@@ -87,17 +99,19 @@ export function createBattleState(input: CreateBattleStateInput): BattleState {
 
   const combatants: Record<string, CombatantState> = {};
   for (const inputCombatant of input.combatants) {
-    combatants[inputCombatant.id] = {
+    combatants[inputCombatant.id] = updateInjuryHpCap({
       ...inputCombatant,
       position: { ...inputCombatant.position },
       injuries: [...inputCombatant.injuries],
+      ...(inputCombatant.temporaryInjuries ? { temporaryInjuries: inputCombatant.temporaryInjuries.map(effect => ({ ...effect })) } : {}),
+      ...(inputCombatant.weaponInjuryUpgrade ? { weaponInjuryUpgrade: { ...inputCombatant.weaponInjuryUpgrade } } : {}),
       ...(inputCombatant.combatStats ? { combatStats: { ...inputCombatant.combatStats } } : {}),
       ap: 0
-    };
+    });
   }
 
   const activeCombatantId = ordered[0]!.id;
-  combatants[activeCombatantId]!.ap = combatants[activeCombatantId]!.maxAp;
+  beginCombatantTurn(combatants[activeCombatantId]!);
 
   return {
     id: input.id,
@@ -107,7 +121,9 @@ export function createBattleState(input: CreateBattleStateInput): BattleState {
     turnOrder: ordered.map((combatant) => combatant.id),
     arena: input.arena,
     combatants,
-    finished: false
+    finished: false,
+    injuryRandomState: ((input.injuryRandomSeed ?? input.seed) >>> 0) || 0x9e3779b9,
+    actedCombatantIds: []
   };
 }
 
@@ -128,39 +144,40 @@ function battleFinished(combatants: Record<string, CombatantState>): boolean {
 function advanceTurn(state: BattleState): BattleState {
   const next = cloneState(state);
   const currentIndex = next.turnOrder.indexOf(next.activeCombatantId);
-  let nextIndex = currentIndex;
-
-  for (let attempts = 0; attempts < next.turnOrder.length; attempts += 1) {
-    nextIndex = (nextIndex + 1) % next.turnOrder.length;
-    const candidate = next.combatants[next.turnOrder[nextIndex]!];
-    if (candidate && candidate.hp > 0) break;
+  const acted = new Set(next.actedCombatantIds?.length ? next.actedCombatantIds : next.turnOrder.slice(0, Math.max(0, currentIndex)));
+  acted.add(next.activeCombatantId);
+  const ordered = Object.values(next.combatants).sort((a, b) => effectiveInitiative(b) - effectiveInitiative(a) || a.id.localeCompare(b.id));
+  next.turnOrder = ordered.map(unit => unit.id);
+  let active = ordered.find(unit => unit.hp > 0 && !acted.has(unit.id));
+  if (!active) {
+    next.round += 1;
+    acted.clear();
+    active = ordered.find(unit => unit.hp > 0);
   }
-
-  if (nextIndex <= currentIndex) next.round += 1;
-  next.activeCombatantId = next.turnOrder[nextIndex]!;
-  const active = next.combatants[next.activeCombatantId]!;
-  active.ap = active.maxAp;
-  delete active.healingUsedThisTurn;
+  next.actedCombatantIds = [...acted];
+  if (active) {
+    next.activeCombatantId = active.id;
+    beginCombatantTurn(active);
+  }
   return next;
+}
+
+function finishIfDecided(state: BattleState): void {
+  state.finished = battleFinished(state.combatants);
+  if (!state.finished) return;
+  for (const [id, unit] of Object.entries(state.combatants)) {
+    state.combatants[id] = updateInjuryHpCap({ ...unit, temporaryInjuries: [], fullTurnInjuryKinds: [] });
+  }
 }
 
 /** Remove a departing owner without applying end-turn damage or leaving a blocked turn. */
 export function removeBattleCombatant(state: BattleState, combatantId: string): BattleState {
   if (!state.combatants[combatantId]) return cloneState(state);
-  const next = cloneState(state), index = next.turnOrder.indexOf(combatantId), wasActive = next.activeCombatantId === combatantId;
+  const next = cloneState(state), wasActive = next.activeCombatantId === combatantId;
   delete next.combatants[combatantId];
   next.turnOrder = next.turnOrder.filter(id => id !== combatantId);
-  next.finished = battleFinished(next.combatants);
-  if (wasActive && next.turnOrder.length > 0) {
-    let nextIndex = Math.max(0, index) % next.turnOrder.length;
-    if (nextIndex === 0 && index > 0) next.round++;
-    for (let attempts = 0; attempts < next.turnOrder.length; attempts++) {
-      const candidate = next.combatants[next.turnOrder[nextIndex]!]!;
-      if (candidate.hp > 0) { next.activeCombatantId = candidate.id; candidate.ap = candidate.maxAp; delete candidate.healingUsedThisTurn; break; }
-      nextIndex = (nextIndex + 1) % next.turnOrder.length;
-      if (nextIndex === 0) next.round++;
-    }
-  }
+  finishIfDecided(next);
+  if (wasActive && !next.finished) return advanceTurn(next);
   return next;
 }
 
@@ -211,17 +228,30 @@ function applyAttack(
   attackerId: string,
   targetId: string,
   damage: number,
-  apCost: number
+  apCost: number,
+  melee: boolean
 ): BattleState {
   const next = cloneState(state);
   const attacker = next.combatants[attackerId]!;
   const target = next.combatants[targetId]!;
-  const armorDamage = mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0);
-  const mitigatedDamage = mitigatedBattleDamage(damage, target.combatStats?.armor ?? 0, target.combatStats?.blockPercent ?? 0);
+  const adjustedDamage = injuryAdjustedAttackDamage(attacker, target, damage);
+  const armorDamage = mitigatedBattleDamage(adjustedDamage, target.combatStats?.armor ?? 0);
+  const mitigatedDamage = mitigatedBattleDamage(adjustedDamage, target.combatStats?.armor ?? 0, target.combatStats?.blockPercent ?? 0);
   if (mitigatedDamage < armorDamage) target.shieldBlocks = (target.shieldBlocks ?? 0) + 1;
   attacker.ap -= apCost;
+  attacker.attackedThisTurn = true;
+  if (melee) attacker.meleeAttackUsedThisTurn = true;
   next.combatants[targetId] = applyDamageWithInjuries(target, mitigatedDamage, next.seed + next.round);
-  next.finished = battleFinished(next.combatants);
+  const upgrade = attacker.weaponInjuryUpgrade;
+  if (next.combatants[targetId]!.hp > 0 && isWeaponInjuryUpgrade(upgrade) && !(attacker.injuryAttemptedTargetsThisTurn ?? []).includes(targetId)) {
+    attacker.injuryAttemptedTargetsThisTurn = [...(attacker.injuryAttemptedTargetsThisTurn ?? []), targetId];
+    // Persist a separate stream: repeated attack commands must never reuse a round's roll.
+    let randomState = next.injuryRandomState ?? ((next.seed >>> 0) || 0x9e3779b9);
+    randomState ^= randomState << 13; randomState ^= randomState >>> 17; randomState ^= randomState << 5;
+    next.injuryRandomState = randomState >>> 0;
+    if (next.injuryRandomState / 0x100000000 < upgrade.chancePercent / 100) next.combatants[targetId] = applyTemporaryInjury(next.combatants[targetId]!, upgrade);
+  }
+  finishIfDecided(next);
   return next;
 }
 
@@ -242,7 +272,7 @@ function applyValidatedCommand(
     }
     if (target.hp >= target.maxHp) return reject("NO_HEAL_EFFECT", "Cel ma pełne HP.");
     if (actor.ap < STAFF_HEAL_AP_COST) return reject("INSUFFICIENT_AP", `Leczenie wymaga ${STAFF_HEAL_AP_COST} AP.`);
-    const amount = Math.min(target.maxHp - target.hp, Math.floor(power));
+    const amount = Math.min(target.maxHp - target.hp, receivedBattleHealing(target, power));
     if (amount <= 0) return reject("NO_HEAL_EFFECT", "Kostur nie przywróci teraz HP.");
     const next = cloneState(state), healer = next.combatants[actor.id]!;
     next.combatants[target.id]!.hp += amount; healer.ap -= STAFF_HEAL_AP_COST; healer.healingUsedThisTurn = true;
@@ -255,13 +285,22 @@ function applyValidatedCommand(
 
     const path = findPath(actor.position, command.target, blocked, allowed);
     if (!path) return reject("NO_PATH", "No valid path to target cell.");
+    if (path.length > remainingMovementHexes(actor)) return reject("MOVEMENT_LIMIT", "Uraz pozwala przejść najwyżej 3 pola w turze.");
 
     const cost = movementApCost(actor, path.length);
     if (actor.ap < cost) return reject("INSUFFICIENT_AP", "Not enough AP to move there.");
 
     const next = cloneState(state);
-    next.combatants[actor.id]!.ap -= cost;
-    next.combatants[actor.id]!.position = { ...command.target };
+    const moving = next.combatants[actor.id]!;
+    moving.ap -= cost;
+    moving.position = { ...command.target };
+    moving.movedHexesThisTurn = (moving.movedHexesThisTurn ?? 0) + path.length;
+    if (path.length > 0 && hasInjury(moving, "backInjury") && moving.attackedThisTurn) moving.backInjuryMovementUsedThisTurn = true;
+    const damage = hasInjury(moving, "thighWound") ? Math.min(path.length * 2, Math.max(0, 6 - (moving.thighWoundDamageThisTurn ?? 0))) : 0;
+    moving.thighWoundDamageThisTurn = (moving.thighWoundDamageThisTurn ?? 0) + damage;
+    next.combatants[actor.id] = damage ? applyDamageWithInjuries(moving, damage, next.seed + next.round) : moving;
+    finishIfDecided(next);
+    if (!next.finished && next.combatants[actor.id]!.hp <= 0) return { ok: true, state: advanceTurn(next) };
     return { ok: true, state: next };
   }
 
@@ -274,26 +313,26 @@ function applyValidatedCommand(
     const distance = hexDistance(actor.position, target.position);
 
     if (command.type === "meleeAttack") {
-      const cost = 2;
+      const cost = meleeAttackApCost(actor);
       if (actor.ap < cost) return reject("INSUFFICIENT_AP", "Not enough AP.");
       if (distance !== 1) return reject("OUT_OF_RANGE", "Melee target must be adjacent.");
-      return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.meleeDamage ?? 20, cost) };
+      return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.meleeDamage ?? 20, cost, true) };
     }
 
     const cost = rangedAttackApCost(actor);
     if (actor.ap < cost) return reject("INSUFFICIENT_AP", "Not enough AP.");
-    if (distance > 6) return reject("OUT_OF_RANGE", "Ranged target is too far away.");
+    if (distance <= 0 || distance > rangedAttackRange(actor)) return reject("OUT_OF_RANGE", "Ranged target is too far away.");
     const blockers = new Set(state.arena.blockedCells.map(hexKey));
     if (!hasLineOfSight(actor.position, target.position, blockers)) {
       return reject("NO_LINE_OF_SIGHT", "Line of sight is blocked.");
     }
-    return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.rangedDamage ?? 15, cost) };
+    return { ok: true, state: applyAttack(state, actor.id, target.id, actor.combatStats?.rangedDamage ?? 15, cost, false) };
   }
 
   const next = cloneState(state);
   const current = next.combatants[actor.id]!;
-  next.combatants[actor.id] = applyEndTurnInjuries(current, next.seed + next.round);
-  next.finished = battleFinished(next.combatants);
+  next.combatants[actor.id] = expireTurnInjuries(applyEndTurnInjuries(current, next.seed + next.round));
+  finishIfDecided(next);
   if (next.finished) return { ok: true, state: next };
   return { ok: true, state: advanceTurn(next) };
 }

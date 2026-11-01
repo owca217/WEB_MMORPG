@@ -2,7 +2,7 @@ import {
   emptyCharacterEquipment, EQUIPMENT_SLOTS, EQUIPMENT_SLOT_LABELS, getCharacterEquipment,
   type CharacterEquipment, type CharacterSnapshot, type EquipmentSlot, type InventoryItem, type InventorySnapshot
 } from "@web-mmorpg/shared";
-import { equipmentIcon } from "./EquipmentIcon";
+import { equipmentIcon, equipmentItemSummary } from "./EquipmentIcon";
 import { itemQualityText } from "./ItemQualityFrame";
 import "./HudEquipmentSlots.css";
 
@@ -63,7 +63,7 @@ export class HudEquipmentSlots {
       const button = this.buttons.get(slot)!;
       const item = this.equipment[slot];
       const blocked = slot === "offHand" && !item && !!this.equipment.mainHand?.equipment?.twoHanded;
-      const detail = item ? `${item.name} · ${itemQualityText(item)}` : blocked ? "Zajęte przez broń dwuręczną" : "Puste miejsce";
+      const detail = item ? `${item.name} · ${equipmentItemSummary(item) || itemQualityText(item)}` : blocked ? "Zajęte przez broń dwuręczną" : "Puste miejsce";
       const label = `${EQUIPMENT_SLOT_LABELS[slot]}: ${detail}`;
       button.setAttribute("aria-label", label);
       button.title = label;

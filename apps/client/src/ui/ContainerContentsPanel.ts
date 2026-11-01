@@ -1,4 +1,4 @@
-import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_INDEX, getPendingInventoryItems, type ContainerSlotIndex, type InventoryItem, type InventorySnapshot, type InventoryUpdateResult, type CharacterSnapshot } from "@web-mmorpg/shared";
+import { CONTAINER_ITEM_CATEGORY, CONTAINER_SLOT_COUNT, PERMANENT_BACKPACK_SLOT_INDEX, getPendingInventoryItems, canApplyWeaponInjury, isWeaponInjuryStone, formatWeaponInjuryUpgrade, type WeaponInjuryUpgradeRequest, type WeaponInjuryUpgradeResult, type ContainerSlotIndex, type InventoryItem, type InventorySnapshot, type InventoryUpdateResult, type CharacterSnapshot } from "@web-mmorpg/shared";
 import { equipmentDisabledReason, equipmentItemSummary } from "./EquipmentIcon";
 import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 import { inventoryItemIcon } from "./InventoryItemIcon";
@@ -8,12 +8,19 @@ import { inventoryPositions } from "./inventoryPositions";
 import "./ContainerContentsPanel.css";
 import "./ItemPanels.css";
 const PLACES_PER_PAGE = 40;
+// These transaction errors are raised only after the character lock and absent
+// durable receipt have been checked. Preflight errors cannot establish that an
+// earlier timed-out operation rolled back, so recovery must keep its receipt.
+const DEFINITE_INJURY_TRANSACTION_REJECTIONS = new Set([
+    "WEAPON_INJURY_INELIGIBLE", "WEAPON_INJURY_INVALID_STONE", "INVENTORY_ITEM_NOT_OWNED"
+]);
 interface ContainerContentsPanelHandlers {
     onMoveItem: (itemInstanceId: string, targetContainerInstanceId: string, targetPosition?: number) => Promise<InventoryUpdateResult>;
     onSetContainerSlot?: (slotIndex: ContainerSlotIndex, itemInstanceId: string) => Promise<InventoryUpdateResult>;
     onInventoryChanged: (inventory: InventorySnapshot) => void;
     onChangeContainer: (slotIndex: ContainerSlotIndex) => void;
     onEquipItem?: (item: InventoryItem) => Promise<InventoryUpdateResult>;
+    onApplyWeaponInjury?: (request: WeaponInjuryUpgradeRequest) => Promise<WeaponInjuryUpgradeResult>;
     onRefresh?: () => void;
     onTypingChange?: () => void;
 }
@@ -31,6 +38,7 @@ export class ContainerContentsPanel {
     private readonly empty: HTMLElement;
     private readonly grid: HTMLDivElement;
     private readonly feedback: HTMLElement;
+    private readonly injuryRetry: HTMLButtonElement;
     private readonly changeButton: HTMLButtonElement;
     private readonly pendingButton: HTMLButtonElement;
     private readonly pagination: HTMLElement;
@@ -51,6 +59,9 @@ export class ContainerContentsPanel {
     private requestVersion = 0;
     private dataVersion = 0;
     private selectedItemId: string | null = null;
+    private injuryWeaponId: string | null = null;
+    /** Keep a sent receipt until its outcome is known, even if the stone disappears in a push. */
+    private injuryRequest: WeaponInjuryUpgradeRequest | null = null;
     private returnFocus: HTMLElement | null = null;
     private readonly onBack = (event: Event): void => {
         if (!event.cancelable || !this.inline || !this.drag.isDragging) return;
@@ -82,6 +93,12 @@ export class ContainerContentsPanel {
         this.empty = this.require("[data-container-contents-empty]");
         this.grid = this.require("[data-container-grid]");
         this.feedback = this.require("[data-container-contents-feedback]");
+        this.injuryRetry = node("button", "Sprawdź wynik ulepszenia", "container-contents__injury-retry");
+        this.injuryRetry.type = "button";
+        this.injuryRetry.dataset.injuryRetry = "";
+        this.injuryRetry.hidden = true;
+        this.feedback.after(this.injuryRetry);
+        this.injuryRetry.addEventListener("click", () => { if (this.injuryRequest) void this.applyInjury(this.injuryRequest); });
         this.changeButton = this.require("[data-change-container]");
         this.pendingButton = this.require("[data-container-pending]");
         this.pagination = this.require("[data-container-pagination]");
@@ -137,6 +154,8 @@ export class ContainerContentsPanel {
             this.drag.cancel();
             this.requestVersion++;
             this.pending = false;
+            this.injuryRequest = null;
+            this.injuryWeaponId = null;
             this.closeSelection(false);
         }
         if (character)
@@ -256,6 +275,8 @@ export class ContainerContentsPanel {
         this.changeButton.hidden = this.pendingView || this.slotIndex === PERMANENT_BACKPACK_SLOT_INDEX || !!container?.permanentContainer;
         this.changeButton.disabled = this.pending || this.changeButton.hidden;
         this.root.setAttribute("aria-busy", String(this.pending));
+        this.injuryRetry.hidden = !this.injuryRequest || this.pending;
+        this.injuryRetry.disabled = this.pending;
         this.grid.replaceChildren();
         delete this.grid.dataset.containerDropTarget;
         this.grid.hidden = !this.pendingView && !container;
@@ -318,6 +339,7 @@ export class ContainerContentsPanel {
             this.feedback.textContent = "";
             delete this.feedback.dataset.state;
             this.selectedItemId = item.instanceId;
+            this.injuryWeaponId = null;
             this.renderPopover();
             this.popover.scrollTop = 0;
             this.popover.querySelector<HTMLButtonElement>("[data-container-close-actions]")?.focus();
@@ -376,12 +398,120 @@ export class ContainerContentsPanel {
             this.popover.append(node("p", "Do użycia w walce."));
         if (item.category === CONTAINER_ITEM_CATEGORY)
             this.popover.append(node("p", "Aby założyć ten pojemnik, upuść go na slot 2–4 w panelu gry."));
+        if (isWeaponInjuryStone(item) && this.handlers.onApplyWeaponInjury)
+            this.renderInjuryAction(item);
         const equip=this.equipmentAction(item);if(equip)this.popover.append(equip);
         if(this.feedback.textContent){const status=node("p",this.feedback.textContent,"container-contents__details-status");status.setAttribute("role","status");if(this.feedback.dataset.state)status.dataset.state=this.feedback.dataset.state;this.popover.append(status);}
         const anchor = [...this.grid.querySelectorAll<HTMLElement>("[data-container-item]")].find(element => element.dataset.containerItem === item.instanceId), rect = anchor?.getBoundingClientRect(), width = Math.min(360, Math.max(0, window.innerWidth - 24));
         this.popover.style.width = `${width}px`;
         this.popover.style.left = `${Math.max(12, Math.min(rect?.left ?? 12, window.innerWidth - width - 12))}px`;
         this.popover.style.top = `${Math.max(12, Math.min((rect?.bottom ?? 12) + 6, window.innerHeight - Math.min(this.popover.getBoundingClientRect().height || 260, window.innerHeight - 24) - 12))}px`;
+    }
+    private renderInjuryAction(stone: InventoryItem): void {
+        const section = node("section", "", "container-contents__injury-upgrade");
+        section.append(node("p", "Zużyj 1 kamień, aby wylosować uraz i 5–15% szansy trafienia z efektem. Czas zależy od jakości broni i urazu."));
+        if (this.injuryRequest) {
+            section.append(node("p", "Wysłano ulepszenie. Poczekaj na potwierdzenie lub wybierz „Sprawdź wynik ulepszenia”. Kolejna próba sprawdzi ten sam wynik."));
+            if (this.pending) {
+                const waiting = node("button", "Oczekiwanie…");
+                waiting.dataset.applyInjury = "";
+                waiting.disabled = true;
+                section.append(waiting);
+            } else {
+                const retry = node("button", "Sprawdź wynik ulepszenia");
+                retry.type = "button";
+                retry.dataset.injuryRetryDetails = "";
+                retry.dataset.containerFocus = "injury-retry";
+                retry.addEventListener("click", () => { if (this.injuryRequest) void this.applyInjury(this.injuryRequest); });
+                section.append(retry);
+            }
+            this.popover.append(section);
+            return;
+        }
+        const weapons = this.snapshot.items.filter(item => canApplyWeaponInjury(item)
+            && (!item.boundToPlayerId || item.boundToPlayerId === this.character?.playerId));
+        if (!weapons.length) {
+            section.append(node("p", "Brak broni jakości Znakomita, Doskonała lub Arcydzieło. Kamień nie podnosi jakości broni."));
+            this.popover.append(section);
+            return;
+        }
+        const select = node("select");
+        select.dataset.injuryWeapon = "";
+        select.dataset.containerFocus = "injury-weapon";
+        select.setAttribute("aria-label", "Broń do ulepszenia urazem");
+        select.disabled = this.pending;
+        const label = node("label", "Wybierz swoją broń (także założoną): ");
+        for (const weapon of weapons) {
+            const option = node("option", `${weapon.name} · ${itemQualityText(weapon)}${weapon.equippedSlot ? " · Założona" : ""}`);
+            option.value = weapon.instanceId;
+            select.append(option);
+        }
+        const weapon = weapons.find(item => item.instanceId === this.injuryWeaponId) ?? weapons[0]!;
+        this.injuryWeaponId = weapon.instanceId;
+        select.value = weapon.instanceId;
+        select.addEventListener("change", () => { this.injuryWeaponId = select.value; this.renderPopover(); this.popover.querySelector<HTMLSelectElement>("[data-injury-weapon]")?.focus(); });
+        label.append(select);
+        section.append(label);
+        if (weapon.injuryUpgrade) {
+            const replacement = node("p", `Obecny efekt: ${formatWeaponInjuryUpgrade(weapon.injuryUpgrade)}. Zastąpisz go nowym losowaniem; może wypaść ten sam uraz.`);
+            replacement.dataset.injuryReplacement = "";
+            section.append(replacement);
+        }
+        const apply = node("button", weapon.injuryUpgrade ? "Zastąp efekt · zużyj 1 kamień" : "Ulepsz broń · zużyj 1 kamień");
+        apply.type = "button";
+        apply.dataset.applyInjury = "";
+        apply.dataset.containerFocus = "injury-apply";
+        apply.disabled = this.pending;
+        apply.addEventListener("click", () => {
+            if (this.pending || this.injuryRequest) return;
+            const current = this.snapshot.items.find(item => item.instanceId === weapon.instanceId);
+            const material = this.snapshot.items.find(item => item.instanceId === stone.instanceId);
+            if (!current || !canApplyWeaponInjury(current) || !material || !isWeaponInjuryStone(material)) return;
+            void this.applyInjury({ requestId: crypto.randomUUID(), weaponInstanceId: current.instanceId, stoneInstanceId: material.instanceId });
+        });
+        section.append(apply);
+        this.popover.append(section);
+    }
+    private async applyInjury(request: WeaponInjuryUpgradeRequest): Promise<void> {
+        if (this.pending || this.destroyed || !this.handlers.onApplyWeaponInjury || !this.character) return;
+        const version = ++this.requestVersion, dataVersion = this.dataVersion, playerId = this.character.playerId;
+        const recovering = this.injuryRequest !== null;
+        this.injuryRequest = request;
+        this.pending = true;
+        this.feedback.textContent = "Oczekiwanie na wynik ulepszenia…";
+        this.feedback.dataset.state = "pending";
+        this.render();
+        try {
+            const result = await this.handlers.onApplyWeaponInjury(request);
+            if (this.destroyed || version !== this.requestVersion || this.character?.playerId !== playerId) return;
+            if (result.ok) {
+                if (result.character.playerId !== playerId) {
+                    this.feedback.textContent = "Połączenie postaci zmieniło się. Odśwież panel.";
+                    this.feedback.dataset.state = "error";
+                    return;
+                }
+                this.injuryRequest = null;
+                this.feedback.textContent = `Ulepszono broń: ${formatWeaponInjuryUpgrade(result.upgrade)}.`;
+                this.feedback.dataset.state = "success";
+                this.closeSelection(false);
+                if (dataVersion !== this.dataVersion) { this.handlers.onRefresh?.(); return; }
+                this.snapshot = structuredClone(result.inventory);
+                this.character = structuredClone(result.character);
+                this.handlers.onInventoryChanged(result.inventory);
+            } else {
+                const uncertain = result.code.endsWith("UNCERTAIN") || result.code === "SESSION_REPLACED" || result.code === "WEAPON_INJURY_FAILED";
+                if (DEFINITE_INJURY_TRANSACTION_REJECTIONS.has(result.code) || (!recovering && !uncertain)) this.injuryRequest = null;
+                this.feedback.textContent = result.message;
+                this.feedback.dataset.state = "error";
+            }
+        } catch {
+            if (!this.destroyed && version === this.requestVersion) {
+                this.feedback.textContent = "Brak potwierdzenia. Sprawdź wynik tego samego ulepszenia, aby nie zużyć kolejnego kamienia.";
+                this.feedback.dataset.state = "error";
+            }
+        } finally {
+            if (!this.destroyed && version === this.requestVersion) { this.pending = false; this.render(); }
+        }
     }
     private closeSelection(restore: boolean): void {
         const id = this.selectedItemId;

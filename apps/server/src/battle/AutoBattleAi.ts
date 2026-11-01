@@ -1,4 +1,4 @@
-import { isBattleAttackEnabled, mitigatedBattleDamage, movementApCost, rangedAttackApCost, STAFF_HEAL_AP_COST, type BattleCommand, type HexCoord, type PlayerId } from "@web-mmorpg/shared";
+import { affordableMovementHexes, injuryAdjustedAttackDamage, isBattleAttackEnabled, meleeAttackApCost, mitigatedBattleDamage, movementApCost, rangedAttackApCost, rangedAttackRange, receivedBattleHealing, remainingMovementHexes, STAFF_HEAL_AP_COST, type BattleCommand, type HexCoord, type PlayerId } from "@web-mmorpg/shared";
 import type { BattleState } from "./BattleEngine";
 import type { CombatantState } from "./injuries";
 import { hexDistance, hexKey, hexNeighbors } from "./hex";
@@ -25,38 +25,40 @@ function attackOptions(actor: CombatantState, position: HexCoord, enemies: Comba
     const result: AttackOption[] = [];
     if (distance === 1 && isBattleAttackEnabled(actor,"meleeAttack")) result.push({
 command: { type: "meleeAttack", combatantId: actor.id, targetId: enemy.id }, target,
-      damage: mitigatedBattleDamage(actor.combatStats?.meleeDamage ?? 20, enemy.combatStats?.armor ?? 0, enemy.combatStats?.blockPercent ?? 0), cost: 2
+      damage: mitigatedBattleDamage(injuryAdjustedAttackDamage(actor, enemy, actor.combatStats?.meleeDamage ?? 20), enemy.combatStats?.armor ?? 0, enemy.combatStats?.blockPercent ?? 0), cost: meleeAttackApCost(actor)
 });
-    if (distance > 0 && distance <= 6 && isBattleAttackEnabled(actor,"rangedAttack") && hasLineOfSight(position, enemy.position, blockers)) result.push({
+    if (distance > 0 && distance <= rangedAttackRange(actor) && isBattleAttackEnabled(actor,"rangedAttack") && hasLineOfSight(position, enemy.position, blockers)) result.push({
       command: { type: "rangedAttack", combatantId: actor.id, targetId: enemy.id }, target,
-      damage: mitigatedBattleDamage(actor.combatStats?.rangedDamage ?? 15, enemy.combatStats?.armor ?? 0, enemy.combatStats?.blockPercent ?? 0), cost: rangedAttackApCost(actor)
+      damage: mitigatedBattleDamage(injuryAdjustedAttackDamage(actor, enemy, actor.combatStats?.rangedDamage ?? 15), enemy.combatStats?.armor ?? 0, enemy.combatStats?.blockPercent ?? 0), cost: rangedAttackApCost(actor)
 });
     return result;
   });
 }
 
 /** Small current-turn search: max8 AP and up to5 enemies in party encounters. */
-function planAttacks(options: AttackOption[], hp: number[], ap: number): AttackPlan {
+function planAttacks(options: AttackOption[], hp: number[], ap: number, meleeUsed: boolean): AttackPlan {
   const memo = new Map<string, AttackPlan>();
-  const visit = (remaining: number[], budget: number): AttackPlan => {
-    const key = `${budget}:${remaining.join(",")}`;
+  const visit = (remaining: number[], budget: number, usedMelee: boolean): AttackPlan => {
+    const key = `${budget}:${usedMelee}:${remaining.join(",")}`;
     const cached = memo.get(key); if (cached) return cached;
     let best: AttackPlan = { kills: 0, damage: 0, firstKillCost: Infinity, spent: 0 };
     for (const option of options) {
-      if (option.cost > budget || remaining[option.target]! <= 0) continue;
+      const melee = option.command.type === "meleeAttack";
+      const cost = melee && usedMelee ? 2 : option.cost;
+      if (cost > budget || remaining[option.target]! <= 0) continue;
       const damage = Math.min(remaining[option.target]!, option.damage);
       const next = [...remaining]; next[option.target] = Math.max(0, next[option.target]! - option.damage);
-      const tail = visit(next, budget - option.cost);
+      const tail = visit(next, budget - cost, usedMelee || melee);
       const killed = next[option.target] === 0;
       const candidate: AttackPlan = {
 kills: tail.kills + (killed ? 1 : 0), damage: tail.damage + damage,
-        firstKillCost: killed ? option.cost : option.cost + tail.firstKillCost, spent: tail.spent + option.cost, first: option.command
+        firstKillCost: killed ? cost : cost + tail.firstKillCost, spent: tail.spent + cost, first: option.command
 };
       if (better(candidate, best)) best = candidate;
     }
     memo.set(key, best); return best;
   };
-  return visit(hp, ap);
+  return visit(hp, ap, meleeUsed);
 }
 
 function pathsFromActor(state: BattleState, actor: CombatantState): Array<{ position: HexCoord; path: HexCoord[] }> {
@@ -88,7 +90,7 @@ export function chooseAutoBattleCommand(state: BattleState, playerId: PlayerId):
   const healingPower = actor.combatStats?.healingPower ?? 0;
   if (Number.isFinite(healingPower) && healingPower >= 1 && !actor.healingUsedThisTurn && actor.ap >= STAFF_HEAL_AP_COST) {
     const obstacles = new Set(state.arena.blockedCells.map(hexKey));
-    const target = Object.values(state.combatants).filter(unit => unit.side === actor.side && unit.hp > 0 && unit.hp <= unit.maxHp * 0.35 && unit.hp < unit.maxHp &&
+    const target = Object.values(state.combatants).filter(unit => unit.side === actor.side && unit.hp > 0 && unit.hp <= unit.maxHp * 0.35 && unit.hp < unit.maxHp && receivedBattleHealing(unit, healingPower) > 0 &&
       (unit.id === actor.id || hexDistance(actor.position, unit.position) <= 6 && hasLineOfSight(actor.position, unit.position, obstacles)))
       .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp || a.id.localeCompare(b.id))[0];
     if (target) return target.id === actor.id ? { type: "healSelf", combatantId: actor.id } : { type: "healAlly", combatantId: actor.id, targetId: target.id };
@@ -103,11 +105,12 @@ export function chooseAutoBattleCommand(state: BattleState, playerId: PlayerId):
     // Pursuit is useful when this turn cannot deal damage. Prefer a cheap complete kill,
     // rather than spending spare AP wandering between equally distant opponents.
     for (const option of options) {
-      const cost = moveCost + Math.ceil(enemies[option.target]!.hp / option.damage) * option.cost;
+      const attacks = Math.ceil(enemies[option.target]!.hp / option.damage);
+      const cost = moveCost + option.cost + Math.max(0, attacks - 1) * (option.command.type === "meleeAttack" ? 2 : option.cost);
       if (!pursuit || cost < pursuit.cost || cost === pursuit.cost && path.length < pursuit.path.length) pursuit = { cost, path };
     }
-    if (moveCost > budget) continue;
-    const attacks = planAttacks(options, enemies.map(enemy => enemy.hp), budget - moveCost);
+    if (moveCost > budget || path.length > remainingMovementHexes(actor)) continue;
+    const attacks = planAttacks(options, enemies.map(enemy => enemy.hp), budget - moveCost, Boolean(actor.meleeAttackUsedThisTurn));
     if (!attacks.first) continue;
     const candidate: PositionPlan = {
 ...attacks, firstKillCost: attacks.firstKillCost + moveCost, spent: attacks.spent + moveCost, moveCost,
@@ -116,6 +119,6 @@ export function chooseAutoBattleCommand(state: BattleState, playerId: PlayerId):
     if (!best || better(candidate, best) || candidate.kills === best.kills && candidate.damage === best.damage && candidate.firstKillCost === best.firstKillCost && candidate.spent === best.spent && moveCost < best.moveCost) best = candidate;
   }
   if (best) return best.command;
-  const steps = Math.min(pursuit?.path.length ?? 0, Math.floor(actor.ap / movementApCost(actor, 1)));
+  const steps = Math.min(pursuit?.path.length ?? 0, affordableMovementHexes(actor));
   return steps > 0 ? { type: "move", combatantId: actor.id, target: { ...pursuit!.path[steps - 1]! } } : end;
 }

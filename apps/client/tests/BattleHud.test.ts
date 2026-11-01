@@ -205,6 +205,16 @@ it("shows server and transport errors without consuming the item and allows retr
   hud.destroy();
 });
 
+it("previews reduced potion healing and blocks a one-HP potion rounded to zero by abdominal wound",()=>{
+ const callbacks=handlers(),hud=new BattleHud(callbacks);
+ hud.update({...hero,temporaryInjuries:[{kind:"abdominalWound",remainingTurns:2}]},true,{items:[medicine("large",{consumableEffects:{healHp:40}}),medicine("tiny",{consumableEffects:{healHp:1}})]});
+ expect(text('[data-item-instance-id="large"] .battle-hud__item-effects')).toBe("+30 HP");expect(useButton("large").disabled).toBe(false);
+ expect(text('[data-item-instance-id="tiny"] .battle-hud__item-effects')).toBe("Brak działania w walce");expect(useButton("tiny").disabled).toBe(true);
+ useButton("tiny").click();expect(callbacks.onUseItem).not.toHaveBeenCalled();
+ hud.update({...hero,injuries:["abdominalWound"],temporaryInjuries:[{kind:"abdominalWound",remainingTurns:2}]},true,{items:[medicine("large",{consumableEffects:{healHp:40}})]});
+ expect(text('[data-item-instance-id="large"] .battle-hud__item-effects')).toBe("+30 HP");hud.destroy();
+});
+
 it("disables end turn when the own unit is missing or defeated and clears stale statistics", () => {
   const callbacks = handlers();
   const hud = new BattleHud(callbacks);

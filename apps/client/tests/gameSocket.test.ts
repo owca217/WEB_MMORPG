@@ -47,6 +47,28 @@ afterEach(async () => {
 });
 
 describe("GameSocket authentication lifecycle", () => {
+  it("forwards injury receipt inputs and rejects late acknowledgements after reauthentication",async()=>{
+    const pending=deferred<(value:unknown)=>void>();
+    const request={requestId:"injury-request",weaponInstanceId:"sword",stoneInstanceId:"stone"};
+    const game=await startServer((_token,ack,socket)=>{
+      socket.removeAllListeners("applyWeaponInjury");
+      socket.on("applyWeaponInjury",(payload,reply)=>{expect(payload).toEqual(request);pending.resolve(reply);});ack(authenticated);
+    });
+    expect(await game.applyWeaponInjury(request)).toMatchObject({ok:false,code:"AUTHENTICATION_REQUIRED"});
+    await game.authenticate("weapons");const result=game.applyWeaponInjury(request),reply=await pending.promise;
+    await game.authenticate("replacement");reply({ok:true,character:{playerId:"character-1"},inventory:{items:[]},upgrade:{kind:"burn",chancePercent:8,duration:3}});
+    expect(await result).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+    server!.sockets.sockets.forEach(socket=>{socket.removeAllListeners("applyWeaponInjury");socket.on("applyWeaponInjury",(_payload,ack)=>ack({ok:true,character:{playerId:"foreign-character"}}));});
+    expect(await game.applyWeaponInjury(request)).toMatchObject({ok:false,code:"SESSION_REPLACED"});
+  });
+  it("marks an unacknowledged injury request uncertain so the caller can reuse its receipt",async()=>{
+    const game=await startServer((_token,ack)=>ack(authenticated));await game.authenticate("weapons");
+    const emitWithAck=vi.fn().mockRejectedValue(new Error("timeout"));
+    vi.spyOn(game.connect(),"timeout").mockReturnValue({emitWithAck} as never);
+    const request={requestId:"same-id",weaponInstanceId:"sword",stoneInstanceId:"stone"};
+    expect(await game.applyWeaponInjury(request)).toMatchObject({ok:false,code:"WEAPON_INJURY_REQUEST_UNCERTAIN"});
+    expect(emitWithAck).toHaveBeenCalledExactlyOnceWith("applyWeaponInjury",request);
+  });
   it("guards healing requests and ignores acknowledgements from a replaced session",async()=>{
     const pending=deferred<(value:unknown)=>void>();
     const game=await startServer((_token,ack,socket)=>{

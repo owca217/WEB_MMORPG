@@ -19,6 +19,8 @@ import type {
   CharacterSnapshot,
   EquipmentUpdateRequest,
   EquipmentUpdateResult,
+  WeaponInjuryUpgradeRequest,
+  WeaponInjuryUpgradeResult,
   ClientToServerEvents,
   InventorySnapshot,
   InventoryUpdateResult,
@@ -248,6 +250,18 @@ export class GameSocket {
       if(this.socket!==socket || version!==this.authenticationVersion || playerId!==this.socialCharacterId || (result.ok && result.character.playerId!==playerId))return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz panel ponownie."};
       return result;
     }catch{return {ok:false,code:"EQUIPMENT_UPDATE_UNCERTAIN",message:"Brak potwierdzenia zmiany. Otwórz panel ponownie i sprawdź uzbrojenie."};}
+  }
+
+  async applyWeaponInjury(payload: WeaponInjuryUpgradeRequest): Promise<WeaponInjuryUpgradeResult> {
+    const socket = this.connect(), version = this.authenticationVersion, playerId = this.socialCharacterId;
+    if (!this.sessionToken || this.authenticating || !socket.connected || !playerId) return {ok:false,code:"AUTHENTICATION_REQUIRED",message:"Połącz się z grą, aby ulepszyć broń."};
+    try {
+      const result = await socket.timeout(10000).emitWithAck("applyWeaponInjury", payload);
+      if (this.socket !== socket || version !== this.authenticationVersion || playerId !== this.socialCharacterId || (result.ok && result.character.playerId !== playerId)) return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Odśwież panel."};
+      return result;
+    } catch {
+      return {ok:false,code:"WEAPON_INJURY_REQUEST_UNCERTAIN",message:"Brak potwierdzenia. Sprawdź wynik tego samego ulepszenia bez zużywania kolejnego kamienia."};
+    }
   }
 
   purchaseMerchantItem(payload: MerchantPurchase): Promise<MerchantResult> {

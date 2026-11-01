@@ -32,6 +32,26 @@ Build an APK with `npm run android:apk -w @web-mmorpg/client` (JDK 21 and Androi
 SDK 36 required). Installation, signed builds, and verification are documented
 in [docs/android-client.md](docs/android-client.md).
 
+## Weapon injury upgrades
+
+Miro sells **Kamień urazu** for 50 gold. Open the stone's inventory details,
+select an owned weapon of quality **Znakomita**, **Doskonała** or **Arcydzieło**,
+and consume one stone to roll an injury and a 5–15% application chance.
+The duration is calculated automatically: 2–5 full turns of the target, or
+until battle end for qualifying light effects on Masterwork weapons.
+An equipped weapon can be upgraded outside battle and trade. Applying another
+stone replaces the previous roll, and may select the same injury again.
+
+Weapon details show the rolled effect; battle participant details show active
+temporary injuries and remaining turns. The 15 available injuries affect movement,
+attacks, initiative, healing, health or incoming damage. Temporary weapon injuries
+expire at battle end and remain separate from persistent injuries caused by defeat.
+Each weapon keeps its own roll through storage, trading and reconnects.
+
+Server startup applies additive migration `015_weapon_injury_upgrades` and seeds
+the stone. The agreed balance algorithm is recorded in
+[the injury design](docs/superpowers/specs/2026-10-31-weapon-injury-algorithm-design.md).
+
 ## MVP direction
 
 - 2D world split into separate locations

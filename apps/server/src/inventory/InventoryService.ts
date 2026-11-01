@@ -9,6 +9,7 @@ import {
   emptyEquipmentSlots,
   getEquipmentItemProperties,
   isEquipmentSlot,
+  isWeaponInjuryUpgrade,
   type CharacterSnapshot,
   type ConsumableEffects,
   type ContainerSlots,
@@ -58,6 +59,7 @@ interface InventoryRow extends ContainerCapacitySource {
   durability: string | number | null;
   max_durability: string | number | null;
   upgrade_level: number;
+  injury_upgrade: unknown;
   bound_to_player_id: string | null;
   container_slot: number | null;
   container_instance_id: string | null;
@@ -448,6 +450,7 @@ export class InventoryService {
         instance.durability,
         instance.max_durability,
         instance.upgrade_level,
+        instance.injury_upgrade,
         instance.bound_to_player_id,
         instance.container_slot,
         instance.container_instance_id,
@@ -551,6 +554,7 @@ export class InventoryService {
            AND durability IS NULL
            AND max_durability IS NULL
            AND upgrade_level = 0
+           AND injury_upgrade IS NULL
            AND affixes = '[]'::jsonb
            AND sockets = '[]'::jsonb
            AND bound_to_player_id IS NULL
@@ -632,6 +636,7 @@ export class InventoryService {
         ? {}
         : { maxDurability: Number(row.max_durability) }),
       upgradeLevel: row.upgrade_level,
+      ...(isWeaponInjuryUpgrade(row.injury_upgrade) ? { injuryUpgrade: row.injury_upgrade } : {}),
       ...(equipment?{equipment}:{}),
       ...(isEquipmentSlot(row.equipment_slot)?{equippedSlot:row.equipment_slot}:{}),
       ...(consumableEffects ? { consumableEffects } : {}),

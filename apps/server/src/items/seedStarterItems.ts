@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { PoolClient } from "pg";
 import { BASIC_EQUIPMENT_ITEMS } from "./basicEquipment";
 import { STARTER_WEAPON_ITEMS } from "./starterWeaponItems";
+import { WEAPON_INJURY_STONE_ITEM_ID, WEAPON_INJURY_STONE_CATEGORY } from "@web-mmorpg/shared";
 
 export interface StarterItemSeed {
   itemUuid: string;
@@ -31,6 +32,18 @@ export interface StarterItemSeed {
 const seedActor = "00000000-0000-4000-8000-000000000001";
 
 const STARTER_ITEMS: readonly StarterItemSeed[] = [
+  {
+    itemUuid: "10000000-0000-4000-8000-000000000008",
+    versionUuid: "10000000-0000-4000-8000-000000000018",
+    itemId: WEAPON_INJURY_STONE_ITEM_ID,
+    name: "Kamień urazu",
+    categoryId: WEAPON_INJURY_STONE_CATEGORY,
+    subcategoryId: null,
+    description: "Nadaje broni jakości Znakomitej lub wyższej losowy efekt urazu. Kolejne użycie zastępuje poprzedni efekt.",
+    stackable: true,
+    maxStack: 20,
+    weight: 0.1
+  },
   {
     itemUuid: "10000000-0000-4000-8000-000000000001",
     versionUuid: "10000000-0000-4000-8000-000000000011",

@@ -209,3 +209,5 @@ body .container-contents.container-contents--inline button.container-contents__i
   border-radius: 3px;
   background: #11130fc9;
 }
+
+.container-contents__injury-upgrade{display:grid;gap:10px;border-top:1px solid #695b3e;padding-top:12px}.container-contents__injury-upgrade label{display:grid;gap:6px}.container-contents__injury-upgrade select{width:100%;min-height:44px;color:inherit;background:#172119;border:1px solid #8f7d53;padding:8px}.container-contents__injury-retry{min-height:44px;margin:8px 0}.container-contents__injury-retry[hidden]{display:none}

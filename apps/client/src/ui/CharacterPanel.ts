@@ -1,13 +1,12 @@
 import {
  getCharacterStatistics,getWeaponProficiency,normalizeWeaponTraining,WEAPON_FAMILIES,MAX_CHARACTER_LEVEL,
- EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,resolveCharacterSkin,
- type CharacterSnapshot,type EquipmentSlot,type EquipmentUpdateRequest,type EquipmentUpdateResult,type InventoryItem,type InventorySnapshot,type InjuryKind
+ EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,resolveCharacterSkin,INJURY_LABELS,
+ type CharacterSnapshot,type EquipmentSlot,type EquipmentUpdateRequest,type EquipmentUpdateResult,type InventoryItem,type InventorySnapshot
 } from "@web-mmorpg/shared";
 import { experienceProgressMarkup } from "./ExperienceProgress";
 import {equipmentDisabledReason,equipmentIcon,equipmentItemSummary} from "./EquipmentIcon";
 import { CHARACTER_SKIN_ATLASES, getCharacterSkinFrame } from "../characters/characterSkinAssets";
 import "./ItemPanels.css";
-const INJURY_LABELS:Record<InjuryKind,string>={brokenArm:"Złamana ręka",legTrauma:"Uraz nogi",bleeding:"Krwawienie",concussion:"Wstrząśnienie",chestWound:"Rana klatki piersiowej",burn:"Oparzenie",poison:"Zatrucie"};
 type CharacterTab="statistics"|"proficiency"|"equipment";
 interface CharacterPanelHandlers {
  onSetEquipmentSlot:(request:EquipmentUpdateRequest)=>Promise<EquipmentUpdateResult>;

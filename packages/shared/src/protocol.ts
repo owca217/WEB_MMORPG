@@ -9,12 +9,14 @@ import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 import type { WeaponLoadout, WeaponLoadoutResult } from "./weapons";
 import type { HealingRequest, HealingResult, HealingTargetsResult } from "./healing";
 import type { EquipmentUpdateRequest, EquipmentUpdateResult } from "./equipment";
+import type { WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult } from "./weaponInjuryUpgrade";
 
 export type SocketAuthResult =
   | { ok: true; characterId: string; locationId: LocationId }
   | { ok: false; code: string; message: string };
 
 export interface ClientToServerEvents {
+  applyWeaponInjury: (payload: WeaponInjuryUpgradeRequest, ack: (result: WeaponInjuryUpgradeResult) => void) => void;
   setEquipmentSlot: (payload:EquipmentUpdateRequest,ack:(result:EquipmentUpdateResult)=>void)=>void;
   requestHealingTargets: (ack: (result: HealingTargetsResult) => void) => void;
   castHealing: (payload: HealingRequest, ack: (result: HealingResult) => void) => void;

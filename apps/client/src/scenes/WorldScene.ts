@@ -1,4 +1,4 @@
-import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
 import { EQUIPMENT_SLOTS, PERMANENT_BACKPACK_SLOT_INDEX, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
@@ -249,6 +249,7 @@ export class WorldScene extends Phaser.Scene {
       onInventoryChanged: (inventory) => this.applyInventoryUpdate(inventory),
       onRefresh:()=>gameSocket.requestPlayerState(),
       onTypingChange:()=>this.updateKeyboardCapture(),
+      onApplyWeaponInjury:request=>this.applyWeaponInjury(request),
       onEquipItem: async item=>{
         const result=await this.setEquipmentSlot({slot:item.equipment!.slot,itemInstanceId:item.instanceId});
         return result.ok?{ok:true,inventory:playerStateStore.get()?.inventory??result.inventory}:result;
@@ -610,6 +611,24 @@ export class WorldScene extends Phaser.Scene {
       const state=playerStateStore.get();
       if(version!==this.equipmentRequestVersion || playerId!==this.playerId || state?.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz panel ponownie."};
       if(result.ok) {
+        if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character,inventory:result.inventory});
+        else gameSocket.requestPlayerState();
+      }
+      return result;
+    }finally{if(version===this.equipmentRequestVersion)this.equipmentPending=false;}
+  }
+
+  private async applyWeaponInjury(request:WeaponInjuryUpgradeRequest):Promise<WeaponInjuryUpgradeResult> {
+    if(this.equipmentPending)return {ok:false,code:"EQUIPMENT_ACTION_PENDING",message:"Poczekaj na zakończenie zmiany uzbrojenia."};
+    const version=this.equipmentRequestVersion,revision=this.playerStateRevision,playerId=this.playerId;
+    this.equipmentPending=true;
+    try {
+      const result=await gameSocket.applyWeaponInjury(request);
+      const state=playerStateStore.get();
+      if(version!==this.equipmentRequestVersion || playerId!==this.playerId || state?.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Odśwież panel."};
+      if(result.ok) {
+        if(result.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Odśwież panel."};
+        // An equipped roll changes the full equipment object, not only inventory IDs.
         if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character,inventory:result.inventory});
         else gameSocket.requestPlayerState();
       }

@@ -14,6 +14,7 @@ Władanie pokazuje drzewko przed zwiniętą listą starych pasków. Podczas walk
 - Klient:6celowanych zestawów drzewa, technik, scen, HUD i socketów:70przeszło. Poprawkę prezentacji Bastionu potwierdził osobny przypadek. Końcowe poprawki typów sprawdzono w dwóch dotkniętych zestawach:21przeszło.
 - TypeScript serwera/shared przeszedł w kontroli integracyjnej. Błędy zawężania typu klienta i fikstur z optionalproperty naprawiono; `npx tsc --noEmit -p apps/client/tsconfig.json` i `npm run build -w @web-mmorpg/client` przeszły. Ostatnia zmiana nazwy w nagłówku świata została objęta kompilacją Vite. Istniejące ostrzeżenie o wielkości pakietu pozostaje.
 - Jeden niezależny przegląd integracji nie wykazał dodatkowych pewnych usterek funkcjonalnych. Nie uruchamiano pełnej lokalnej kolekcji.
+- Automatyczny Feature CI wykrył regresję istniejącego testu ruchu podczas nieudanej zmiany uzbrojenia: nowa blokada obejmowała wszystkie operacje sprzętu. Odtworzono `TIMEOUT:worldState`, po czym zawężono blokadę ruchu/leczenia do operacji nauki i resetu. Niezmienione `socketWeaponTraining.test.ts` oraz `socketWeaponSkills.test.ts`:16testów w2plikach przeszło; TypeScript serwera również przeszedł. Poprawka dotyczy wyłącznie serwera, więc opublikowany klient Android0.1.27 zachowuje ten sam kod i podpis.
 
 ## Działająca gra
 

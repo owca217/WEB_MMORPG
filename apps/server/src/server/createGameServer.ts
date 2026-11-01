@@ -182,6 +182,7 @@ export function createGameServer(
   const pendingMerchantOperations = new Map<PlayerId, Promise<void>>();
   const pendingBattleRewards = new Map<PlayerId, Promise<void>>();
   const pendingEquipmentOperations = new Map<PlayerId,Promise<void>>();
+  const pendingWeaponSkillOperations = new Set<PlayerId>();
   const equipmentRevisions = new Map<PlayerId,number>();
   const ownerStateOperations=new Map<PlayerId,OwnerStateOperations>();
   const pendingPartyStarts=new Map<PlayerId,symbol>();
@@ -732,8 +733,15 @@ export function createGameServer(
       let release!: () => void;
       const mutation = new Promise<void>(resolve => { release = resolve; });
       pendingEquipmentOperations.set(id, mutation);
+      pendingWeaponSkillOperations.add(id);
       equipmentRevisions.set(id, (equipmentRevisions.get(id) ?? 0) + 1);
-      const finish = (): void => { release(); if (pendingEquipmentOperations.get(id) === mutation) pendingEquipmentOperations.delete(id); };
+      const finish = (): void => {
+        release();
+        if (pendingEquipmentOperations.get(id) === mutation) {
+          pendingEquipmentOperations.delete(id);
+          pendingWeaponSkillOperations.delete(id);
+        }
+      };
       void (async () => {
         try {
           await pendingCharacterSaves.get(id);
@@ -919,7 +927,7 @@ export function createGameServer(
     });
 
     socket.on("moveIntent", (intent) => {
-      if (!characterId || !ownsCharacter(characterId,characterVersion) || battles.hasBattle(characterId) || pendingPartyStarts.has(characterId) || pendingEquipmentOperations.has(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
+      if (!characterId || !ownsCharacter(characterId,characterVersion) || battles.hasBattle(characterId) || pendingPartyStarts.has(characterId) || pendingWeaponSkillOperations.has(characterId) || social.isBusy(characterId) || pendingMerchantOperations.has(characterId)) return;
       const currentCharacterId = characterId;
       const currentLocationId = locationId;
       if (!currentLocationId) return;
@@ -1019,7 +1027,7 @@ export function createGameServer(
 
       try {
         if (battles.hasBattle(currentCharacterId)) throw new Error("BATTLE_IN_PROGRESS");
-        if (pendingEquipmentOperations.has(currentCharacterId)) throw new Error("EQUIPMENT_ACTION_PENDING");
+        if (pendingWeaponSkillOperations.has(currentCharacterId)) throw new Error("EQUIPMENT_ACTION_PENDING");
         const npc = world.interactNpc(currentCharacterId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
         characters.healHp(currentCharacterId);

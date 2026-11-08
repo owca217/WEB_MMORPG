@@ -1,6 +1,6 @@
 import {
  getCharacterStatistics,getWeaponProficiency,normalizeWeaponTraining,WEAPON_FAMILIES,MAX_CHARACTER_LEVEL,
- EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,resolveCharacterSkin,INJURY_LABELS,
+ EQUIPMENT_SLOTS,EQUIPMENT_SLOT_LABELS,getCharacterEquipment,resolveCharacterSkin,getInjuryDefinition,
  type CharacterSnapshot,type EquipmentSlot,type EquipmentUpdateRequest,type EquipmentUpdateResult,type InventoryItem,type InventorySnapshot,type WeaponFamily,type WeaponSkillId,type WeaponSkillUpdateResult
 } from "@web-mmorpg/shared";
 import { experienceProgressMarkup } from "./ExperienceProgress";
@@ -78,7 +78,7 @@ export class CharacterPanel {
    ${experienceProgressMarkup(character)}<section class="character-sheet__section"><h3>Atrybuty i walka</h3><dl class="character-sheet__stats">
    ${([['strength','Siła (STR)'],['dexterity','Zręczność (DEX)'],['vitality','Żywotność (VIT)'],['meleeDamage','Obrażenia wręcz'],['rangedDamage','Obrażenia dystansowe'],['armor','Pancerz']] as const).map(([stat,label])=>`<div><dt>${label}</dt><dd data-stat="${stat}">${statistics[stat]}</dd></div>`).join("")}
    ${statistics.healingPower?`<div><dt>Moc leczenia</dt><dd data-stat="healingPower">${statistics.healingPower} HP</dd></div>`:""}${statistics.blockPercent?`<div><dt>Redukcja tarczy</dt><dd data-stat="blockPercent">${new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(statistics.blockPercent)}%</dd></div>`:""}</dl><p>STR zwiększa obrażenia wręcz, DEX fizyczne obrażenia dystansowe, a VIT maksymalne HP. Różdżki korzystają z obrażeń magicznych i mocy zaklęć. Pancerz zmniejsza otrzymywane obrażenia.</p><p>Obrażenia podano przed pancerzem celu i wpływem urazów.</p></section>
-   <section class="character-sheet__section"><h3>Automatyczny rozwój</h3><p>Statystyki rosną automatycznie przy awansie. Inicjatywa rośnie co 2 poziomy, a AP co 10 poziomów, do 8 AP.</p><p data-next-growth>${growth}</p></section><section class="character-sheet__section"><h3>Urazy</h3><p data-injuries></p></section></section>
+   <section class="character-sheet__section"><h3>Automatyczny rozwój</h3><p>Statystyki rosną automatycznie przy awansie. Inicjatywa rośnie co 2 poziomy, a AP co 10 poziomów, do 8 AP.</p><p data-next-growth>${growth}</p></section><section class="character-sheet__section"><h3>Urazy</h3><div data-injuries></div></section></section>
    <section role="tabpanel" id="character-panel-proficiency" aria-labelledby="character-tab-proficiency" data-character-panel="proficiency"><h3>Władanie bronią</h3><p>Używanie założonej broni podczas walki rozwija jej władanie. Po walce otrzymujesz na trening połowę zdobytego XP, dzieloną między używane rodzaje broni i tarczę. Leczenie poza walką nie daje XP. Trening działa także w Auto; biegłości mają poziomy 0–100.</p><div class="weapon-proficiencies">
    ${WEAPON_FAMILIES.map(family=>{const skill=getWeaponProficiency(training.experience[family.id]);const format=(value:number)=>new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2}).format(value);const bonus=family.mode==="defense"?`+${format(skill.level*0.15)}% redukcji`:`+${format(skill.damageBonusPercent)}% ${family.mode==="support"?"leczenia":"obrażeń"}`;return`<div class="weapon-proficiency" data-weapon-family="${family.id}"><div class="weapon-proficiency__summary"><strong>${family.label}</strong><span data-weapon-level>${skill.level}/100</span><span data-weapon-bonus>${bonus}</span></div><div class="weapon-proficiency__bar" role="progressbar" aria-label="Biegłość: ${family.label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${skill.percentage}"><span style="width:${skill.percentage}%"></span></div><small>${skill.level===100?"Maksymalna biegłość":`${skill.current} / ${skill.required} punktów do kolejnego poziomu`}</small></div>`;}).join("")}</div></section>
    <section role="tabpanel" id="character-panel-equipment" aria-labelledby="character-tab-equipment" data-character-panel="equipment"><p>Załóż przedmioty, aby korzystać z ich obrażeń i ochrony. Broń dwuręczna zajmuje obie ręce i zdejmuje tarczę. Uzbrojenie zmienisz poza walką.</p><div class="equipment-slots" data-equipment-slots></div><h3>Przedmioty do założenia</h3><div class="equipment-candidates" data-equipment-candidates></div><p role="status" aria-live="polite" data-equipment-status></p></section>`;
@@ -87,7 +87,8 @@ export class CharacterPanel {
   const allProgress=document.createElement("details");allProgress.className="weapon-skill-tree__all-progress";
   const progressSummary=document.createElement("summary");progressSummary.textContent="Postęp wszystkich rodzajów broni";allProgress.append(progressSummary);legacy.replaceWith(allProgress);allProgress.append(legacy);
   this.skillTree.update(character.weaponTraining,{editable:!!this.handlers?.onLearnWeaponSkill&&!!this.handlers?.onResetWeaponSkills,busy:this.saving,status:this.skillStatus});
-  this.require("[data-name]").textContent=character.nickname;this.require("[data-injuries]").textContent=character.injuries.length?character.injuries.map(injury=>INJURY_LABELS[injury]).join(", "):"Brak";
+  this.require("[data-name]").textContent=character.nickname;
+  this.renderInjuries(character);
   const skin=resolveCharacterSkin(character.appearance),atlas=CHARACTER_SKIN_ATLASES[skin.id],frame=getCharacterSkinFrame(skin.id,0),sprite=this.require("[data-character-sprite]"),scale=.42;
   sprite.style.backgroundImage=`url("${atlas.url}")`;sprite.style.backgroundSize=`${atlas.columns*atlas.frameWidth*scale}px ${atlas.rows*atlas.frameHeight*scale}px`;sprite.style.backgroundPosition=`${-frame.x*scale}px ${-frame.y*scale}px`;sprite.style.width=`${frame.width*scale}px`;sprite.style.height=`${frame.height*scale}px`;
   this.require("[data-character-portrait]").setAttribute("aria-label",`Wygląd postaci: ${skin.name}`);
@@ -100,6 +101,19 @@ export class CharacterPanel {
   if(focusKey&&!this.saving){const focus=[...this.content.querySelectorAll<HTMLButtonElement>("[data-equipment-action]")].find(button=>button.dataset.equipmentAction===focusKey);focus?.focus();}
   if(skillFocus){[...this.content.querySelectorAll<HTMLElement>("[data-skill-focus]")].find(element=>element.dataset.skillFocus===skillFocus)?.focus();}
   this.handlers?.onTypingChange?.();
+ }
+ private renderInjuries(character:CharacterSnapshot):void {
+  const host=this.require("[data-injuries]");
+  if(!character.injuries.length){host.textContent="Brak";return;}
+  const list=document.createElement("ul");list.className="character-injuries";list.setAttribute("aria-label","Posiadane urazy");
+  for(const kind of new Set(character.injuries)){
+   const definition=getInjuryDefinition(kind);
+   const row=document.createElement("li");row.dataset.characterInjury=kind;
+   const name=document.createElement("strong");name.textContent=definition.label;
+   const description=document.createElement("p");description.textContent=definition.description;
+   row.append(name,description);list.append(row);
+  }
+  host.replaceChildren(list);
  }
  private itemIdentity(item:InventoryItem):HTMLElement {const identity=document.createElement("div");identity.className="equipment-item";const text=document.createElement("div"),name=document.createElement("strong"),summary=document.createElement("small");name.textContent=item.name;summary.textContent=equipmentItemSummary(item);text.append(name,summary);identity.append(equipmentIcon(item),text);return identity;}
  private async changeSkills(request:{skillId:WeaponSkillId}|{family:WeaponFamily}):Promise<void>{

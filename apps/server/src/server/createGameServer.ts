@@ -551,8 +551,7 @@ export function createGameServer(
         kind: "healer",
         title: "Lecznica Ady",
         lines: [
-          "Mogę opatrzyć cię i przywrócić siły.",
-          "Ciężkie urazy pozostaną do czasu pełnego systemu leczenia."
+          "Przywrócę pełnię zdrowia i wyleczę wszystkie twoje urazy."
         ],
         canHeal: true
       };
@@ -1030,7 +1029,7 @@ export function createGameServer(
         if (pendingWeaponSkillOperations.has(currentCharacterId)) throw new Error("EQUIPMENT_ACTION_PENDING");
         const npc = world.interactNpc(currentCharacterId, npcId);
         if (npc.kind !== "healer") throw new Error("NPC_NOT_HEALER");
-        characters.healHp(currentCharacterId);
+        characters.recoverAtHealer(currentCharacterId);
         void persistGameplayState(currentCharacterId).catch((error) =>
           reject(error, "CHARACTER_SAVE_FAILED", "Character state could not be persisted.")
         );

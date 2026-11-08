@@ -137,6 +137,14 @@ export class CharacterService {
     return this.clone(character);
   }
 
+  recoverAtHealer(playerId: PlayerId): CharacterSnapshot {
+    const character = this.require(playerId);
+    character.hp = character.maxHp;
+    character.severelyInjured = false;
+    character.injuries = [];
+    return this.clone(character);
+  }
+
   restoreHp(playerId:PlayerId,amount:number):number {
     if(!Number.isSafeInteger(amount) || amount<=0)throw new Error("INVALID_HEAL_AMOUNT");
     const character=this.require(playerId);

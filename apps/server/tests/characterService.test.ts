@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CharacterService } from "../src/character/CharacterService";
+import { INJURY_DEFINITIONS } from "@web-mmorpg/shared";
 
 describe("CharacterService", () => {
   it("preserves selected appearance through combat updates without leaking mutable data", () => {
@@ -79,7 +80,7 @@ describe("CharacterService", () => {
     expect(characters.hydrate({ ...characters.getSnapshot("p1")!, level: 1, experience: 999999 })).toMatchObject({ level: 100, experience: 495000 });
   });
 
-  it("healer restores HP without erasing severe injuries", () => {
+  it("ordinary full-HP restoration preserves severe injuries", () => {
     const characters = new CharacterService();
     characters.createPlayer("p1", "Owczy");
     characters.applyBattleResult("p1", {
@@ -95,6 +96,30 @@ describe("CharacterService", () => {
       severelyInjured: true,
       injuries: ["legTrauma"]
     });
+  });
+
+  it.each([0, 100])("healer fully restores a character at %i HP and removes every injury and severe state", (hp) => {
+    const characters = new CharacterService();
+    characters.createPlayer("p1", "Owczy");
+    characters.applyBattleResult("p1", {
+      hp,
+      severelyInjured: true,
+      injuries: INJURY_DEFINITIONS.map(injury => injury.id)
+    });
+
+    const healed = characters.recoverAtHealer("p1");
+
+    expect(healed).toMatchObject({ hp: 100, maxHp: 100, severelyInjured: false, injuries: [] });
+    expect(characters.getSnapshot("p1")).toMatchObject({ hp: 100, severelyInjured: false, injuries: [], experience: 0 });
+  });
+
+  it("partial HP restoration used by staff and consumables does not remove injuries", () => {
+    const characters = new CharacterService();
+    characters.createPlayer("p1", "Owczy");
+    characters.applyBattleResult("p1", { hp: 40, severelyInjured: true, injuries: ["bleeding", "legTrauma"] });
+
+    expect(characters.restoreHp("p1", 30)).toBe(30);
+    expect(characters.getSnapshot("p1")).toMatchObject({ hp: 70, severelyInjured: true, injuries: ["bleeding", "legTrauma"] });
   });
 
   it("recovers a defeated character to 25 percent HP while preserving injuries", () => {

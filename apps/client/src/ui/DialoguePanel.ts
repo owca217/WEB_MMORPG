@@ -25,7 +25,7 @@ export class DialoguePanel {
       </div>
       <div class="dialogue-panel__lines" data-lines></div>
       <div class="dialogue-panel__actions">
-        <button type="button" data-heal>Opatrz rany</button>
+        <button type="button" data-heal title="Przywróć pełne HP i usuń wszystkie urazy">Opatrz rany</button>
       </div>
     `;
     document.body.appendChild(this.root);

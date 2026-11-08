@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { emptyCharacterEquipment, type CharacterSnapshot, type InventoryItem } from "@web-mmorpg/shared";
+import { emptyCharacterEquipment, INJURY_DEFINITIONS, type CharacterSnapshot, type InventoryItem } from "@web-mmorpg/shared";
 import { afterEach, expect, it, vi } from "vitest";
 import { CharacterPanel } from "../src/ui/CharacterPanel";
 import { equipmentItemSummary } from "../src/ui/EquipmentIcon";
@@ -8,6 +8,19 @@ const sword:InventoryItem={instanceId:"sword",itemId:"sword",itemDefinitionId:"s
 function click(selector:string){document.querySelector<HTMLButtonElement>(selector)!.click();}
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>{resolve=done;});return{promise,resolve};}
 afterEach(()=>document.body.replaceChildren());
+it("lists each owned injury with its effect underneath and clears the list after healing",()=>{
+ const panel=new CharacterPanel();panel.update({...hero,severelyInjured:true,injuries:INJURY_DEFINITIONS.map(injury=>injury.id)});panel.show();
+ const rows=[...document.querySelectorAll('[data-injuries] li')];
+ expect(rows).toHaveLength(INJURY_DEFINITIONS.length);
+ INJURY_DEFINITIONS.forEach((injury,index)=>{
+  expect(rows[index]?.querySelector("strong")?.textContent).toBe(injury.label);
+  expect(rows[index]?.querySelector("p")?.textContent).toBe(injury.description);
+ });
+ panel.update({...hero,hp:hero.maxHp,injuries:[],severelyInjured:false});
+ expect(document.querySelector('[data-injuries]')?.textContent).toBe("Brak");
+ expect(document.querySelectorAll('[data-injuries] li')).toHaveLength(0);
+ panel.destroy();
+});
 it("opens from another window, keeps tab focus through updates and returns to its launcher",()=>{
  const launcher=document.createElement("button");document.body.append(launcher);launcher.focus();
  const panel=new CharacterPanel();panel.update(hero);panel.show();

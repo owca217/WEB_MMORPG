@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { BattleSnapshot, PlayerStateSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
+import { INJURY_DEFINITIONS, type BattleSnapshot, type PlayerStateSnapshot, type WorldStateSnapshot } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "../src/auth/AuthService";
@@ -86,6 +86,31 @@ async function setup(autoBattleStepMs = 10) {
 }
 
 describeDatabase("healing staff cross-player Socket.IO",()=>{
+ it("healer removes all persistent injuries at full HP and retains recovery after reconnect",async()=>{
+  const {game,identity,connect,authenticate}=await setup(),hero=await identity("HealerRecovery",100);
+  const injuries=INJURY_DEFINITIONS.map(injury=>injury.id);
+  game.services.characters.applyBattleResult(hero.id,{hp:100,severelyInjured:true,injuries});
+  await pool!.query("UPDATE characters SET severely_injured=TRUE,injuries=$2::jsonb WHERE id=$1",[hero.id,JSON.stringify(injuries)]);
+
+  const outOfRange=waitFor<{code:string}>(hero.socket,"commandRejected");
+  hero.socket.emit("healAtNpc",{npcId:"healer-ada"});
+  expect(await outOfRange).toMatchObject({code:"NPC_OUT_OF_RANGE"});
+  const wrongNpc=waitFor<{code:string}>(hero.socket,"commandRejected");
+  hero.socket.emit("healAtNpc",{npcId:"merchant-miro"});
+  expect(await wrongNpc).toMatchObject({code:"NPC_NOT_HEALER"});
+  expect(game.services.characters.getSnapshot(hero.id)).toMatchObject({severelyInjured:true,injuries});
+
+  game.services.world.addPlayer({id:hero.id,nickname:"HealerRecovery",x:660,y:535});
+  const healed=waitFor<PlayerStateSnapshot>(hero.socket,"playerState");
+  hero.socket.emit("healAtNpc",{npcId:"healer-ada"});
+  expect((await healed).character).toMatchObject({hp:100,severelyInjured:false,injuries:[]});
+  hero.socket.disconnect();
+  const restored=await authenticate(await connect(),hero.token);
+  expect(restored.character).toMatchObject({hp:100,severelyInjured:false,injuries:[]});
+  const saved=(await pool!.query("SELECT hp,severely_injured,injuries FROM characters WHERE id=$1",[hero.id])).rows[0];
+  expect(saved).toMatchObject({hp:100,severely_injured:false,injuries:[]});
+ });
+
  it("requires authentication and an active healing staff",async()=>{
   const {connect,identity}=await setup(),guest=await connect();
   expect(await guest.timeout(1000).emitWithAck("requestHealingTargets")).toMatchObject({ok:false,code:"AUTHENTICATION_REQUIRED"});

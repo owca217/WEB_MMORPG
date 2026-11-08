@@ -82,6 +82,10 @@ body .item-panel :is(.equipment-slot, .equipment-candidate) {
   box-shadow: inset 0 1px #e5c99009;
 }
 body .item-panel .character-sheet__section { margin-top: 12px; }
+body .item-panel .character-injuries { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+body .item-panel .character-injuries li { display: grid; gap: 4px; min-width: 0; }
+body .item-panel .character-injuries strong { color: var(--rpg-gold, #dec084); }
+body .item-panel .character-injuries p { margin: 0; overflow-wrap: anywhere; }
 body .item-panel .character-sheet h3,
 body .item-panel .equipment-slot > strong { color: var(--rpg-gold, #dec084); }
 body .item-panel .character-sheet p { line-height: 1.5; }

@@ -1,0 +1,103 @@
+/* The board uses the same stone, old brass and parchment palette as the world HUD. */
+body .game-panel.specialization-panel {
+ position:fixed; z-index:1120; inset:6vh 4vw auto; width:92vw; max-width:1380px;
+ height:88vh; max-height:960px; box-sizing:border-box; margin:auto; padding:0;
+ display:flex; flex-direction:column; overflow:hidden; transform:none; font-size:13px;
+}
+body .specialization-panel.is-hidden {display:none;}
+.specialization-panel > .game-panel__header {flex:none;display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--rpg-border,#806b48);background:linear-gradient(#3c3428,#25251f);}
+.specialization-panel h2 {margin:2px 0 0;font:24px var(--rpg-title-font,Georgia,serif);color:var(--rpg-gold,#dec084);}
+.specialization-panel__eyebrow {display:block;font-size:9px;letter-spacing:1.7px;color:var(--rpg-muted,#bfb39b);font-weight:bold;}
+.specialization-panel__intro {flex:none;padding:9px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #64563c66;background:#10150f4d;}
+.specialization-panel__intro p {margin:0;color:var(--rpg-gold);font-family:var(--rpg-title-font,Georgia,serif);font-style:italic;font-size:17px;}
+.specialization-panel__intro > span {color:var(--rpg-muted);font-size:11px;}
+.specialization-panel__body {flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 330px;}
+.specialization-board {position:relative;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:radial-gradient(ellipse at center,#44523a33 0,transparent 55%),repeating-linear-gradient(45deg,#d6c18b03 0 1px,transparent 1px 7px),#101610;}
+.specialization-board__toolbar {position:absolute;inset:12px 12px auto;z-index:2;display:flex;gap:8px;justify-content:space-between;pointer-events:none;}
+.specialization-board__toolbar > * {pointer-events:auto;}
+.specialization-board__toolbar label {display:flex;align-items:center;gap:6px;color:var(--rpg-muted);font-size:11px;}
+.specialization-board__toolbar select {max-width:180px;min-height:38px;background:#1d241c;color:var(--rpg-text);border:1px solid var(--rpg-border);padding:5px;}
+.specialization-board__toolbar > div {display:flex;align-items:center;background:#182016ed;border:1px solid #61593f;box-shadow:0 3px 9px #0005;}
+body .specialization-board__toolbar button {min-width:38px;min-height:38px;border:0;background:transparent;font-size:21px;padding:2px 8px;}
+.specialization-board__toolbar output {width:42px;text-align:center;color:var(--rpg-muted);font-size:11px;}
+.specialization-board__viewport {position:relative;flex:1;min-height:240px;overflow:hidden;touch-action:none;cursor:grab;outline-offset:-3px;}
+.specialization-board__viewport:active {cursor:grabbing;}
+.specialization-board__map {position:absolute;top:50%;left:50%;width:1120px;height:1120px;transform-origin:center;will-change:transform;user-select:none;}
+.specialization-board__connections {position:absolute;inset:0;width:1120px;height:1120px;pointer-events:none;overflow:visible;}
+.specialization-board__connections path {fill:none;stroke:#786a455e;stroke-width:2;}
+.specialization-board__connections path.is-learned {stroke:#c9ab5d;stroke-width:3;filter:drop-shadow(0 0 4px #bf954544);}
+.specialization-board__connections circle {fill:none;stroke:#bda56813;stroke-width:1;stroke-dasharray:3 9;}
+.specialization-board__center {position:absolute;left:560px;top:560px;width:138px;height:138px;transform:translate(-50%,-50%);border:2px solid #aa8e53;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(#5a4d30,#202b1b 70%);box-shadow:0 0 0 9px #121a11,0 0 0 10px #8d794748,0 0 45px #d0a55718;color:#f3d997;}
+.specialization-board__center > span {font:60px Georgia,serif;line-height:1;text-shadow:0 2px 8px #000;}
+.specialization-board__center > strong {margin-top:4px;font:18px Georgia,serif;}
+.specialization-board__center > small {font-size:10px;text-transform:uppercase;letter-spacing:2px;margin-top:6px;color:#c5bd9c;}
+.specialization-board__group {position:absolute;transform:translate(-50%,-50%);padding:9px 16px;border:1px solid #9b8350;color:#dbca96;background:#29301f;border-radius:24px;font:17px Georgia,serif;box-shadow:0 3px 9px #0009;}
+.specialization-board__group--armor {background:#292922;border-color:#959488;}
+body .game-panel.specialization-panel .specialization-board__family {position:absolute;transform:translate(-50%,-50%);width:80px;height:80px;min-width:80px;min-height:80px;padding:5px;border-radius:50%;border:2px solid #8d7c4e;color:#e5cd87;background:conic-gradient(#e1bc67 var(--progress),#353c28 0);box-shadow:0 0 0 5px #11190f,0 0 0 6px #8773474d,0 3px 18px #000a;overflow:visible;}
+body .game-panel.specialization-panel .specialization-board__family--armor {color:#d2d6c2;background:conic-gradient(#b6c3a5 var(--progress),#353b30 0);border-color:#879175;}
+body .game-panel.specialization-panel .specialization-board__family[aria-pressed=true] {box-shadow:0 0 0 5px #172012,0 0 0 8px #edd17c,0 0 30px #c5a44855;}
+.specialization-board__family-icon {display:flex;width:100%;height:100%;justify-content:center;align-items:center;border-radius:50%;background:radial-gradient(#3a432a,#1a2217);box-shadow:inset 0 0 0 1px #bba66b55;}
+.specialization-board__family-icon svg {width:43px;height:43px;filter:drop-shadow(0 2px 3px #000);}
+.specialization-board__family-label {position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%);white-space:nowrap;font:16px var(--rpg-title-font,Georgia,serif);color:#eee1bb;text-shadow:0 1px 3px #000,0 0 5px #000;background:#11170edb;padding:1px 7px;border-radius:4px;}
+.specialization-board__family > small {position:absolute;bottom:3px;left:50%;transform:translateX(-50%);font-size:11px;background:#141c11;border:1px solid #a88a4a88;color:#e1ce97;padding:0 5px;border-radius:5px;white-space:nowrap;}
+body .game-panel.specialization-panel .specialization-board__node {position:absolute;transform:translate(-50%,-50%);width:58px;height:58px;min-width:58px;min-height:58px;padding:11px;border-radius:50%;border:2px solid #61704e;background:radial-gradient(#344026,#1a2317);color:#d6c58c;box-shadow:0 0 0 4px #131a10,0 0 0 5px #61704e50;}
+.specialization-board__node svg {width:100%;height:100%;}
+.specialization-board__node > span {position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);font-size:11px;padding:0 5px;background:#161e11;border:1px solid #6f7a4c;border-radius:5px;}
+body .game-panel.specialization-panel .specialization-board__node[data-locked=true] {color:#8c907c;border-color:#4a5141;background:radial-gradient(#282e24,#181e16);}
+body .game-panel.specialization-panel .specialization-board__node[data-learned=true] {color:#f2dfa3;border-color:#d3b76e;background:radial-gradient(#71603a,#333720);box-shadow:0 0 0 4px #151b10,0 0 0 5px #d3b76e8a,0 0 15px #c7a95744;}
+body .game-panel.specialization-panel .specialization-board__node[aria-pressed=true] {outline:3px solid #f2dda0;outline-offset:5px;}
+.specialization-board__legend {position:absolute;bottom:28px;left:0;right:0;display:flex;justify-content:center;gap:16px;pointer-events:none;font-size:10px;color:#c1c0a5;}
+.specialization-board__legend span {display:flex;align-items:center;gap:5px;}
+.specialization-board__legend i {width:7px;height:7px;display:inline-block;border-radius:50%;border:1px solid #6a735c;background:#303a26;}
+.specialization-board__legend .is-learned {background:#d3b76e;border-color:#f0d695;}
+.specialization-board__legend .is-available {background:#78934f;border-color:#b6ca83;}
+.specialization-board__help {position:absolute;bottom:5px;left:0;right:0;text-align:center;font-size:10px;margin:0;color:#acae91;pointer-events:none;}
+.specialization-details {min-height:0;overflow-y:auto;overscroll-behavior:contain;border-left:1px solid var(--rpg-border);padding:20px;background:linear-gradient(110deg,#ffffff03,transparent),#25261f;}
+.specialization-details__heading {display:flex;align-items:center;gap:14px;margin-bottom:18px;}
+.specialization-details__icon {display:flex;align-items:center;justify-content:center;width:50px;height:50px;flex:none;border:1px solid #a08a55;border-radius:50%;color:var(--rpg-gold);background:radial-gradient(#4b4a31,#20271b);}
+.specialization-details__icon svg {width:32px;height:32px;}
+.specialization-details h3 {font:23px var(--rpg-title-font,Georgia,serif);color:var(--rpg-gold);margin:4px 0 0;}
+.specialization-details__progress > strong {font-size:16px;font-weight:normal;color:#eadcae;}
+.specialization-details__progress p {font-size:11px;color:var(--rpg-muted);margin:5px 0;}
+.specialization-details__meter {height:5px;border:1px solid #675a3b;background:#10160d;margin:12px 0;}
+.specialization-details__meter > span {display:block;height:100%;background:linear-gradient(90deg,#776634,#dfc577);}
+.specialization-details .specialization-details__points {color:#e6d9b0;margin-top:12px;padding:9px;background:#171d14;border:1px solid #76664288;}
+.specialization-details__explanation {font-size:11px;line-height:1.6;color:var(--rpg-muted);padding-bottom:12px;border-bottom:1px solid #76664255;}
+.specialization-details__skill {border:1px solid #75684488;background:linear-gradient(120deg,#8b80500b,transparent),#1b2117;padding:12px;margin-top:12px;}
+.specialization-details__skill[data-learned=true] {border-color:#c5ad6a9c;}
+.specialization-details__skill h4 {font:17px var(--rpg-title-font,Georgia,serif);color:#e8d5a5;margin:6px 0;}
+.specialization-details__skill p {font-size:12px;line-height:1.5;margin:6px 0;color:#d1c9ad;}
+.specialization-details__skill > small {color:#c1b891;font-size:10px;}
+.specialization-details__skill .specialization-details__requirement {font-size:11px;color:#b5c79c;margin-top:10px;}
+.specialization-details__skill button {width:100%;margin-top:5px;}
+.specialization-details__footer {display:flex;flex-direction:column;gap:9px;margin-top:20px;padding-top:15px;border-top:1px solid #77674455;}
+.specialization-details__footer small {font-size:10px;line-height:1.5;color:var(--rpg-muted);}
+.specialization-details__back {width:100%;}
+.specialization-panel__status {flex:none;min-height:18px;margin:0;padding:7px 18px;color:var(--rpg-success,#bad29c);font-size:12px;border-top:1px solid var(--rpg-border);background:#1a2116;}
+body .specialization-panel :focus-visible {outline:2px solid var(--rpg-focus,#f2d590);outline-offset:3px;}
+@media(max-width:760px) {
+ body .game-panel.specialization-panel {inset:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);width:100%;height:auto;max-height:none;}
+ .specialization-panel > .game-panel__header {padding:8px 12px;}
+ .specialization-panel h2 {font-size:20px;}
+ .specialization-panel__intro {padding:7px 12px;}
+ .specialization-panel__intro p {font-size:14px;}
+ .specialization-panel__intro > span {max-width:55%;font-size:9px;text-align:right;}
+ .specialization-panel__body {grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(240px,46%) minmax(0,1fr);}
+ .specialization-details {border-left:0;border-top:1px solid var(--rpg-border);padding:14px;}
+ .specialization-details__heading {margin-bottom:10px;}
+ .specialization-details__progress {display:grid;grid-template-columns:1fr 1fr;gap:0 8px;align-items:center;}
+ .specialization-details__progress .specialization-details__meter,.specialization-details__progress .specialization-details__points {grid-column:1/-1;}
+ .specialization-board__toolbar {inset:6px 8px auto;}
+ .specialization-board__toolbar label {font-size:0;}
+ .specialization-board__toolbar select {max-width:150px;font-size:12px;}
+ .specialization-board__legend {bottom:20px;}
+ .specialization-board__help {font-size:9px;bottom:3px;}
+ .specialization-panel__status {padding:5px 12px;min-height:15px;font-size:11px;}
+}
+@media(max-height:520px) and (min-width:761px) {body .game-panel.specialization-panel {inset:1vh 1vw auto;width:98vw;height:98vh;}.specialization-panel__intro{display:none;}.specialization-board__viewport{min-height:140px;}}
+@media(prefers-reduced-motion:reduce) {.specialization-board__map{will-change:auto;}}
+
+/* The shared theme resets hover transforms on ordinary rectangular buttons. */
+body .game-panel.specialization-panel button:is(.specialization-board__family,.specialization-board__node):is(:hover,:active):enabled {transform:translate(-50%,-50%);}
+body .game-panel.specialization-panel .specialization-board__family:hover:enabled {border-color:#eed28a;background:conic-gradient(#efcf7f var(--progress),#465038 0);}
+body .game-panel.specialization-panel .specialization-board__node:hover:enabled {background:radial-gradient(#5a6140,#293222);border-color:#e0c381;}

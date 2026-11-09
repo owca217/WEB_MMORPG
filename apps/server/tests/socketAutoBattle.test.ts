@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { BattleSnapshot, PlayerStateSnapshot } from "@web-mmorpg/shared";
+import type { BattleSnapshot, EquipmentUpdateResult, PlayerStateSnapshot } from "@web-mmorpg/shared";
 import { io, type Socket } from "socket.io-client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "../src/auth/AuthService";
@@ -133,6 +133,12 @@ describeDatabase("authenticated automatic battle Socket.IO", () => {
 
   it("finishes a real automatic encounter and persists the normal victory rewards once", async () => {
     const { game, identity, start } = await setup(), hero = await identity(), states: AutoSnapshot[] = [];
+    const inventory = await game.services.inventory.addItems(hero.id, [{ itemId: "training-sword", quantity: 1 }]);
+    const sword = inventory.items.find((item) => item.itemId === "training-sword")!;
+    const equipped: EquipmentUpdateResult = await hero.socket.timeout(3_000).emitWithAck("setEquipmentSlot", {
+      slot: "mainHand", itemInstanceId: sword.instanceId
+    });
+    expect(equipped).toMatchObject({ ok: true, character: { statistics: { meleeDamage: 12 } } });
     hero.socket.on("battleState", state => states.push(state));
     const ended = waitFor<{ outcome: string; experienceGained: number; goldGained: number; inventory: PlayerStateSnapshot["inventory"] }>(hero.socket, "battleEnded");
     const initial = await start(hero.socket, "auto");
@@ -147,7 +153,9 @@ describeDatabase("authenticated automatic battle Socket.IO", () => {
     expect(states.some(state => fingerprint(state) !== fingerprint(initial))).toBe(true);
     expect(game.services.battles.hasBattle(hero.id)).toBe(false);
     expect(await game.services.merchant.getGold(hero.id)).toBe(115);
-    expect((await pool!.query("SELECT experience FROM characters WHERE id=$1", [hero.id])).rows[0].experience).toBe(40);
+    const stored = (await pool!.query("SELECT experience, weapon_training FROM characters WHERE id=$1", [hero.id])).rows[0];
+    expect(stored.experience).toBe(0);
+    expect(stored.weapon_training.experience.sword).toBe(20);
     expect(await setAuto(hero.socket, true)).toMatchObject({ ok: false });
     expect((await pool!.query("SELECT COUNT(*)::int AS count FROM character_gold_rewards WHERE character_id=$1", [hero.id])).rows[0].count).toBe(1);
   });

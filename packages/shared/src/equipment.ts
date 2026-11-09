@@ -2,6 +2,7 @@ import type { CharacterSnapshot } from "./character";
 import type { InventoryItem, InventorySnapshot } from "./inventory";
 import type { ItemStatModifier } from "./items";
 import { WEAPON_FAMILIES, type WeaponFamily } from "./weapons";
+import { ARMOR_FAMILIES, type ArmorFamily } from "./armorSpecialization";
 
 export const EQUIPMENT_SLOTS = ["mainHand","offHand","helmet","chest","gloves","pants","boots","cloak"] as const;
 export type EquipmentSlot = (typeof EQUIPMENT_SLOTS)[number];
@@ -13,6 +14,7 @@ export type CharacterEquipment = Record<EquipmentSlot,InventoryItem|null>;
 export interface EquipmentItemProperties {
   slot: EquipmentSlot;
   weaponFamily?: WeaponFamily;
+  armorFamily?: ArmorFamily;
   twoHanded: boolean;
   minimumLevel: number;
   modifiers: ItemStatModifier[];
@@ -45,13 +47,14 @@ export function getEquipmentItemProperties(input:{category:string;subcategory?:s
     else if(isEquipmentSlot(armorSlot) && armorSlot!=="mainHand" && armorSlot!=="offHand")slot=armorSlot;
     else return undefined;
   }else return undefined;
-  return {slot,...(weaponFamily?{weaponFamily}:{}),twoHanded,minimumLevel:Math.max(1,Math.floor(input.minimumLevel)||1),modifiers:input.stats.filter(stat=>Number.isFinite(stat.value)).map(stat=>({...stat}))};
+  const armorFamily=input.category==="armor"&&slot!=="offHand"&&ARMOR_FAMILIES.some(f=>f.id===special.armorFamily)?special.armorFamily as ArmorFamily:undefined;
+  return {slot,...(weaponFamily?{weaponFamily}:{}),...(armorFamily?{armorFamily}:{}),twoHanded,minimumLevel:Math.max(1,Math.floor(input.minimumLevel)||1),modifiers:input.stats.filter(stat=>Number.isFinite(stat.value)).map(stat=>({...stat}))};
 }
-export function getCharacterEquipment(inventory:InventorySnapshot,level=100):CharacterEquipment {
+export function getCharacterEquipment(inventory:InventorySnapshot,_historicalLevel?:number):CharacterEquipment {
   const result=emptyCharacterEquipment();
   for(const item of inventory.items) {
     const slot=item.equippedSlot;
-    if(!slot || !item.equipment || item.equipment.slot!==slot || item.equipment.minimumLevel>level || item.quantity!==1 || (item.durability!==undefined && item.durability<=0))continue;
+    if(!slot || !item.equipment || item.equipment.slot!==slot || item.quantity!==1 || (item.durability!==undefined && item.durability<=0))continue;
     result[slot]=structuredClone(item);
   }
   if(result.mainHand?.equipment?.twoHanded)result.offHand=null;

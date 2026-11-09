@@ -4,6 +4,7 @@ import type { InventoryItem } from "./inventory";
 import type { ItemStatModifier } from "./items";
 import { getWeaponProficiency,normalizeWeaponTraining,WEAPON_FAMILIES,type WeaponFamily } from "./weapons";
 import { getLearnedWeaponSkills, getWeaponSkill } from "./weaponSkills";
+import { getArmorBonuses, getEquippedArmorFamily } from "./armorSpecialization";
 
 const MAX_STAT=1_000_000;
 const bounded=(value:number,min=0,max=MAX_STAT)=>Number.isFinite(value)?Math.max(min,Math.min(max,value)):min;
@@ -35,11 +36,17 @@ export function getEquippedShieldAttackBonus(equipment?:CharacterEquipment):numb
   return apply(0,equipment!.offHand!.equipment!.modifiers,weapon.equipment!.weaponFamily==="wand"?"MAGIC_DAMAGE":"PHYSICAL_DAMAGE");
 }
 /** Gear is the only source of weapon modes; persisted free styles are ignored. */
-export function getEquipmentCombatStatistics<T extends CharacterStatistics>(base:T,value:unknown,equipment?:CharacterEquipment):T {
+export function getEquipmentCombatStatistics<T extends CharacterStatistics>(base:T,value:unknown,equipment?:CharacterEquipment,armorTraining?:unknown):T {
   const weapon=mainHand(equipment),family=weapon?.equipment?.weaponFamily;
   const shield=hasEquippedShield(equipment);
   const equipped=EQUIPMENT_SLOTS.flatMap(slot=>usable(equipment?.[slot],slot) && (slot!=="offHand"||shield)?[equipment![slot]!]:[]);
-  const modifiers=equipped.flatMap(item=>item.equipment!.modifiers);
+  const modifiers=equipped.flatMap(item=>{
+    const family=getEquippedArmorFamily(item),bonuses=family?getArmorBonuses(armorTraining,family):undefined;
+    return item.equipment!.modifiers.map(modifier=>{
+      const percent=modifier.statCode==="ARMOR"?bonuses?.armorPercent:["MAX_HP","VITALITY"].includes(modifier.statCode)?bonuses?.hpPercent:0;
+      return percent&&modifier.modifierType==="flat"&&modifier.value>0?{...modifier,value:modifier.value*(1+percent/100)}:modifier;
+    });
+  });
   const weaponModifiers=weapon?.equipment?.modifiers??[];
   const training=normalizeWeaponTraining(value);
   const bonus=(kind:WeaponFamily)=>1+getWeaponProficiency(training.experience[kind]).damageBonusPercent/100;
@@ -54,12 +61,12 @@ export function getEquipmentCombatStatistics<T extends CharacterStatistics>(base
     maxHp:Math.max(1,Math.round(apply(base.maxHp+(vitality-base.vitality)*10,modifiers,"MAX_HP"))),
     maxAp:Math.max(1,Math.min(8,Math.round(apply(base.maxAp,modifiers,"MAX_AP")))),
     initiative:Math.max(1,Math.round(apply(base.initiative,modifiers,"INITIATIVE"))),
-    meleeDamage:melee?Math.max(1,Math.round(bounded(base.meleeDamage+strength-base.strength+weaponDamage+shieldDamage)*(family?bonus(family):1))):0,
-    rangedDamage:ranged?Math.max(1,Math.round(bounded(base.rangedDamage+rangedBonus+shieldDamage)*bonus(family))):0,
+    meleeDamage:melee?Math.max(1,Math.round(bounded((weapon?weaponDamage:base.meleeDamage)+strength-base.strength+shieldDamage)*(family?bonus(family):1))):0,
+    rangedDamage:ranged?Math.max(1,Math.round(bounded(rangedBonus+shieldDamage)*bonus(family))):0,
     armor:Math.round(apply(base.armor,modifiers,"ARMOR")),meleeEnabled:melee,rangedEnabled:ranged};
   delete statistics.healingPower;delete statistics.blockPercent;
-  if(family==="staff")statistics.healingPower=Math.max(1,Math.round(apply(base.meleeDamage,modifiers,"SPELL_POWER")*bonus("staff")));
-  if(shield)statistics.blockPercent=Math.min(95,apply(10,modifiers,"BLOCK_POWER")+getWeaponProficiency(training.experience.shield).level*0.15);
+  if(family==="staff")statistics.healingPower=Math.max(1,Math.round(apply(0,modifiers,"SPELL_POWER")*bonus("staff")));
+  if(shield)statistics.blockPercent=Math.min(95,apply(0,modifiers,"BLOCK_POWER")+getWeaponProficiency(training.experience.shield).level*0.15);
   for(const id of getLearnedWeaponSkills(training)) {
     const skill=getWeaponSkill(id)!;
     if(skill.kind!=="passive")continue;

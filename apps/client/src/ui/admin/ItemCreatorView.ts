@@ -282,7 +282,6 @@ export class ItemCreatorView {
           </select>
         </label>
         ${field("Poziom przedmiotu", "itemLevel", String(this.draft.itemLevel), "number")}
-        ${field("Minimalny poziom", "minimumLevel", String(this.draft.minimumLevel), "number")}
         <label>Ikona PNG/WebP <input data-icon-file type="file" accept="image/png,image/webp" /></label>
       </section>
     `;
@@ -339,16 +338,16 @@ export class ItemCreatorView {
   }
 
   private renderRequirementsStep(): void {
-    const rows = this.draft.requirements.map((requirement, index) => `
+    const rows = this.draft.requirements.flatMap((requirement, index) => requirement.type === "LEVEL" ? [] : [`
       <div class="creator-row" data-requirement-row="${index}">
         <select data-requirement-type data-index="${index}">
-          ${["LEVEL", "PROFESSION", "STAT", "QUEST", "TIER"].map((value) => option(value, value, value === requirement.type)).join("")}
+          ${["PROFESSION", "STAT", "QUEST", "TIER"].map((value) => option(value, value, value === requirement.type)).join("")}
         </select>
         <input data-requirement-code data-index="${index}" value="${escapeAttribute(requirement.code ?? "")}" placeholder="Kod" />
         <input data-requirement-value data-index="${index}" value="${escapeAttribute(String(requirement.value ?? ""))}" placeholder="Wartość" />
         <button type="button" data-remove-requirement="${index}">Usuń</button>
       </div>
-    `).join("");
+    `]).join("");
     this.stepHost.innerHTML = `
       <section class="creator-step">
         <h3>Wymagania</h3>
@@ -459,7 +458,7 @@ export class ItemCreatorView {
     }
 
     if (target.closest("[data-add-requirement]")) {
-      this.draft.requirements.push({ type: "LEVEL", value: 1 });
+      this.draft.requirements.push({ type: "STAT", code: "STRENGTH", value: 1 });
       this.markDirtyAndRender();
       return;
     }

@@ -1,4 +1,4 @@
-import { normalizeWeaponTraining, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
+import { normalizeArmorTraining, normalizeWeaponTraining, type ArmorTraining, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
 import type { Pool, PoolClient } from "pg";
 
 export interface PersistedCharacterRecord {
@@ -13,6 +13,7 @@ export interface PersistedCharacterRecord {
   level: number;
   experience: number;
   weaponTraining?: WeaponTraining;
+  armorTraining?: ArmorTraining;
   hp: number;
   maxHp: number;
   maxAp: number;
@@ -35,6 +36,7 @@ interface CharacterRow {
   level: number;
   experience: number;
   weapon_training: unknown;
+  armor_training: unknown;
   hp: number;
   max_hp: number;
   max_ap: number;
@@ -47,7 +49,7 @@ interface CharacterRow {
 
 const SELECT_COLUMNS = `
   id, account_id, nickname, nickname_normalized, appearance,
-  location_id, x, y, level, experience, weapon_training, hp, max_hp, max_ap, initiative,
+  location_id, x, y, level, experience, weapon_training, armor_training, hp, max_hp, max_ap, initiative,
   severely_injured, injuries, deletion_requested_at, deletion_effective_at
 `;
 
@@ -64,6 +66,7 @@ function mapCharacter(row: CharacterRow): PersistedCharacterRecord {
     level: row.level,
     experience: row.experience,
     weaponTraining:normalizeWeaponTraining(row.weapon_training),
+    armorTraining:normalizeArmorTraining(row.armor_training),
     hp: row.hp,
     maxHp: row.max_hp,
     maxAp: row.max_ap,
@@ -132,6 +135,7 @@ export class CharacterRepository {
       level: number;
       experience?: number;
       weaponTraining?: WeaponTraining;
+      armorTraining?: ArmorTraining;
       hp: number;
       maxHp: number;
       maxAp: number;
@@ -154,6 +158,7 @@ export class CharacterRepository {
            injuries = $11::jsonb,
            experience = COALESCE($12, experience),
            weapon_training = COALESCE($13::jsonb, weapon_training),
+           armor_training = COALESCE($14::jsonb, armor_training),
            updated_at = NOW()
        WHERE id = $1`,
       [
@@ -169,7 +174,8 @@ export class CharacterRepository {
         state.severelyInjured,
         JSON.stringify(state.injuries),
         state.experience ?? null,
-        state.weaponTraining===undefined ? null : JSON.stringify(normalizeWeaponTraining(state.weaponTraining))
+        state.weaponTraining===undefined ? null : JSON.stringify(normalizeWeaponTraining(state.weaponTraining)),
+        state.armorTraining===undefined ? null : JSON.stringify(normalizeArmorTraining(state.armorTraining))
       ]
     );
   }

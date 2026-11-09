@@ -1,23 +1,51 @@
-import { getCharacterStatistics, type CharacterSnapshot } from "@web-mmorpg/shared";
+import {
+  emptyCharacterEquipment, getCharacterStatistics, getEquipmentCombatStatistics,
+  getEquipmentItemProperties, type CharacterSnapshot, type InventoryItem
+} from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { BattleService } from "../src/battle/BattleService";
 import { WorldService } from "../src/world/WorldService";
 import { getEncounterDefinition } from "../src/world/encounterDefinitions";
 import { LootService } from "../src/loot/LootService";
+import { BASIC_EQUIPMENT_ITEMS } from "../src/items/basicEquipment";
+import { PROGRESSION_WEAPON_ITEMS } from "../src/items/progressionWeaponItems";
 
 const enemies = [
-  { id: "feral-rat", level: 1, levels: [1, 2], hp: 110, damage: 9, armor: 0, reward: 40 },
-  { id: "forest-wolf", level: 3, levels: [3, 4], hp: 170, damage: 15, armor: 4, reward: 70 },
-  { id: "wild-boar", level: 5, levels: [5, 6], hp: 230, damage: 18, armor: 8, reward: 100 },
-  { id: "forest-bandit", level: 7, levels: [7, 8], hp: 280, damage: 23, armor: 12, reward: 130 },
-  { id: "outlaw-guard", level: 10, levels: [9, 10], hp: 340, damage: 27, armor: 16, reward: 160 }
+  { id: "feral-rat", level: 1, hp: 110, damage: 9, armor: 0, reward: 40 },
+  { id: "forest-wolf", level: 3, hp: 170, damage: 15, armor: 4, reward: 70 },
+  { id: "wild-boar", level: 5, hp: 230, damage: 18, armor: 8, reward: 100 },
+  { id: "forest-bandit", level: 7, hp: 280, damage: 23, armor: 12, reward: 130 },
+  { id: "outlaw-guard", level: 10, hp: 340, damage: 27, armor: 16, reward: 160 }
 ];
 
-function character(level: number): CharacterSnapshot {
-  const statistics = getCharacterStatistics(level);
+function catalogEquipment() {
+  const equipment = emptyCharacterEquipment();
+  const weapon = PROGRESSION_WEAPON_ITEMS.find((item) => item.itemId === "progression-two-handed-30")!;
+  const pieces = [
+    { ...weapon, specialData: { ...weapon.specialData }, stats: [...weapon.stats!] },
+    ...BASIC_EQUIPMENT_ITEMS.filter((item) => item.armorFamily === "plate").map((item) => ({
+      ...item, specialData: { armorSlot: item.subcategoryId, armorFamily: item.armorFamily }
+    }))
+  ];
+  for (const piece of pieces) {
+    const properties = getEquipmentItemProperties({ category: piece.categoryId,
+      subcategory: piece.subcategoryId!, minimumLevel: 1, stats: piece.stats, specialData: piece.specialData })!;
+    const item: InventoryItem = {
+      instanceId: `fixture-${piece.itemId}`, itemId: piece.itemId, itemDefinitionId: piece.itemId,
+      name: piece.name, quantity: 1, category: piece.categoryId, description: "Real catalog gear fixture",
+      rarity: "COMMON", upgradeLevel: 0, equipment: properties, equippedSlot: properties.slot
+    };
+    equipment[properties.slot] = item;
+  }
+  return equipment;
+}
+
+function character(level: number, geared = false): CharacterSnapshot {
+  const equipment = geared ? catalogEquipment() : emptyCharacterEquipment();
+  const statistics = getEquipmentCombatStatistics(getCharacterStatistics(level), undefined, equipment);
   return { playerId: "hero", nickname: "Bohater", level, statistics,
     hp: statistics.maxHp, maxHp: statistics.maxHp, maxAp: statistics.maxAp,
-    initiative: statistics.initiative, severelyInjured: false, injuries: [] };
+    initiative: statistics.initiative, severelyInjured: false, injuries: [], equipment };
 }
 
 describe("level 1–10 enemy encounters", () => {
@@ -40,7 +68,8 @@ describe("level 1–10 enemy encounters", () => {
     if (!encounter) throw new Error("Missing encounter");
     world.addPlayer({ id: "hero", nickname: "Bohater", x: encounter.x, y: encounter.y });
     expect(world.startEncounter("hero", encounter.id)).toEqual(encounter);
-    const snapshots = [enemy.level, 10].map(level => new BattleService().startBattle(character(level), encounter.id));
+    const snapshots = [1, 100].flatMap(level => [false, true]
+      .map(geared => new BattleService().startBattle(character(level, geared), encounter.id)));
     for (const snapshot of snapshots) {
       const opponents = snapshot.combatants.filter(unit => unit.side === "enemy");
       expect(opponents).toHaveLength(1);
@@ -49,10 +78,13 @@ describe("level 1–10 enemy encounters", () => {
     }
   });
 
-  it.each(enemies)("keeps solo combat against $id winnable at both recommended levels", (enemy) => {
-    for (const level of enemy.levels) {
+  it.each(enemies)("resolves $id identically with the same real gear at historical levels 1 and 100", (enemy) => {
+    const outcomes: unknown[] = [];
+    for (const level of [1, 100]) {
       const service = new BattleService();
-      let snapshot = service.startBattle(character(level), `${enemy.id}-01`);
+      const hero = character(level, true);
+      expect(hero.statistics).toMatchObject({ maxHp: 185, meleeDamage: 100, armor: 27 });
+      let snapshot = service.startBattle(hero, `${enemy.id}-01`);
       service.setAuto("hero", true);
       let completed = false;
       for (let action = 0; action < 500; action += 1) {
@@ -65,17 +97,17 @@ describe("level 1–10 enemy encounters", () => {
           continue;
         }
         expect(result.victory).toBe(true);
-        expect(result.playerOutcome!.hp / character(level).maxHp).toBeGreaterThanOrEqual(0.25);
-        expect(result.playerOutcome!.hp / character(level).maxHp).toBeLessThanOrEqual(0.85);
-        expect(snapshot.round).toBeGreaterThanOrEqual(3);
-        expect(snapshot.round).toBeLessThanOrEqual(12);
+        expect(result.playerOutcome!.hp).toBeGreaterThan(0);
+        expect(result.playerOutcome!.hp).toBeLessThanOrEqual(hero.maxHp);
         expect(result.experienceReward).toBe(enemy.reward);
+        outcomes.push({ hp: result.playerOutcome!.hp, round: snapshot.round, actions: action + 1 });
         expect(service.applyAutoCommand("hero").experienceReward).toBeUndefined();
         completed = true;
         break;
       }
       expect(completed).toBe(true);
     }
+    expect(outcomes[1]).toEqual(outcomes[0]);
   });
 
   it("resolves the faster enemy opening before accepting player commands", () => {

@@ -73,7 +73,7 @@ export class MerchantService {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const level = await this.lockCharacter(client, characterId);
+      await this.lockCharacter(client, characterId);
       await ensurePermanentBackpack(client,characterId);
       const gold = await this.lockWallet(client, characterId);
       const receipt = (await client.query<ReceiptRow>(
@@ -89,7 +89,6 @@ export class MerchantService {
         const definition = (await this.readDefinitions(client)).find(entry => entry.offer.itemId === request.itemId);
         if (!definition) throw new Error("MERCHANT_ITEM_UNAVAILABLE");
         if (request.quantity > definition.offer.maxQuantity) throw new Error("MERCHANT_INVALID_QUANTITY");
-        if (definition.row.minimum_level > level) throw new Error("MERCHANT_LEVEL_REQUIRED");
         const total = definition.offer.unitPrice * request.quantity;
         if (gold < total) throw new Error("MERCHANT_INSUFFICIENT_GOLD");
         if (definition.row.unique_item) {
@@ -184,7 +183,7 @@ export class MerchantService {
            AND stat.stat_code='HEAL_AMOUNT' AND stat.modifier_type='flat') AS heal_hp,
          (SELECT SUM(stat.value) FROM item_stat_modifiers stat WHERE stat.version_id=version.id
            AND stat.stat_code='AP_RESTORE' AND stat.modifier_type='flat') AS restore_ap,
-         EXISTS(SELECT 1 FROM item_requirements requirement WHERE requirement.version_id=version.id) AS has_requirements
+         EXISTS(SELECT 1 FROM item_requirements requirement WHERE requirement.version_id=version.id AND requirement.requirement_type<>'LEVEL') AS has_requirements
        FROM items item JOIN item_versions version ON version.item_id=item.id
          AND version.version_no=item.active_version_no AND version.state='PUBLISHED'
        WHERE item.item_id=ANY($1::text[]) AND item.status='PUBLISHED'

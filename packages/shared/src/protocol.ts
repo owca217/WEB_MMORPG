@@ -9,6 +9,7 @@ import type { NpcInteractionPayload, WorldStateSnapshot } from "./world";
 import type { WeaponLoadout, WeaponLoadoutResult } from "./weapons";
 import type { WeaponFamily } from "./weapons";
 import type { WeaponSkillUpdateResult } from "./weaponSkills";
+import type { ArmorFamily } from "./armorSpecialization";
 import type { HealingRequest, HealingResult, HealingTargetsResult } from "./healing";
 import type { EquipmentUpdateRequest, EquipmentUpdateResult } from "./equipment";
 import type { WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult } from "./weaponInjuryUpgrade";
@@ -18,6 +19,8 @@ export type SocketAuthResult =
   | { ok: false; code: string; message: string };
 
 export interface ClientToServerEvents {
+  learnArmorSkill: (payload: {skillId:string}, ack: (result:WeaponSkillUpdateResult)=>void)=>void;
+  resetArmorSkills: (payload: {family:ArmorFamily}, ack: (result:WeaponSkillUpdateResult)=>void)=>void;
   learnWeaponSkill: (payload: {skillId:string}, ack: (result:WeaponSkillUpdateResult)=>void)=>void;
   resetWeaponSkills: (payload: {family:WeaponFamily}, ack: (result:WeaponSkillUpdateResult)=>void)=>void;
   applyWeaponInjury: (payload: WeaponInjuryUpgradeRequest, ack: (result: WeaponInjuryUpgradeResult) => void) => void;

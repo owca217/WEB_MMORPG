@@ -1,6 +1,6 @@
 import { getCharacterStatistics, type CharacterSnapshot, type BattleCommand } from "@web-mmorpg/shared";
 import { expect, it } from "vitest";
-import { combatEquipment } from "./combatEquipmentFixtures";
+import { armorItem, combatEquipment } from "./combatEquipmentFixtures";
 import { CharacterService } from "../src/character/CharacterService";
 import { BattleService } from "../src/battle/BattleService";
 import { hexDistance, hexKey, hexNeighbors, findPath } from "../src/battle/hex";
@@ -45,6 +45,16 @@ it("Auto records actual use and emits no immediate training points",()=>{
  const service=new BattleService();service.startBattle(hero(),"wolf-pack-01");service.setAuto("hero",true);let terminal;
  for(let i=0;i<200;i++){const applied=service.applyAutoCommand("hero");expect(applied.result.ok).toBe(true);expect(applied.weaponTraining).toBeUndefined();expect(applied.shieldTraining).toBeUndefined();if(applied.finished){terminal=applied;break;}}
  expect(terminal?.usedWeaponFamilies).toEqual({hero:["axe"]});
+});
+it("captures worn armor at admission without letting later mutable character data change its reward families",()=>{
+ const service=new BattleService(),input=hero();
+ input.equipment!.chest=armorItem("chest",[{statCode:"ARMOR",modifierType:"flat",value:3}]);
+ input.equipment!.chest!.equipment!.armorFamily="cloth";
+ service.startBattle(input,"wolf-pack-01");
+ input.equipment!.chest!.equipment!.armorFamily="plate";
+ service.setAuto("hero",true);let terminal;
+ for(let i=0;i<200;i++){const applied=service.applyAutoCommand("hero");expect(applied.result.ok).toBe(true);if(applied.finished){terminal=applied;break;}}
+ expect(terminal?.armorEquipment?.hero?.chest?.equipment?.armorFamily).toBe("cloth");
 });
 it("unarmed combat ignores persisted free styles and never trains their families",()=>{
  const service=new BattleService(),input=hero();delete input.equipment;service.startBattle(input,"wolf-pack-01");service.setAuto("hero",true);let terminal;

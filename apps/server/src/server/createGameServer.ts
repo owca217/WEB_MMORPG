@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { allocateWeaponExperience, getCharacterEquipment, isEquipmentSlot } from "@web-mmorpg/shared";
+import { allocateArmorExperience, allocateWeaponExperience, getCharacterEquipment, isEquipmentSlot } from "@web-mmorpg/shared";
 import type {
   ClientToServerEvents,
   LocationId,
@@ -18,6 +18,7 @@ import { ChatService } from "../chat/ChatService";
 import type { CharacterLifecycleService } from "../character/CharacterLifecycleService";
 import { CharacterService } from "../character/CharacterService";
 import { WeaponSkillService, WeaponSkillWriteUncertainError, type WeaponSkillMutation } from "../character/WeaponSkillService";
+import { ArmorSkillService, ArmorSkillWriteUncertainError } from "../character/ArmorSkillService";
 import { InventoryService } from "../inventory/InventoryService";
 import { WeaponInjuryUpgradeService } from "../inventory/WeaponInjuryUpgradeService";
 import { EquipmentService } from "../equipment/EquipmentService";
@@ -148,6 +149,10 @@ const EQUIPMENT_ERRORS:Record<string,string>={
 };
 
 const WEAPON_SKILL_ERRORS: Readonly<Record<string, string>> = {
+  INVALID_ARMOR_SKILL: "Wybierz umiejętność z drzewka pancerza.",
+  INVALID_ARMOR_FAMILY: "Wybierz poprawną rodzinę pancerza.",
+  ARMOR_LEVEL_REQUIRED: "Najpierw osiągnij wymaganą rangę pancerza.",
+  ARMOR_SKILL_REQUEST_UNCERTAIN: "Wybór mógł zostać zapisany. Sprawdź drzewko lub ponów tę samą czynność.",
   INVALID_WEAPON_SKILL: "Wybierz umiejętność z drzewka broni.",
   INVALID_WEAPON_FAMILY: "Wybierz poprawną rodzinę broni.",
   WEAPON_LEVEL_REQUIRED: "Najpierw osiągnij wymagany poziom władania.",
@@ -175,6 +180,7 @@ export function createGameServer(
   const chat = new ChatService(world, (playerId) => battles.hasBattle(playerId));
   const characters = new CharacterService();
   const weaponSkills = new WeaponSkillService(options.pool);
+  const armorSkills = new ArmorSkillService(options.pool);
   const connections = options.connections ?? new ActiveConnectionRegistry();
   const characterOwners = new Map<PlayerId, string>();
   const pendingCharacterSaves = new Map<PlayerId, Promise<void>>();
@@ -305,11 +311,11 @@ export function createGameServer(
                 : 0
               : social.parties.getExperienceBonus(id,context);
             partyBonusExperience=Math.floor(base*bonus/100);
-            const progressed=characters.awardExperience(id,base+partyBonusExperience);
-            experienceGained=(progressed.experience??0)-(before.experience??0);
-            levelsGained=progressed.level-before.level;
+            experienceGained=base+partyBonusExperience;
             const training=allocateWeaponExperience(experienceGained,applied.usedWeaponFamilies?.[id]??[]);
             for(const [family,amount] of Object.entries(training))if(amount)characters.trainWeapon(id,family as import("@web-mmorpg/shared").WeaponFamily,amount);
+            const armorTraining=allocateArmorExperience(experienceGained,applied.armorEquipment ? applied.armorEquipment[id] : before.equipment);
+            for(const [family,amount] of Object.entries(armorTraining))if(amount)characters.trainArmor(id,family as import("@web-mmorpg/shared").ArmorFamily,amount);
           }
           if(!applied.victory || (outcome?.hp??before.hp)<=0) {
             characters.recoverAfterDefeat(id);world.resetPlayerToSpawn(id);
@@ -430,6 +436,7 @@ export function createGameServer(
         level: character.level,
         ...(character.experience !== undefined ? { experience: character.experience } : {}),
         ...(character.weaponTraining ? {weaponTraining:character.weaponTraining} : {}),
+        ...(character.armorTraining ? {armorTraining:character.armorTraining} : {}),
         hp: character.hp,
         maxHp: character.maxHp,
         maxAp: character.maxAp,
@@ -621,6 +628,7 @@ export function createGameServer(
             level: persisted.level,
             experience: persisted.experience,
             ...(persisted.weaponTraining ? {weaponTraining:persisted.weaponTraining} : {}),
+            ...(persisted.armorTraining ? {armorTraining:persisted.armorTraining} : {}),
             hp: persisted.hp,
             maxHp: persisted.maxHp,
             maxAp: persisted.maxAp,
@@ -709,11 +717,11 @@ export function createGameServer(
       ack({ok:false,code:"WEAPON_STYLES_REMOVED",message:"Style walki zostały zastąpione uzbrojeniem. Zaktualizuj klienta i załóż przedmiot."});
     });
 
-    const mutateWeaponSkills = (request: WeaponSkillMutation, ack: (result: WeaponSkillUpdateResult) => void): void => {
+    const mutateSkills = (domain: "weapon" | "armor", request: WeaponSkillMutation, ack: (result: WeaponSkillUpdateResult) => void): void => {
       if (typeof ack !== "function") return;
       const id = characterId, version = characterVersion;
       const fail = (error: unknown): void => {
-        const code = error instanceof Error && WEAPON_SKILL_ERRORS[error.message] ? error.message : "WEAPON_SKILL_FAILED";
+        const code = error instanceof Error && WEAPON_SKILL_ERRORS[error.message] ? error.message : domain === "armor" ? "ARMOR_SKILL_FAILED" : "WEAPON_SKILL_FAILED";
         ack({ ok: false, code, message: WEAPON_SKILL_ERRORS[code] ?? "Nie udało się zapisać drzewka. Spróbuj ponownie." });
       };
       if (!id || !ownsCharacter(id, version)) {
@@ -745,21 +753,27 @@ export function createGameServer(
         try {
           await pendingCharacterSaves.get(id);
           assertCurrent();
-          const training = await weaponSkills.apply(id, request, assertCurrent);
+          const training = await (domain === "armor" ? armorSkills : weaponSkills).apply(id, request, assertCurrent);
           // Cleanup waits for this reservation, including a disconnect during COMMIT.
-          if (characterOwners.get(id) === socket.id) characters.setWeaponTraining(id, training);
+          if (characterOwners.get(id) === socket.id) {
+            if (domain === "armor") characters.setArmorTraining(id, training);
+            else characters.setWeaponTraining(id, training);
+          }
           finish();
           assertCurrent();
           ack({ ok: true, character: characters.getSnapshot(id)! });
           void emitPlayerState(id).catch(() => undefined);
         } catch (error) {
           if (error instanceof WeaponSkillWriteUncertainError && characterOwners.get(id) === socket.id) characters.setWeaponTraining(id, error.training);
+          if (error instanceof ArmorSkillWriteUncertainError && characterOwners.get(id) === socket.id) characters.setArmorTraining(id, error.training);
           fail(error);
         } finally { finish(); }
       })();
     };
-    socket.on("learnWeaponSkill", (payload, ack) => mutateWeaponSkills({ kind: "learn", skillId: payload?.skillId }, ack));
-    socket.on("resetWeaponSkills", (payload, ack) => mutateWeaponSkills({ kind: "reset", family: payload?.family }, ack));
+    socket.on("learnWeaponSkill", (payload, ack) => mutateSkills("weapon", { kind: "learn", skillId: payload?.skillId }, ack));
+    socket.on("resetWeaponSkills", (payload, ack) => mutateSkills("weapon", { kind: "reset", family: payload?.family }, ack));
+    socket.on("learnArmorSkill", (payload, ack) => mutateSkills("armor", { kind: "learn", skillId: payload?.skillId }, ack));
+    socket.on("resetArmorSkills", (payload, ack) => mutateSkills("armor", { kind: "reset", family: payload?.family }, ack));
 
     socket.on("applyWeaponInjury",(payload,ack)=>{
       if(typeof ack!=="function")return;
@@ -1283,6 +1297,6 @@ export function createGameServer(
 
   return {
     io,
-    services: { world, inventory, equipment, weaponInjuryUpgrades, weaponSkills, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
+    services: { world, inventory, equipment, weaponInjuryUpgrades, weaponSkills, armorSkills, loot, battles, characters, connections, chat, social, merchant, healing, respawns }
   };
 }

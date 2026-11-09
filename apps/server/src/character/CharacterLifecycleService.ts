@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getCharacterSkin, type CharacterLifecycleSummary, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
+import { getCharacterSkin, type ArmorTraining, type CharacterLifecycleSummary, type InjuryKind, type WeaponTraining } from "@web-mmorpg/shared";
 import type { Pool } from "pg";
 import { ensurePermanentBackpack } from "../inventory/permanentBackpack";
 import {
@@ -145,6 +145,7 @@ export class CharacterLifecycleService {
       level: number;
       experience?: number;
       weaponTraining?: WeaponTraining;
+      armorTraining?: ArmorTraining;
       hp: number;
       maxHp: number;
       maxAp: number;

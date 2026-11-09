@@ -89,6 +89,12 @@ async function setup() {
     const item=inventory.items.find(item=>item.itemId==="training-staff")!;
     expect(await member.socket.timeout(2000).emitWithAck("setEquipmentSlot",{slot:"mainHand",itemInstanceId:item.instanceId})).toMatchObject({ok:true});
   };
+  const equipBattleGear=async(member:Identity)=>{
+    const gear=await game.services.inventory.addItems(member.id,[{itemId:"progression-sword-30",quantity:1},{itemId:"cloth-chest",quantity:1}]);
+    for(const [itemId,slot] of [["progression-sword-30","mainHand"],["cloth-chest","chest"]] as const)
+      expect(await member.socket.timeout(2000).emitWithAck("setEquipmentSlot",{slot,itemInstanceId:gear.items.find(item=>item.itemId===itemId)!.instanceId})).toMatchObject({ok:true});
+    expect(game.services.characters.getSnapshot(member.id)?.statistics).toMatchObject({meleeDamage:47,armor:11});
+  };
   const party = (leader: Identity, ...others: Identity[]) => {
     for (const member of others) {
       game.services.social.parties.invite(leader.id, member.id);
@@ -109,7 +115,7 @@ async function setup() {
     await vi.waitFor(() => { for (const member of members) expect(starts.get(member.id)).toHaveLength(1); });
     return { snapshot, starts };
   };
-  return { game, lifecycle, auth, connect, authenticate, identity, party, start, equipStaff };
+  return { game, lifecycle, auth, connect, authenticate, identity, party, start, equipStaff, equipBattleGear };
 }
 function owners(snapshot: BattleSnapshot): string[] {
   return snapshot.combatants.flatMap(actor => actor.ownerPlayerId ? [actor.ownerPlayerId] : []).sort();
@@ -173,8 +179,8 @@ describeDatabase("shared party battle Socket.IO", () => {
     active.socket.emit("battleCommand", { type: "meleeAttack", combatantId: actor.id, targetId: ally.id });
     expect((await friendly).code).toBe("INVALID_TARGET");
 
-    const healedA = waitFor<BattleSnapshot>(a.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 88));
-    const healedB = waitFor<BattleSnapshot>(b.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 88));
+    const healedA = waitFor<BattleSnapshot>(a.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 68));
+    const healedB = waitFor<BattleSnapshot>(b.socket, "battleState", s => s.combatants.some(unit => unit.id === ally.id && unit.hp === 68));
     active.socket.emit("battleCommand", { type: "healAlly", combatantId: actor.id, targetId: ally.id });
     const [sa, sb] = await Promise.all([healedA, healedB]);
     expect(sa.combatants).toEqual(sb.combatants);
@@ -188,8 +194,9 @@ describeDatabase("shared party battle Socket.IO", () => {
   });
 
   it("runs each player's Auto turns and settles each reward once before reconnect", async () => {
-    const { identity, party, start, connect, authenticate } = await setup();
+    const { identity, party, start, connect, authenticate, equipBattleGear } = await setup();
     const a = await identity("PartyAutoA"), b = await identity("PartyAutoB", 100, 100);
+    for(const member of [a,b])await equipBattleGear(member);
     party(a, b); await start(a, [b]);
     const receivedA: BattleEnded[] = [], receivedB: BattleEnded[] = [];
     a.socket.on("battleEnded", (result: BattleEnded) => receivedA.push(result)); b.socket.on("battleEnded", (result: BattleEnded) => receivedB.push(result));
@@ -197,17 +204,17 @@ describeDatabase("shared party battle Socket.IO", () => {
     for (const member of [a, b]) expect(await member.socket.timeout(1500).emitWithAck("setBattleAuto", { enabled: true })).toMatchObject({ ok: true, snapshot: { autoBattle: true } });
     const [ra, rb] = await Promise.all([endedA, endedB]);
     for (const result of [ra, rb]) {
-      expect(result).toMatchObject({ outcome: "victory", experienceGained: 44, goldGained: 15, character: { experience: 44 } });
+      expect(result).toMatchObject({ outcome: "victory", experienceGained: 44, goldGained: 15, character: { experience: 0 } });
       expect(result.inventory.items.filter(item => item.itemId === "field-bandage").reduce((quantity, item) => quantity + item.quantity, 0)).toBe(2);
     }
     const state = waitFor<PlayerStateSnapshot>(a.socket, "playerState");
     a.socket.emit("battleCommand", { type: "endTurn", combatantId: `hero:${a.id}` }); a.socket.emit("requestPlayerState");
-    expect((await state).character.experience).toBe(44); expect(receivedA).toHaveLength(1); expect(receivedB).toHaveLength(1);
+    expect((await state).character.experience).toBe(0); expect(receivedA).toHaveLength(1); expect(receivedB).toHaveLength(1);
     a.socket.disconnect(); b.socket.disconnect();
     const nextA = await connect(), nextB = await connect();
     const restoredA = await authenticate(nextA, a.token), restoredB = await authenticate(nextB, b.token);
     for (const restored of [restoredA, restoredB]) {
-      expect(restored.character.experience).toBe(44); expect(restored.gold).toBe(115);
+      expect(restored.character.experience).toBe(0); expect(restored.gold).toBe(115);
       expect(restored.inventory.items.filter(item => item.itemId === "field-bandage").reduce((quantity, item) => quantity + item.quantity, 0)).toBe(2);
     }
   }, 15_000);
@@ -247,8 +254,9 @@ describeDatabase("shared party battle Socket.IO", () => {
   });
 
   it("does not count an excluded nearby party member when only one admitted player remains", async () => {
-    const { game, identity, party, start } = await setup();
+    const { game, identity, party, start, equipBattleGear } = await setup();
     const a = await identity("PartyBonusA"), b = await identity("PartyBonusB", 100, 100), busy = await identity("PartyBonusBusy", 700, 300);
+    for(const member of [a,b])await equipBattleGear(member);
     party(a, b, busy);
     // Already fighting: this nearby party member must not enter or boost the shared encounter.
     game.services.battles.startBattle(game.services.characters.getSnapshot(busy.id)!, "wolf-pack-01");
@@ -288,6 +296,6 @@ describeDatabase("shared party battle Socket.IO", () => {
     expect(owners(alone)).toEqual([survivor.id]);
     const ended = waitFor<BattleEnded>(survivor.socket, "battleEnded");
     survivor.socket.emit("battleCommand", winningCommand!);
-    expect(await ended).toMatchObject({ outcome: "victory", experienceGained: 40, character: { experience: 40 } });
+    expect(await ended).toMatchObject({ outcome: "victory", experienceGained: 40, character: { experience: 0 } });
   }, 15_000);
 });

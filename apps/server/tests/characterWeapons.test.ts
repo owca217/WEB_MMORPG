@@ -15,14 +15,14 @@ it("trains families independently, caps progress and isolates returned equipment
  expect(()=>service.trainWeapon("hero","unknown" as "sword",1)).toThrow("INVALID_WEAPON_FAMILY");
 });
 
-it("recalculates equipped bonuses once through hydration and character level ups",()=>{
+it("recalculates equipped bonuses once through hydration and retains them across historical XP awards",()=>{
  const service=new CharacterService(),fresh=service.createPlayer("hero","Hero");
- const input={...fresh,equipment:combatEquipment("sword"),weaponTraining:{experience:{sword:25250,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,wand:0,shield:0},loadout:{melee:"axe" as const,ranged:"bow" as const}}};
+ const input={...fresh,equipment:combatEquipment("sword",false,[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:12}]),weaponTraining:{experience:{sword:25250,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,wand:0,shield:0},loadout:{melee:"axe" as const,ranged:"bow" as const}}};
  const hydrated=service.hydrate(input);input.weaponTraining.experience.sword=0;
- expect(hydrated.statistics).toMatchObject({strength:10,meleeDamage:25,rangedDamage:0});
- expect(service.hydrate(hydrated).statistics).toMatchObject({meleeDamage:25,rangedDamage:0});
- expect(service.awardExperience("hero",100).statistics).toMatchObject({strength:12,meleeDamage:28,rangedDamage:0});
- expect(service.setEquipment("hero",combatEquipment("crossbow")).statistics).toMatchObject({meleeDamage:0,rangedDamage:16});
+ expect(hydrated.statistics).toMatchObject({strength:0,meleeDamage:15,rangedDamage:0});
+ expect(service.hydrate(hydrated).statistics).toMatchObject({meleeDamage:15,rangedDamage:0});
+ expect(service.awardExperience("hero",100).statistics).toMatchObject({strength:0,meleeDamage:15,rangedDamage:0});
+ expect(service.setEquipment("hero",combatEquipment("crossbow",false,[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat",value:16}])).statistics).toMatchObject({meleeDamage:0,rangedDamage:16});
 });
 
 it("equipment changes clamp HP but never heal when armor is removed and re-equipped",()=>{

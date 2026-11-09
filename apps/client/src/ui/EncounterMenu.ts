@@ -85,7 +85,6 @@ export class EncounterMenu {
       const stats = document.createElement("dl");
       const values: [string, string | number][] = [
         ["Poziom", enemy.level],
-        ["Zalecany poziom", `${enemy.recommendedLevels[0]}–${enemy.recommendedLevels[1]}`],
         ["HP", enemy.maxHp],
         ["Obrażenia wręcz", enemy.combatStats.meleeDamage],
         ["Obrażenia dystansowe", enemy.combatStats.rangedDamage],

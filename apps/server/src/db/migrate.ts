@@ -66,6 +66,14 @@ const MIGRATIONS = [
   {
     name: "016_progression_weapon_metadata",
     url: new URL("./migrations/016_progression_weapon_metadata.sql", import.meta.url)
+  },
+  {
+    name: "017_armor_specializations",
+    url: new URL("./migrations/017_armor_specializations.sql", import.meta.url)
+  },
+  {
+    name: "018_armor_specialization_metadata",
+    url: new URL("./migrations/018_armor_specialization_metadata.sql", import.meta.url)
   }
 ] as const;
 

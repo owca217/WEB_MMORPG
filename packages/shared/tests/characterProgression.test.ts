@@ -6,23 +6,23 @@ import {
   getTotalExperienceForLevel
 } from "../src/index";
 
-describe("automatic character progression", () => {
+describe("fixed character baseline and historical XP helpers", () => {
   it.each([
-    { level: 1, expected: { strength: 10, dexterity: 10, vitality: 10, maxHp: 100, maxAp: 5, initiative: 10, meleeDamage: 20, rangedDamage: 15, armor: 0 } },
-    { level: 11, expected: { strength: 30, dexterity: 20, vitality: 40, maxHp: 400, maxAp: 6, initiative: 15, meleeDamage: 40, rangedDamage: 25, armor: 20 } },
-    { level: 100, expected: { strength: 208, dexterity: 109, vitality: 307, maxHp: 3070, maxAp: 8, initiative: 59, meleeDamage: 218, rangedDamage: 114, armor: 198 } }
-  ])("derives automatic combat and primary statistics at level $level", ({ level, expected }) => {
+    { level: 1, expected: { strength: 0, dexterity: 0, vitality: 0, maxHp: 100, maxAp: 5, initiative: 10, meleeDamage: 5, rangedDamage: 0, armor: 0 } },
+    { level: 11, expected: { strength: 0, dexterity: 0, vitality: 0, maxHp: 100, maxAp: 5, initiative: 10, meleeDamage: 5, rangedDamage: 0, armor: 0 } },
+    { level: 100, expected: { strength: 0, dexterity: 0, vitality: 0, maxHp: 100, maxAp: 5, initiative: 10, meleeDamage: 5, rangedDamage: 0, armor: 0 } }
+  ])("ignores historical level $level for primary and combat statistics", ({ level, expected }) => {
     expect(getCharacterStatistics(level)).toEqual(expected);
   });
 
   it("normalizes level inputs and returns independent statistics", () => {
-    expect(getCharacterStatistics(11.9).maxHp).toBe(400);
+    expect(getCharacterStatistics(11.9).maxHp).toBe(100);
     expect(getCharacterStatistics(-8).maxHp).toBe(100);
     expect(getCharacterStatistics(Number.NaN).maxHp).toBe(100);
-    expect(getCharacterStatistics(101).maxHp).toBe(3070);
+    expect(getCharacterStatistics(101).maxHp).toBe(100);
     const statistics = getCharacterStatistics(1);
     statistics.strength = 999;
-    expect(getCharacterStatistics(1).strength).toBe(10);
+    expect(getCharacterStatistics(1).strength).toBe(0);
   });
 
   it("uses increasing total XP thresholds and caps progression at level 100", () => {

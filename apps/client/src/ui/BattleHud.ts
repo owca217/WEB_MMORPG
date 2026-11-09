@@ -84,7 +84,7 @@ export class BattleHud {
         <div class="battle-hud__overview">
         <div class="battle-hud__portrait-name">
           <div class="battle-hud__name" data-name>Brak postaci</div>
-          <div class="battle-hud__identity"><span>Poziom <b data-level>—</b></span><span>Inicjatywa <b data-initiative>—</b></span></div>
+          <div class="battle-hud__identity"><span>Inicjatywa <b data-initiative>—</b></span></div>
         </div>
       <section class="battle-hud__resources" aria-label="Zasoby postaci">
         <div class="battle-hud__resource battle-hud__resource--hp">
@@ -292,7 +292,6 @@ export class BattleHud {
     this.root.dataset.hasFeedback = String(Boolean(this.feedbackElement.textContent));
     this.renderTurnOrder();
     this.requireElement("[data-name]").textContent = combatant?.name ?? "Brak postaci";
-    this.requireElement("[data-level]").textContent = combatant?.level === undefined ? "—" : `${combatant.level}`;
     this.requireElement("[data-initiative]").textContent = combatant ? `${combatant.initiative}` : "—";
     this.requireElement("[data-hp]").textContent = combatant ? `${combatant.hp}/${combatant.maxHp}` : "—";
     this.requireElement("[data-ap]").textContent = combatant ? `${combatant.ap}/${combatant.maxAp}` : "—";

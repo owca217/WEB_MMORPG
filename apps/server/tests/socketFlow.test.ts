@@ -124,6 +124,13 @@ async function authenticate(socket: Socket, token: string): Promise<string> {
   return result.characterId;
 }
 
+async function equipVictoryGear(game: ReturnType<typeof createGameServer>, socket: Socket, characterId: string): Promise<void> {
+  const inventory=await game.services.inventory.addItems(characterId,[{itemId:"progression-sword-10",quantity:1},{itemId:"cloth-chest",quantity:1}]);
+  for(const [itemId,slot] of [["progression-sword-10","mainHand"],["cloth-chest","chest"]] as const) {
+    expect(await socket.timeout(2000).emitWithAck("setEquipmentSlot",{slot,itemInstanceId:inventory.items.find(item=>item.itemId===itemId)!.instanceId})).toMatchObject({ok:true});
+  }
+}
+
 async function giveTestContainer(game: ReturnType<typeof createGameServer>, characterId: string) {
   const definitionId = randomUUID();
   const stableId = `flow-container-${randomUUID()}`;
@@ -497,6 +504,7 @@ describeDatabase("Socket.IO game flow", () => {
     const identity = await createIdentity(auth, lifecycle, "owczy_victory", "Owczy");
     const client = await connectClient();
     const playerId = await authenticate(client, identity.token);
+    await equipVictoryGear(game,client,playerId);
 
     game.services.world.movePlayer(playerId, { x: 1320, y: 455 }, Date.now() + 10_000);
 
@@ -508,7 +516,7 @@ describeDatabase("Socket.IO game flow", () => {
 
     expect(ended.outcome).toBe("victory");
     expect(ended.experienceGained).toBe(40);
-    expect(ended.character.experience).toBe(40);
+    expect(ended.character.experience).toBe(0);
     const pelt = ended.inventory.items.find((item) => item.itemId === "wolf-pelt");
     const bandage = ended.inventory.items.find((item) => item.itemId === "field-bandage");
     expect(pelt).toMatchObject({
@@ -528,7 +536,7 @@ describeDatabase("Socket.IO game flow", () => {
     expect(returnedWorld.players.some((player) => player.id === playerId)).toBe(true);
   });
 
-  it("awards XP once, advances automatically and restores saved progression", async () => {
+  it("awards specialization XP once and restores unchanged historical progression", async () => {
     const { game, connectClient, auth, lifecycle } = await startTestServer();
     const identity = await createIdentity(auth, lifecycle, "owczy_progress", "ProgressHero");
     await lifecycle.saveGameplayState(identity.characterId, {
@@ -540,22 +548,24 @@ describeDatabase("Socket.IO game flow", () => {
     const initialState = onceWithTimeout<PlayerStateSnapshot>(client, "playerState");
     const playerId = await authenticate(client, identity.token);
     expect((await initialState).character.experience).toBe(80);
+    await equipVictoryGear(game,client,playerId);
 
     const startedPromise = onceWithTimeout<BattleSnapshot>(client, "battleStarted");
     client.emit("startEncounter", { encounterId: "wolf-pack-01" });
     const started = await startedPromise;
     const ended = await winBattle(client, started, playerId);
     expect(ended).toMatchObject({
-      outcome: "victory", experienceGained: 40, levelsGained: 1,
+      outcome: "victory", experienceGained: 40, levelsGained: 0,
       character: {
-        level: 2, experience: 120, maxHp: 130,
-        statistics: { strength: 12, dexterity: 11, vitality: 13, meleeDamage: 22, armor: 2 }
+        level: 1, experience: 80, maxHp: 100,
+        statistics: { strength: 0, dexterity: 0, vitality: 0, meleeDamage: 23, armor: 7 },
+        weaponTraining: { experience: { sword: 20 } }, armorTraining: { experience: { cloth: 20 } }
       }
     });
     expect(ended.character.hp).toBeGreaterThan(30);
     const account = await new AccountRepository(pool!).findByNormalizedUsername("owczy_progress");
     expect(await lifecycle.getCharacter(account!.id)).toMatchObject({
-      level: 2, experience: 120, hp: ended.character.hp, maxHp: 130
+      level: 1, experience: 80, hp: ended.character.hp, maxHp: 100
     });
 
     const rejected = onceWithTimeout<{ code: string }>(client, "commandRejected");
@@ -576,6 +586,7 @@ describeDatabase("Socket.IO game flow", () => {
     });
     const client = await connectClient();
     const playerId = await authenticate(client, identity.token);
+    await equipVictoryGear(game,client,playerId);
     let releaseLoot!: () => void;
     const lootGate = new Promise<void>((resolve) => { releaseLoot = resolve; });
     let markLootStarted!: () => void;
@@ -605,13 +616,13 @@ describeDatabase("Socket.IO game flow", () => {
       const disconnected=new Promise<void>(resolve=>serverSocket.once("disconnect",()=>resolve()));
       client.disconnect();
       await disconnected;
-      expect(game.services.characters.getSnapshot(playerId)).toMatchObject({level:2,experience:120});
+      expect(game.services.characters.getSnapshot(playerId)).toMatchObject({level:1,experience:80});
       // Cleanup must wait for the durable reward transaction; unblock that transaction first.
       releaseLoot();
       await lootFinished;
       await vi.waitFor(() => expect(game.services.characters.getSnapshot(playerId)).toBeUndefined());
       const account = await new AccountRepository(pool!).findByNormalizedUsername("owczy_disconnect");
-      expect(await lifecycle.getCharacter(account!.id)).toMatchObject({ level: 2, experience: 120 });
+      expect(await lifecycle.getCharacter(account!.id)).toMatchObject({ level: 1, experience: 80 });
       expect(await game.services.merchant.getGold(playerId)).toBe(115);
     } finally {
       releaseLoot();
@@ -683,6 +694,7 @@ describeDatabase("Socket.IO game flow", () => {
       secondEnteredBattle = true;
     });
 
+    await equipVictoryGear(game,first,firstPlayerId);
     game.services.world.movePlayer(firstPlayerId, { x: 1320, y: 455 }, Date.now() + 10_000);
 
     const startedPromise = onceWithTimeout<BattleSnapshot>(first, "battleStarted");

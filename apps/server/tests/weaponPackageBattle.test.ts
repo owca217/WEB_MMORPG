@@ -6,6 +6,7 @@ import { combatEquipment } from "./combatEquipmentFixtures";
 
 function setup(family:WeaponFamily="wand",shieldChannel="MAGIC_DAMAGE",skillId?:WeaponSkillId) {
   const equipment=combatEquipment(family,true,[{statCode:family==="wand"?"MAGIC_DAMAGE":"PHYSICAL_DAMAGE",modifierType:"flat",value:12}]);
+  if(family==="staff")equipment.mainHand!.equipment!.modifiers.push({statCode:"SPELL_POWER",modifierType:"flat",value:20});
   equipment.offHand!.category="weapon";
   equipment.offHand!.equipment!.modifiers=[{statCode:shieldChannel,modifierType:"flat",value:4}];
   const stats=getCharacterStatistics(1);
@@ -20,7 +21,7 @@ function setup(family:WeaponFamily="wand",shieldChannel="MAGIC_DAMAGE",skillId?:
 
 it("uses existing ranged range, LOS, 3 AP and armor/block mitigation for a wand",()=>{
   const {service,state,actor,enemy}=setup();
-  expect(actor.combatStats).toMatchObject({rangedDamage:39,meleeDamage:0,meleeEnabled:false,rangedEnabled:true});
+  expect(actor.combatStats).toMatchObject({rangedDamage:20,meleeDamage:0,meleeEnabled:false,rangedEnabled:true});
   expect(actor.combatStats).not.toHaveProperty("healingPower");
   expect(service.applyCommand("hero",{type:"meleeAttack",combatantId:actor.id,targetId:enemy.id}).result).toMatchObject({ok:false,code:"WEAPON_ATTACK_UNAVAILABLE"});
   expect(service.applyCommand("hero",{type:"healSelf",combatantId:actor.id}).result.ok).toBe(false);
@@ -33,7 +34,7 @@ it("uses existing ranged range, LOS, 3 AP and armor/block mitigation for a wand"
   actor.ap=5;enemy.combatStats={...enemy.combatStats!,armor:10,blockPercent:20};enemy.hp=enemy.maxHp=1000;
   const applied=service.applyCommand("hero",attack);expect(applied.result.ok).toBe(true);
   expect(applied.snapshot?.combatants.find(unit=>unit.id===actor.id)?.ap).toBe(2);
-  expect(applied.snapshot?.combatants.find(unit=>unit.id===enemy.id)?.hp).toBe(1000-mitigatedBattleDamage(39,10,20));
+  expect(applied.snapshot?.combatants.find(unit=>unit.id===enemy.id)?.hp).toBe(1000-mitigatedBattleDamage(20,10,20));
 });
 
 it.each([false,true])("records matching offensive shield use for manual/Auto attacks (Auto=%s) within one half-XP budget",auto=>{

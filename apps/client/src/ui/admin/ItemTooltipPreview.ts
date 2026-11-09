@@ -39,7 +39,7 @@ export class ItemTooltipPreview {
     name.className = `item-tooltip-preview__name rarity-${draft.rarity.toLocaleLowerCase()}`;
     name.textContent = draft.name.trim() || "Bez nazwy";
     const meta = document.createElement("span");
-    meta.textContent = `${draft.rarity} • ${itemQualityText(draft)} • Poziom przedmiotu ${draft.itemLevel} • Wymagany poziom ${draft.minimumLevel}`;
+    meta.textContent = `${draft.rarity} • ${itemQualityText(draft)} • Poziom przedmiotu ${draft.itemLevel}`;
     identity.append(name, meta);
     header.append(identity);
     this.host.append(header);
@@ -53,8 +53,9 @@ export class ItemTooltipPreview {
       })));
     }
 
-    if (draft.requirements.length > 0) {
-      this.host.append(this.section("Wymagania", draft.requirements.map((requirement) => {
+    const requirements = draft.requirements.filter(requirement => requirement.type !== "LEVEL");
+    if (requirements.length > 0) {
+      this.host.append(this.section("Wymagania", requirements.map((requirement) => {
         const code = requirement.code ? ` ${requirement.code}` : "";
         const value = requirement.value === undefined ? "" : ` ${String(requirement.value)}`;
         return `${requirement.type}${code}${value}`.trim();

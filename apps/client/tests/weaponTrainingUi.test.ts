@@ -25,7 +25,7 @@ it("opens from another window, keeps tab focus through updates and returns to it
  const launcher=document.createElement("button");document.body.append(launcher);launcher.focus();
  const panel=new CharacterPanel();panel.update(hero);panel.show();
  expect(document.activeElement).toBe(document.querySelector('[data-character-sheet] [data-close]'));
- const training=document.querySelector<HTMLButtonElement>('[data-character-tab="proficiency"]')!;training.focus();training.click();
+ const training=document.querySelector<HTMLButtonElement>('[data-character-tab="equipment"]')!;training.focus();training.click();
  panel.update({...hero,hp:80});panel.show();
  expect(document.activeElement).toBe(training);
  training.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
@@ -41,9 +41,9 @@ it("renders the character's current skin portrait without treating its name as m
  panel.update({...hero,appearance:{gender:"male",skinId:"male-guard"}});
  expect(document.querySelector<HTMLElement>('[data-character-sprite]')?.style.backgroundImage).toContain("male-guard.png");panel.destroy();
 });
-it("has three accessible tabs, preserves selection and removes free style choices",()=>{
+it("has two accessible tabs, preserves selection and removes free style choices",()=>{
  const panel=new CharacterPanel();panel.update(hero,{items:[sword]});panel.show();
- expect([...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent)).toEqual(["Statystyki","Władanie","Uzbrojenie"]);
+ expect([...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent)).toEqual(["Statystyki","Uzbrojenie"]);
  click('[data-character-tab="equipment"]');panel.update({...hero,hp:80},{items:[sword]});
  expect(document.querySelector('[data-character-tab="equipment"]')?.getAttribute("aria-selected")).toBe("true");
  expect(document.querySelector('[data-weapon-melee]')).toBeNull();
@@ -76,14 +76,14 @@ it("opens the equipment tab from a HUD slot and focuses its existing editable ro
 });
 it("keeps game pointer events inside the panel",()=>{
  const panel=new CharacterPanel();panel.update(hero);panel.show();const listener=vi.fn();document.addEventListener("pointerdown",listener);
- try{document.querySelector('[data-character-tab="proficiency"]')!.dispatchEvent(new Event("pointerdown",{bubbles:true}));expect(listener).not.toHaveBeenCalled();}finally{document.removeEventListener("pointerdown",listener);panel.destroy();}
+ try{document.querySelector('[data-character-tab="equipment"]')!.dispatchEvent(new Event("pointerdown",{bubbles:true}));expect(listener).not.toHaveBeenCalled();}finally{document.removeEventListener("pointerdown",listener);panel.destroy();}
 });
-it("shows proficiency levels with combat-only half-XP rules",()=>{
- const panel=new CharacterPanel();panel.update({...hero,weaponTraining:{experience:{sword:5,axe:0,hammer:0,dagger:0,spear:0,bow:25250,crossbow:0,staff:0,shield:0,wand:0},loadout:{melee:"sword",ranged:"bow"}}});panel.show();click('[data-character-tab="proficiency"]');
- expect(document.querySelectorAll('[data-weapon-family]')).toHaveLength(10);expect(document.querySelector('[data-weapon-family="sword"] [data-weapon-level]')?.textContent).toBe("1/100");
- expect(document.querySelector('[data-weapon-family="wand"] [data-weapon-level]')?.textContent).toBe("0/100");
- expect(document.querySelector('[data-weapon-family="bow"] [role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
- expect(document.querySelector('[data-character-panel="proficiency"]')?.textContent).toContain("połowę");panel.destroy();
+it("cycles only the two remaining tabs with keyboard navigation",()=>{
+ const panel=new CharacterPanel();panel.update(hero);panel.show();
+ const statistics=document.querySelector<HTMLButtonElement>('[data-character-tab="statistics"]')!,equipment=document.querySelector<HTMLButtonElement>('[data-character-tab="equipment"]')!;
+ statistics.focus();statistics.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft",bubbles:true}));expect(document.activeElement).toBe(equipment);
+ equipment.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowRight",bubbles:true}));expect(document.activeElement).toBe(statistics);
+ statistics.dispatchEvent(new KeyboardEvent("keydown",{key:"End",bubbles:true}));expect(document.activeElement).toBe(equipment);panel.destroy();
 });
 it("shows magical offense and initiative while keeping staff healing wording",()=>{
  const wand={...sword,equipment:{...sword.equipment!,weaponFamily:"wand" as const,modifiers:[{statCode:"MAGIC_DAMAGE",modifierType:"flat" as const,value:19},{statCode:"SPELL_POWER",modifierType:"flat" as const,value:3},{statCode:"INITIATIVE",modifierType:"flat" as const,value:2}]}};
@@ -111,11 +111,11 @@ it("shows rejected equipment requests and ignores old acknowledgements after hid
  await vi.waitFor(()=>expect(document.querySelector('[data-equipment-status]')?.textContent).toContain("podczas walki"));click('[data-equipment-equip="sword"]');panel.hide();panel.update({...hero,playerId:"next"},{items:[]});panel.show();
  late.resolve({ok:true,character:hero,inventory:{items:[sword]}});await Promise.resolve();await Promise.resolve();expect(changed).not.toHaveBeenCalled();panel.destroy();
 });
-it("explains two-handed shield conflicts, level and broken item requirements",()=>{
+it("explains two-handed shield conflicts and broken items while allowing historical level requirements",()=>{
  const bow={...sword,instanceId:"bow",name:"Łuk",equipment:{...sword.equipment!,weaponFamily:"bow" as const,twoHanded:true}};
  const shield={...sword,instanceId:"shield",name:"Tarcza",category:"armor",equipment:{...sword.equipment!,slot:"offHand" as const,weaponFamily:"shield" as const}};
  const broken={...sword,instanceId:"broken",durability:0},advanced={...sword,instanceId:"advanced",equipment:{...sword.equipment!,minimumLevel:5}};
  const panel=new CharacterPanel({onSetEquipmentSlot:vi.fn(),onChanged:vi.fn()});panel.update({...hero,equipment:{...emptyCharacterEquipment(),mainHand:bow}},{items:[bow,shield,broken,advanced]});panel.show();click('[data-character-tab="equipment"]');
  expect(document.querySelector<HTMLButtonElement>('[data-equipment-equip="shield"]')!.disabled).toBe(true);expect(document.querySelector('[data-equipment-item="shield"]')?.textContent).toContain("dwuręczną");
- expect(document.querySelector<HTMLButtonElement>('[data-equipment-equip="broken"]')!.disabled).toBe(true);expect(document.querySelector<HTMLButtonElement>('[data-equipment-equip="advanced"]')!.disabled).toBe(true);panel.destroy();
+ expect(document.querySelector<HTMLButtonElement>('[data-equipment-equip="broken"]')!.disabled).toBe(true);expect(document.querySelector<HTMLButtonElement>('[data-equipment-equip="advanced"]')!.disabled).toBe(false);panel.destroy();
 });

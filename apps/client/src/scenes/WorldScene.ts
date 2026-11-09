@@ -1,4 +1,4 @@
-import type { ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult, WeaponFamily, WeaponSkillId, WeaponSkillUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
+import type { ArmorFamily, ArmorSkillId, ContainerSlotIndex, EquipmentUpdateRequest, EquipmentUpdateResult, WeaponInjuryUpgradeRequest, WeaponInjuryUpgradeResult, WeaponFamily, WeaponSkillId, WeaponSkillUpdateResult, EncounterSnapshot, InventorySnapshot, PlayerStateSnapshot, NpcInteractionPayload, NpcSnapshot, PlayerId, WorldPlayerSnapshot, WorldStateSnapshot } from "@web-mmorpg/shared";
 import { EQUIPMENT_SLOTS, PERMANENT_BACKPACK_SLOT_INDEX, findNearestWalkablePosition, findWorldPath, resolveWorldMovement, type WorldPoint } from "@web-mmorpg/shared";
 import Phaser from "phaser";
 import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
@@ -15,6 +15,7 @@ import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
 import { HealingPanel } from "../ui/HealingPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
+import { SpecializationPanel } from "../ui/SpecializationPanel";
 import { DialoguePanel } from "../ui/DialoguePanel";
 import { MerchantPanel } from "../ui/ShopPanel";
 import { EncounterMenu } from "../ui/EncounterMenu";
@@ -76,6 +77,7 @@ export class WorldScene extends Phaser.Scene {
   private inlineContainerSelected = false;
   private healingPanel:HealingPanel|undefined;
   private characterPanel: CharacterPanel | undefined;
+  private specializationPanel: SpecializationPanel | undefined;
   private playerStateRevision=0;
   private equipmentRequestVersion=0;
   private equipmentPending=false;
@@ -102,11 +104,12 @@ export class WorldScene extends Phaser.Scene {
   private readonly onFormFocus = () => { queueMicrotask(() => { if (this.hud) this.updateKeyboardCapture(); }); };
   private readonly onUiShortcut = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.repeat || event.ctrlKey || event.metaKey || event.altKey || this.isTyping()) return;
-    if (event.code !== "KeyI" && event.code !== "KeyC") return;
+    if (event.code !== "KeyI" && event.code !== "KeyC" && event.code !== "KeyK") return;
     event.preventDefault();
     this.cancelMovement();
     if (event.code === "KeyI") this.openContainerSlot(PERMANENT_BACKPACK_SLOT_INDEX);
-    else { this.hud?.closeMenu(); this.characterPanel?.toggle(); }
+    else if (event.code === "KeyK") { this.hud?.closeMenu(); this.characterPanel?.hide(); this.specializationPanel?.toggle(); }
+    else { this.hud?.closeMenu(); this.specializationPanel?.hide(); this.characterPanel?.toggle(); }
   };
   private readonly cleanups: Array<() => void> = [];
 
@@ -259,8 +262,13 @@ export class WorldScene extends Phaser.Scene {
     this.healingPanel=new HealingPanel({requestTargets:()=>gameSocket.requestHealingTargets(),cast:request=>gameSocket.castHealing(request)});
     this.characterPanel = new CharacterPanel({
       onSetEquipmentSlot: request=>this.setEquipmentSlot(request),
+      onTypingChange:()=>this.updateKeyboardCapture()
+    });
+    this.specializationPanel = new SpecializationPanel({
       onLearnWeaponSkill:skillId=>this.updateWeaponSkills({skillId}),
       onResetWeaponSkills:family=>this.updateWeaponSkills({family}),
+      onLearnArmorSkill:skillId=>this.updateArmorSkills({skillId}),
+      onResetArmorSkills:family=>this.updateArmorSkills({family}),
       onTypingChange:()=>this.updateKeyboardCapture()
     });
     this.dialoguePanel = new DialoguePanel({
@@ -299,8 +307,9 @@ export class WorldScene extends Phaser.Scene {
 
     this.hud = new WorldHud({
       onContainerSlot: (slotIndex) => { this.cancelMovement(); this.openContainerSlot(slotIndex); },
-      onCharacter: () => { this.hud?.closeMenu(); this.cancelMovement(); this.characterPanel?.toggle(); },
-      onEquipment:slot=>{this.hud?.closeMenu();this.cancelMovement();this.characterPanel?.showEquipment(slot);},
+      onCharacter: () => { this.hud?.closeMenu(); this.cancelMovement(); this.specializationPanel?.hide(); this.characterPanel?.toggle(); },
+      onSpecializations:()=>{this.hud?.closeMenu();this.cancelMovement();this.characterPanel?.hide();this.specializationPanel?.toggle();},
+      onEquipment:slot=>{this.hud?.closeMenu();this.cancelMovement();this.specializationPanel?.hide();this.characterPanel?.showEquipment(slot);},
       onChat: () => { this.hud?.closePanel(); this.cancelMovement(); this.chat?.toggle(); },
       onSocial: () => { this.hud?.closePanel(); this.cancelMovement(); this.social?.toggle(); },
       onOptions:()=>{this.cancelMovement();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;this.optionsPanel?.show();},
@@ -366,7 +375,7 @@ export class WorldScene extends Phaser.Scene {
       gameSocket.onNpcInteraction((payload) => this.showNpcDialogue(payload)),
       gameSocket.onConnectionState((state) => {
         this.hud?.setConnectionState(state);
-        if(state!=="connected"){this.pointerTarget=null;this.clearNavigation();this.pendingFinalIntent=false;this.healingPanel?.hide();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
+        if(state!=="connected"){this.specializationPanel?.hide();this.pointerTarget=null;this.clearNavigation();this.pendingFinalIntent=false;this.healingPanel?.hide();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;}
       }),
       gameSocket.onCommandRejected(({ code, message }) => {
         this.pendingDialogueNpcId=null;
@@ -601,6 +610,7 @@ export class WorldScene extends Phaser.Scene {
     this.containerContents?.update(state.inventory,state.character);
     this.syncInlineContainer(state.inventory);
     this.characterPanel?.update(state.character,state.inventory);
+    this.specializationPanel?.update(state.character);
     if(state.character.equipment?.mainHand?.equipment?.weaponFamily!=="staff")this.healingPanel?.hide();
     if(state.gold!==undefined)this.merchantPanel?.updateGold(state.gold);
   }
@@ -652,6 +662,23 @@ export class WorldScene extends Phaser.Scene {
         if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character});
         else gameSocket.requestPlayerState();
       }else if(result.code==="WEAPON_SKILL_UPDATE_UNCERTAIN")gameSocket.requestPlayerState();
+      return result;
+    }finally{if(version===this.equipmentRequestVersion)this.equipmentPending=false;}
+  }
+
+  private async updateArmorSkills(request:{skillId:ArmorSkillId}|{family:ArmorFamily}):Promise<WeaponSkillUpdateResult> {
+    if(this.equipmentPending)return {ok:false,code:"EQUIPMENT_ACTION_PENDING",message:"Poczekaj na zakończenie poprzedniej czynności."};
+    const version=this.equipmentRequestVersion,revision=this.playerStateRevision,playerId=this.playerId;
+    this.equipmentPending=true;
+    try {
+      const result="skillId" in request?await gameSocket.learnArmorSkill(request.skillId):await gameSocket.resetArmorSkills(request.family);
+      const state=playerStateStore.get();
+      if(version!==this.equipmentRequestVersion||playerId!==this.playerId||state?.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
+      if(result.ok){
+        if(result.character.playerId!==playerId)return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
+        if(revision===this.playerStateRevision)this.applyPlayerState({...state,character:result.character});
+        else gameSocket.requestPlayerState();
+      }else if(result.code==="ARMOR_SKILL_UPDATE_UNCERTAIN")gameSocket.requestPlayerState();
       return result;
     }finally{if(version===this.equipmentRequestVersion)this.equipmentPending=false;}
   }
@@ -708,7 +735,7 @@ export class WorldScene extends Phaser.Scene {
       this.pointerTarget=null;this.authoritativePosition=null;
       this.clearNavigation();this.pendingFinalIntent=false;
       this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;
-      this.characterPanel?.hide();this.healingPanel?.hide();this.containerPicker?.hide();this.containerContents?.hide();
+      this.characterPanel?.hide();this.specializationPanel?.hide();this.healingPanel?.hide();this.containerPicker?.hide();this.containerContents?.hide();
       this.cameras.main.stopFollow?.();this.cameraFollowing=false;
     }
     this.worldPlayers=snapshot.players.map(player=>({...player}));
@@ -785,6 +812,7 @@ export class WorldScene extends Phaser.Scene {
     this.containerPicker?.destroy();
     this.containerContents?.destroy();
     this.characterPanel?.destroy();
+    this.specializationPanel?.destroy();
     this.dialoguePanel?.destroy();
     this.entitiesRenderer?.destroy();
     this.backgroundRenderer?.destroy();
@@ -793,6 +821,7 @@ export class WorldScene extends Phaser.Scene {
     this.containerPicker = undefined;
     this.containerContents = undefined;
     this.characterPanel = undefined;
+    this.specializationPanel = undefined;
     this.dialoguePanel = undefined;
     this.entitiesRenderer = undefined;
     this.backgroundRenderer = undefined;
@@ -840,7 +869,7 @@ export class WorldScene extends Phaser.Scene {
 
   private isTyping(): boolean {
     const active=document.activeElement;
-    return Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.containerContents?.isTyping
+    return Boolean(this.chat?.isTyping || this.social?.isTyping || this.merchantPanel?.isTyping || this.characterPanel?.isTyping || this.specializationPanel?.isTyping || this.containerContents?.isTyping
       || (active instanceof HTMLElement && (active.matches("input, textarea, select") || active.isContentEditable)));
   }
 

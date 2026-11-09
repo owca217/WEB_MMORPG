@@ -1,8 +1,9 @@
-import { getCharacterStatistics, type CharacterSnapshot, type HexCoord } from "@web-mmorpg/shared";
+import { getCharacterStatistics, getEquipmentCombatStatistics, type CharacterSnapshot, type HexCoord } from "@web-mmorpg/shared";
 import { describe, expect, it } from "vitest";
 import { chooseAutoBattleCommand } from "../src/battle/AutoBattleAi";
 import { applyBattleCommand, createBattleState, type BattleState } from "../src/battle/BattleEngine";
 import { BattleService } from "../src/battle/BattleService";
+import { combatEquipment } from "./combatEquipmentFixtures";
 
 function state(enemies: Array<{id:string;hp:number;position:HexCoord}>, options: {ap?:number;melee?:number;ranged?:number;blocked?:HexCoord[];injuries?:"legTrauma"[]|"brokenArm"[]} = {}): BattleState {
   const cells:HexCoord[]=[];
@@ -62,8 +63,9 @@ describe("automatic player battle tactics",()=>{
 });
 
 function character(level:number):CharacterSnapshot {
-  const statistics=getCharacterStatistics(level);
-  return {playerId:"player",nickname:"Hero",level,statistics,hp:statistics.maxHp,maxHp:statistics.maxHp,maxAp:statistics.maxAp,initiative:statistics.initiative,severelyInjured:false,injuries:[]};
+  const equipment=combatEquipment("sword");
+  const statistics=getEquipmentCombatStatistics(getCharacterStatistics(level),undefined,equipment);
+  return {playerId:"player",nickname:"Hero",level,statistics,equipment,hp:statistics.maxHp,maxHp:statistics.maxHp,maxAp:statistics.maxAp,initiative:statistics.initiative,severelyInjured:false,injuries:[]};
 }
 describe("BattleService automatic mode",()=>{
   it("requires a battle, protects auto from manual commands and returns control when disabled",async()=>{
@@ -78,7 +80,7 @@ describe("BattleService automatic mode",()=>{
     expect(service.isAuto("player")).toBe(false);
     expect(service.applyCommand("player",{type:"endTurn",combatantId:"hero:player"}).result.ok).toBe(true);
   });
-  it.each([1,10,40])("plays a level %s encounter to a legal bounded result without free actions",level=>{
+  it.each([1,10,40])("plays the same equipped encounter at historical level %s to a legal bounded result without free actions",level=>{
     const service=new BattleService();service.startBattle(character(level),"wolf-pack-01");service.setAuto("player",true);
     let result;
     for(let guard=0;guard<1000;guard++){

@@ -1,4 +1,4 @@
-import type { ItemStatModifier, WeaponFamily } from "@web-mmorpg/shared";
+import type { ArmorFamily, ItemStatModifier, WeaponFamily } from "@web-mmorpg/shared";
 
 export interface BasicEquipmentItem {
   itemId:string;
@@ -6,6 +6,7 @@ export interface BasicEquipmentItem {
   categoryId:"weapon"|"armor";
   subcategoryId:string;
   weaponFamily?:WeaponFamily;
+  armorFamily?:ArmorFamily;
   unitPrice:number;
   stats:ItemStatModifier[];
 }
@@ -13,7 +14,9 @@ const flat=(statCode:string,value:number):ItemStatModifier=>({statCode,modifierT
 const weapon=(family:Exclude<WeaponFamily,"shield">,name:string,damage:number,unitPrice:number,extra:ItemStatModifier[]=[]):BasicEquipmentItem=>({
   itemId:`training-${family}`,name,categoryId:"weapon",subcategoryId:family,weaponFamily:family,unitPrice,stats:[flat("PHYSICAL_DAMAGE",damage),...extra]
 });
-const armor=(slot:string,name:string,value:number,unitPrice:number):BasicEquipmentItem=>({itemId:`cloth-${slot}`,name,categoryId:"armor",subcategoryId:slot,unitPrice,stats:[flat("ARMOR",value)]});
+const armor=(slot:string,name:string,value:number,unitPrice:number,armorFamily:ArmorFamily="cloth",extra:ItemStatModifier[]=[]):BasicEquipmentItem=>({
+  itemId:`${armorFamily}-${slot}`,name,categoryId:"armor",subcategoryId:slot,armorFamily,unitPrice,stats:[flat("ARMOR",value),...extra]
+});
 
 export const BASIC_EQUIPMENT_ITEMS:readonly BasicEquipmentItem[]=[
   weapon("sword","Miecz treningowy",12,20),
@@ -30,5 +33,17 @@ export const BASIC_EQUIPMENT_ITEMS:readonly BasicEquipmentItem[]=[
   armor("gloves","Płócienne rękawice",1,8),
   armor("pants","Płócienne spodnie",2,15),
   armor("boots","Płócienne buty",1,10),
-  armor("cloak","Płócienny płaszcz",1,8)
+  armor("cloak","Płócienny płaszcz",1,8),
+  armor("helmet","Skórzany kaptur",2,25,"leather",[flat("MAX_HP",4),flat("DEXTERITY",1)]),
+  armor("chest","Skórzany kaftan",6,55,"leather",[flat("MAX_HP",10),flat("VITALITY",1)]),
+  armor("gloves","Skórzane rękawice",2,20,"leather",[flat("MAX_HP",3),flat("DEXTERITY",1)]),
+  armor("pants","Skórzane spodnie",4,40,"leather",[flat("MAX_HP",7),flat("VITALITY",1)]),
+  armor("boots","Skórzane buty",2,25,"leather",[flat("MAX_HP",3),flat("DEXTERITY",1)]),
+  armor("cloak","Skórzany płaszcz",2,20,"leather",[flat("MAX_HP",3),flat("DEXTERITY",1)]),
+  armor("helmet","Płytowy hełm",3,40,"plate",[flat("MAX_HP",6),flat("STRENGTH",1)]),
+  armor("chest","Płytowy napierśnik",9,85,"plate",[flat("MAX_HP",15),flat("VITALITY",2)]),
+  armor("gloves","Płytowe rękawice",3,35,"plate",[flat("MAX_HP",5),flat("STRENGTH",1)]),
+  armor("pants","Płytowe nogawice",6,60,"plate",[flat("MAX_HP",10),flat("VITALITY",1)]),
+  armor("boots","Płytowe buty",3,40,"plate",[flat("MAX_HP",5),flat("VITALITY",1)]),
+  armor("cloak","Płaszcz płytkowy",3,35,"plate",[flat("MAX_HP",4),flat("STRENGTH",1)])
 ];

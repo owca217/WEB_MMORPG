@@ -130,3 +130,5 @@
   .world-hud .world-hud__battle-result { top: calc(66px + var(--safe-area-top)); width: min(420px, calc(100vw - 32px)); }
 }
 @media (prefers-reduced-motion: reduce) { .world-hud__hp-track > span { transition: none; } }
+
+@media (max-width: 760px) { .world-hud .world-hud__actions > .world-hud__specializations { display: none; } }

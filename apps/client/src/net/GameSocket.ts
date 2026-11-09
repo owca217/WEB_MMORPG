@@ -21,6 +21,7 @@ import type {
   EquipmentUpdateResult,
   WeaponInjuryUpgradeRequest,
   WeaponInjuryUpgradeResult,
+  ArmorFamily,
   WeaponFamily,
   WeaponSkillUpdateResult,
   ClientToServerEvents,
@@ -284,6 +285,26 @@ export class GameSocket {
       if(this.socket!==socket||version!==this.authenticationVersion||playerId!==this.socialCharacterId||(result.ok&&result.character.playerId!==playerId))return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
       return result;
     }catch{return {ok:false,code:"WEAPON_SKILL_UPDATE_UNCERTAIN",message:"Brak potwierdzenia. Odśwież stan postaci i sprawdź drzewko."};}
+  }
+
+  async learnArmorSkill(skillId:string):Promise<WeaponSkillUpdateResult> {
+    return this.armorSkillRequest({skillId});
+  }
+
+  async resetArmorSkills(family:ArmorFamily):Promise<WeaponSkillUpdateResult> {
+    return this.armorSkillRequest({family});
+  }
+
+  private async armorSkillRequest(payload:{skillId:string}|{family:ArmorFamily}):Promise<WeaponSkillUpdateResult> {
+    const socket=this.connect(),version=this.authenticationVersion,playerId=this.socialCharacterId;
+    if(!this.sessionToken||this.authenticating||!socket.connected||!playerId)return {ok:false,code:"AUTHENTICATION_REQUIRED",message:"Połącz się z grą, aby rozwijać umiejętności."};
+    try {
+      const result="skillId" in payload
+        ? await socket.timeout(10000).emitWithAck("learnArmorSkill",payload)
+        : await socket.timeout(10000).emitWithAck("resetArmorSkills",payload);
+      if(this.socket!==socket||version!==this.authenticationVersion||playerId!==this.socialCharacterId||(result.ok&&result.character.playerId!==playerId))return {ok:false,code:"SESSION_REPLACED",message:"Połączenie postaci zmieniło się. Otwórz drzewko ponownie."};
+      return result;
+    }catch{return {ok:false,code:"ARMOR_SKILL_UPDATE_UNCERTAIN",message:"Brak potwierdzenia. Odśwież stan postaci i sprawdź drzewko."};}
   }
 
   purchaseMerchantItem(payload: MerchantPurchase): Promise<MerchantResult> {

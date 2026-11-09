@@ -254,7 +254,7 @@ it("shows complete gear details and equips through the details action without mo
     expect(onMoveItem).not.toHaveBeenCalled();
     expect(document.querySelector('[data-container-item="sword"]')).toBeNull();
 });
-it("equips through a gear drop target only after the character meets its requirements",async()=>{
+it("ignores historical level requirements on gear drops while rejecting a wrong slot and broken equipment",async()=>{
     const sword=item("sword",{containerInstanceId:"pack",equipment:{slot:"mainHand",weaponFamily:"sword",twoHanded:false,minimumLevel:3,modifiers:[]}});
     const hero:CharacterSnapshot={playerId:"hero",nickname:"Hero",level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]};
     const equipped={...sword,equippedSlot:"mainHand" as const};delete equipped.containerInstanceId;
@@ -262,8 +262,11 @@ it("equips through a gear drop target only after the character meets its require
     const value=panel({onEquipItem,onMoveItem});value.update(inventory([bag(),sword]),hero);value.show(0);
     const target=document.createElement("article");target.dataset.equipmentDropTarget="mainHand";target.tabIndex=0;document.body.append(target);
     const attempt=()=>{button('[data-container-item="sword"]').dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true}));target.focus();target.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}));};
-    attempt();expect(onEquipItem).not.toHaveBeenCalled();document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
-    value.update(inventory([bag(),sword]),{...hero,level:3});attempt();
+    target.dataset.equipmentDropTarget="offHand";attempt();expect(onEquipItem).not.toHaveBeenCalled();
+    document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
+    target.dataset.equipmentDropTarget="mainHand";value.update(inventory([bag(),{...sword,durability:0}]),hero);attempt();expect(onEquipItem).not.toHaveBeenCalled();
+    document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));
+    value.update(inventory([bag(),sword]),hero);attempt();
     await vi.waitFor(()=>expect(onEquipItem).toHaveBeenCalledExactlyOnceWith(sword));expect(onMoveItem).not.toHaveBeenCalled();
     expect(document.querySelector('[data-container-item="sword"]')).toBeNull();
 });

@@ -1,5 +1,7 @@
 import {
   getCharacterStatistics,
+  getCharacterEquipment,
+  getEquipmentCombatStatistics,
   getEquipmentItemProperties,
   isEquipmentSlot,
   type EquipmentUpdateRequest,
@@ -40,8 +42,8 @@ export class EquipmentService {
     const client=await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const character=(await client.query<{level:number}>(
-        `SELECT character.level FROM characters character JOIN accounts account ON account.id=character.account_id
+      const character=(await client.query<{weapon_training:unknown;armor_training:unknown}>(
+        `SELECT character.weapon_training,character.armor_training FROM characters character JOIN accounts account ON account.id=character.account_id
          WHERE character.id=$1 AND account.status='active' AND character.deletion_requested_at IS NULL
            AND character.deletion_effective_at IS NULL FOR UPDATE OF character FOR SHARE OF account`,[characterId]
       )).rows[0];
@@ -67,11 +69,16 @@ export class EquipmentService {
         if(item.permanent_container)throw new Error("PERMANENT_BACKPACK_FIXED");
         const properties=this.properties(item);
         if(!properties || properties.slot!==slot || item.quantity!==1)throw new Error("EQUIPMENT_SLOT_MISMATCH");
-        if(properties.minimumLevel>character.level)throw new Error("EQUIPMENT_LEVEL_REQUIRED");
         if(item.durability!==null && Number(item.durability)<=0)throw new Error("EQUIPMENT_ITEM_BROKEN");
         if(item.bound_to_player_id && item.bound_to_player_id!==characterId)throw new Error("EQUIPMENT_ITEM_BOUND");
         if(item.has_children)throw new Error("EQUIPMENT_ITEM_NOT_EMPTY");
-        this.assertRequirements(item.requirements,character.level);
+        const currentEquipment=getCharacterEquipment(await this.inventory.getSnapshot(characterId,client));
+        // A candidate cannot satisfy its own attribute requirements by already being equipped.
+        for(const equipmentSlot of Object.keys(currentEquipment) as Array<keyof typeof currentEquipment>) {
+          if(currentEquipment[equipmentSlot]?.instanceId===instanceId)currentEquipment[equipmentSlot]=null;
+        }
+        const statistics=getEquipmentCombatStatistics(getCharacterStatistics(),character.weapon_training,currentEquipment,character.armor_training);
+        this.assertRequirements(item.requirements,statistics);
         const mainHand=rows.find(row=>row.equipment_slot==="mainHand");
         if(slot==="offHand" && mainHand && this.properties(mainHand)?.twoHanded)throw new Error("EQUIPMENT_TWO_HANDED");
         twoHanded=slot==="mainHand" && properties.twoHanded;
@@ -104,13 +111,12 @@ export class EquipmentService {
     return getEquipmentItemProperties({category:item.category_id,...(item.subcategory_id?{subcategory:item.subcategory_id}:{}),minimumLevel:item.minimum_level,stats:item.stats??[],specialData:item.special_data??{}});
   }
 
-  private assertRequirements(requirements:EquipmentRow["requirements"],level:number):void {
-    const statistics=getCharacterStatistics(level);
+  private assertRequirements(requirements:EquipmentRow["requirements"],statistics:ReturnType<typeof getCharacterStatistics>):void {
     const values:Record<string,number>={STRENGTH:statistics.strength,DEXTERITY:statistics.dexterity,VITALITY:statistics.vitality,MAX_HP:statistics.maxHp,MAX_AP:statistics.maxAp,INITIATIVE:statistics.initiative,ARMOR:statistics.armor};
     for(const requirement of requirements??[]) {
+      if(requirement.type==="LEVEL")continue;
       const value=requirement.value;
       if(typeof value!=="number" || !Number.isFinite(value) || value<0)throw new Error("EQUIPMENT_REQUIREMENTS_NOT_MET");
-      if(requirement.type==="LEVEL" && level>=value)continue;
       if(requirement.type==="STAT" && requirement.code && Object.hasOwn(values,requirement.code.toUpperCase()) && values[requirement.code.toUpperCase()]!>=value)continue;
       throw new Error("EQUIPMENT_REQUIREMENTS_NOT_MET");
     }

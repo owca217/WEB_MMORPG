@@ -49,7 +49,7 @@ export class HudEquipmentSlots {
 
   update(character: CharacterSnapshot, inventory: InventorySnapshot): void {
     if (this.destroyed) return;
-    this.equipment = character.equipment ?? getCharacterEquipment(inventory, character.level);
+    this.equipment = character.equipment ?? getCharacterEquipment(inventory);
     this.render();
   }
 

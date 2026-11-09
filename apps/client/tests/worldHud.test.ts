@@ -10,11 +10,11 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
-it("places the numeric level before the name, mounts gear slots and shows abbreviated gold beside plain AP",()=>{
+it("shows the name without general level, mounts gear slots and shows abbreviated gold beside plain AP",()=>{
   const onEquipment=vi.fn(),hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onEquipment});
   hud.update({character:{playerId:"hero",nickname:"Yuna",level:7,hp:55,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[],equipment:emptyCharacterEquipment()},inventory:{items:[]},gold:50_999_999});
   const heading=document.querySelector<HTMLElement>(".world-hud__rail-heading")!;
-  expect(heading.textContent?.replace(/\s+/g," ").trim()).toBe("7 Yuna");
+  expect(heading.textContent?.replace(/\s+/g," ").trim()).toBe("Yuna");
   expect(document.querySelector(".world-hud__eyebrow")).toBeNull();
   expect(document.querySelector("[data-ap-pips]")).toBeNull();
   expect(document.querySelectorAll("[data-hud-equipment-slot]")).toHaveLength(8);
@@ -149,7 +149,7 @@ describe("WorldHud session controls", () => {
 
     expect(content.hidden).toBe(false);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[data-experience]")?.textContent).toContain("150 / 200");
+    expect(document.querySelector("[data-experience]")).toBeNull();
     expect(document.querySelector('[data-container-slot="1"]')?.textContent).toContain("Torba podróżna");
     expect(document.querySelector<HTMLButtonElement>("[data-admin]")?.hidden).toBe(false);
     document.querySelector<HTMLButtonElement>('[data-container-slot="1"]')!.click();

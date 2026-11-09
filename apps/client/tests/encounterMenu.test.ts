@@ -57,7 +57,7 @@ it("preserves original enemy details while current respawn gating remains author
   const details=document.querySelector<HTMLElement>("[data-encounter-details]")!;
   expect(details?.hidden).toBe(false);expect(details?.textContent).toContain("Wielki szczur");
   const stats=Object.fromEntries([...details.querySelectorAll("dt")].map(term=>[term.textContent,term.nextElementSibling?.textContent]));
-  expect(stats).toEqual({"Poziom":"1","Zalecany poziom":"1–2","HP":"110","Obrażenia wręcz":"9","Obrażenia dystansowe":"0","Pancerz":"0","PD":"40"});
+  expect(stats).toEqual({"Poziom":"1","HP":"110","Obrażenia wręcz":"9","Obrażenia dystansowe":"0","Pancerz":"0","PD":"40"});
   expect(document.querySelector('[data-encounter-label]')?.textContent).toBe("Zdziczały szczur");
   const attack=document.querySelector<HTMLButtonElement>('[data-encounter-mode="manual"]')!;expect(attack.disabled).toBe(true);expect(document.querySelector('[data-encounter-status]')?.textContent).toContain("03:00");
   menu.update({id:"feral-rat-01",label:"Przeciwnik",enemyId:"feral-rat",status:"alive"},182000);attack.click();expect(selected).toHaveBeenCalledWith("feral-rat-01","manual");

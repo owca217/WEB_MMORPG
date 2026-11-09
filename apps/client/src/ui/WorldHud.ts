@@ -7,7 +7,6 @@ import type { BattleResultSummary, ConnectionState } from "../net/GameSocket";
 import { containerIcon } from "./ContainerIcon";
 import { itemQualityText } from "./ItemQualityFrame";
 import { getAssignedContainers, getPermanentBackpack } from "./PermanentBackpack";
-import { experienceProgressMarkup } from "./ExperienceProgress";
 import { COMPACT_WORLD_QUERY, calculateWorldLayout } from "./worldLayout";
 import { closeForegroundGamePanel } from "./gameWindows";
 import { HudEquipmentSlots } from "./HudEquipmentSlots";
@@ -18,6 +17,7 @@ interface WorldHudHandlers {
   onInventory?: () => void;
   onContainerSlot?: (slotIndex: ContainerSlotIndex) => void;
   onCharacter: () => void;
+  onSpecializations?: () => void;
   onEquipment?: (slot:EquipmentSlot) => void;
   onHealing?: () => void;
   onAdmin: () => void;
@@ -81,11 +81,11 @@ export class WorldHud {
       <header class="world-hud__topbar">
         <div class="world-hud__brand"><span class="world-hud__crest" aria-hidden="true">K</span><strong>Kroniki <span>Pogranicza</span></strong></div>
         <div class="world-hud__location"><span aria-hidden="true">◆</span><strong data-location-name>Osada Zielony Brzeg</strong><small>Świat gry</small></div>
-        <div class="world-hud__compact-resources"><strong data-compact-name>Podróżnik</strong><span data-compact-hp>HP —</span><div class="world-hud__compact-meter"><span data-compact-hp-fill></span></div><div class="world-hud__compact-xp" data-compact-experience></div></div>
+        <div class="world-hud__compact-resources"><strong data-compact-name>Podróżnik</strong><span data-compact-hp>HP —</span><div class="world-hud__compact-meter"><span data-compact-hp-fill></span></div></div>
         <span class="world-hud__connection" data-connection role="status">Łączenie…</span>
       </header>
       <aside class="world-hud__content" id="world-hud-content" data-hud-content aria-label="Postać i torby">
-        <div class="world-hud__rail-heading"><strong class="world-hud__heading-identity"><span data-level aria-label="Poziom postaci">—</span> <span data-name>—</span></strong><button type="button" data-hud-close aria-label="Zamknij panel gry">${glyph("close")}</button></div>
+        <div class="world-hud__rail-heading"><strong class="world-hud__heading-identity"><span data-name>—</span></strong><button type="button" data-hud-close aria-label="Zamknij panel gry">${glyph("close")}</button></div>
         <section class="world-hud__hero">
           <div class="world-hud__equipment-host" data-hud-equipment-host></div>
           <div class="world-hud__portrait" aria-hidden="true"><span data-portrait-sprite></span></div>
@@ -94,7 +94,6 @@ export class WorldHud {
           <div class="world-hud__resource-label"><span>Życie</span><b data-hp>—</b></div>
           <div class="world-hud__hp-track" data-hp-meter role="progressbar" aria-label="Punkty życia" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span data-hp-fill></span></div>
           <div class="world-hud__ap-gold-row"><div class="world-hud__ap-row"><span>Punkty akcji</span><b data-ap>—</b></div><div data-hud-gold></div></div>
-          <div data-experience-container></div>
         </section>
         <div class="world-hud__section-heading"><span>Twoje torby</span></div>
         <div class="world-hud__container-slots" data-container-slots aria-label="Pojemniki"></div>
@@ -103,6 +102,7 @@ export class WorldHud {
       <p class="world-hud__battle-result" data-battle-result role="status" hidden></p>
       <nav class="world-hud__actions" aria-label="Menu gry">
         <button type="button" data-character>${glyph("character")}<span>Postać</span><kbd>C</kbd></button>
+        <button type="button" class="world-hud__specializations" data-specializations>${glyph("bag")}<span>Specjalizacje</span><kbd>K</kbd></button>
         <button type="button" data-hud-toggle aria-controls="world-hud-content" aria-expanded="false" aria-label="Rozwiń panel gry">${glyph("bag")}<span>Torby</span><span class="world-hud__badge" data-hud-pending hidden aria-hidden="true"></span></button>
         <div class="world-hud__nav-divider" aria-hidden="true"></div>
         <button type="button" data-hud-social aria-expanded="false">${glyph("social")}<span>Społeczność</span><b class="world-hud__badge" data-social-count hidden></b></button>
@@ -110,7 +110,7 @@ export class WorldHud {
         <span class="world-hud__nav-hint">Kliknij na mapie, aby iść <span aria-hidden="true">·</span> WASD</span>
         <button type="button" class="world-hud__menu-toggle" data-hud-menu-toggle aria-controls="world-hud-menu" aria-expanded="false">${glyph("menu")}<span>Menu</span></button>
       </nav>
-      <div class="world-hud__menu" id="world-hud-menu" data-hud-menu hidden><span>Menu gry</span><button type="button" data-options>Opcje</button><button type="button" data-party>Drużyna</button><button type="button" data-trade>Handel</button><button type="button" data-healing hidden>Leczenie</button><button type="button" data-admin hidden>Panel ADMIN</button><button type="button" data-logout>Wyloguj się</button><button type="button" data-menu-close data-close>Zamknij menu</button></div>
+      <div class="world-hud__menu" id="world-hud-menu" data-hud-menu hidden><span>Menu gry</span><button type="button" data-menu-specializations>Specjalizacje</button><button type="button" data-options>Opcje</button><button type="button" data-party>Drużyna</button><button type="button" data-trade>Handel</button><button type="button" data-healing hidden>Leczenie</button><button type="button" data-admin hidden>Panel ADMIN</button><button type="button" data-logout>Wyloguj się</button><button type="button" data-menu-close data-close>Zamknij menu</button></div>
     `;
     for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend"]) this.root.addEventListener(type, event => event.stopPropagation());
     document.body.appendChild(this.root);
@@ -149,6 +149,7 @@ export class WorldHud {
       this.containerSlots.push(button);
     }
     this.require("[data-character]").addEventListener("click", handlers.onCharacter);
+    for(const button of this.root.querySelectorAll<HTMLButtonElement>("[data-specializations],[data-menu-specializations]"))button.addEventListener("click",()=>{this.closePanel();handlers.onSpecializations?.();});
     this.require<HTMLButtonElement>("[data-healing]").addEventListener("click", () => { if (!this.require("[data-healing]").hidden) { this.closePanel(); handlers.onHealing?.(); } });
     this.require("[data-hud-chat]").addEventListener("click", () => handlers.onChat?.());
     this.require("[data-hud-social]").addEventListener("click", () => handlers.onSocial?.());
@@ -188,9 +189,7 @@ export class WorldHud {
     this.require("[data-healing]").hidden = !this.handlers.onHealing || getEquippedWeaponFamily(hero.equipment) !== "staff" || !((hero.statistics?.healingPower ?? 0) > 0);
     this.require("[data-name]").textContent = hero.nickname;
     this.require("[data-name]").title = hero.nickname;
-    this.require("[data-compact-name]").textContent = `${hero.level} ${hero.nickname}`;
-    this.require("[data-level]").textContent = `${hero.level}`;
-    this.require("[data-level]").setAttribute("aria-label",`Poziom ${hero.level}`);
+    this.require("[data-compact-name]").textContent = hero.nickname;
     const health = `${hero.hp}/${hero.maxHp}`;
     this.require("[data-hp]").textContent = health;
     this.require("[data-compact-hp]").textContent = `HP ${health}`;
@@ -203,8 +202,6 @@ export class WorldHud {
     this.require("[data-ap]").textContent = `${hero.maxAp}`;
     this.goldDisplay.update(state.gold);
     this.equipmentSlots.update(hero,state.inventory);
-    this.require("[data-experience-container]").innerHTML = experienceProgressMarkup(hero);
-    this.require("[data-compact-experience]").innerHTML = experienceProgressMarkup(hero);
     this.updatePortrait(hero.appearance);
     this.updateInventory(state.inventory);
   }
@@ -247,11 +244,10 @@ export class WorldHud {
 
   showBattleResult(result: BattleResultSummary): void {
     const outcome = result.outcome === "victory" ? "Zwycięstwo!" : "Porażka.";
-    const growth = result.levelsGained > 0 ? ` Awans na poziom ${result.level}!` : "";
     const party = result.partyBonusExperience ? ` (premia drużyny: +${result.partyBonusExperience} XP)` : "";
     const gold = result.goldGained ? ` +${result.goldGained} złota.` : "";
     const notification = this.require("[data-battle-result]");
-    notification.textContent = `${outcome} +${result.experienceGained} XP${party}.${gold}${growth}`;
+    notification.textContent = `${outcome} +${result.experienceGained} XP specjalizacji${party}.${gold}`;
     notification.hidden = false;
     if (this.resultTimer) clearTimeout(this.resultTimer);
     this.resultTimer = setTimeout(() => { notification.hidden = true; }, 12000);

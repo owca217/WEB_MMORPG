@@ -17,6 +17,7 @@ export * from "./merchant";
 export * from "./characterProgression";
 export * from "./weapons";
 export * from "./weaponSkills";
+export * from "./armorSpecialization";
 export * from "./equipment";
 export * from "./equipmentCombat";
 export * from "./healing";

@@ -11,14 +11,13 @@ export function equipmentIcon(item?:InventoryItem):HTMLSpanElement {
 export function equipmentItemSummary(item:InventoryItem):string {
  const properties=item.equipment;if(!properties)return"";
  const modifiers=properties.modifiers.flatMap(stat=>{const label=stat.statCode==="SPELL_POWER"&&properties.weaponFamily==="staff"?"Moc leczenia":STAT_LABELS[stat.statCode];return label?[`${label} ${stat.value>0?"+":""}${stat.value}${stat.modifierType==="percent"?"%":stat.modifierType==="multiplier"?"×":""}`]:[];});
- return [itemQualityText(item),`Poziom ${properties.minimumLevel}`,properties.twoHanded?"Broń dwuręczna":"",...modifiers,item.injuryUpgrade?formatWeaponInjuryUpgrade(item.injuryUpgrade):""].filter(Boolean).join(" · ");
+ return [itemQualityText(item),properties.twoHanded?"Broń dwuręczna":"",...modifiers,item.injuryUpgrade?formatWeaponInjuryUpgrade(item.injuryUpgrade):""].filter(Boolean).join(" · ");
 }
 export function equipmentDisabledReason(item:InventoryItem,character?:CharacterSnapshot,inventory?:InventorySnapshot):string|undefined {
  if(!item.equipment)return"Tego przedmiotu nie można założyć.";
  if(item.quantity!==1)return"Przedmiot do założenia musi mieć ilość 1.";
  if(item.durability!==undefined&&item.durability<=0)return"Przedmiot jest zniszczony.";
- if(character&&character.level<item.equipment.minimumLevel)return`Wymagany poziom: ${item.equipment.minimumLevel}.`;
- const equipment=character?.equipment??(inventory?getCharacterEquipment(inventory,character?.level):undefined);
+ const equipment=character?.equipment??(inventory?getCharacterEquipment(inventory):undefined);
  if(item.equipment.slot==="offHand"&&equipment?.mainHand?.equipment?.twoHanded)return"Najpierw zdejmij broń dwuręczną, aby założyć tarczę.";
  return undefined;
 }

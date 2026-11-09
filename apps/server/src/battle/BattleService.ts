@@ -20,6 +20,7 @@ import {
   type BattleCommand,
   type BattleSnapshot,
   type CharacterSnapshot,
+  type CharacterEquipment,
   type InjuryKind,
   type PlayerId,
   type WeaponFamily
@@ -44,6 +45,7 @@ interface ActiveBattle {
   seed: number;
   state: BattleState;
   experienceReward: number;
+  armorEquipment: Record<PlayerId, CharacterEquipment | undefined>;
   itemUsePending?: boolean;
 }
 
@@ -58,6 +60,7 @@ export interface TrainingAward { weaponTraining?: { family: WeaponFamily; amount
 export interface AppliedBattleCommand {
   participantIds?: PlayerId[];
   usedWeaponFamilies?:Record<PlayerId,WeaponFamily[]>;
+  armorEquipment?:Record<PlayerId, CharacterEquipment | undefined>;
   playerOutcomes?: Record<PlayerId, PlayerBattleOutcome>;
   trainingAwards?: Record<PlayerId, TrainingAward>;
   initialParticipantCount?: number;
@@ -96,7 +99,7 @@ export class BattleService {
     const arena = generateArena({ radius: 4, obstacleCount: 6, coverCount: 4 }, seed);
     const definition = getEncounterDefinition(encounterId) ?? LEGACY_WOLF_DEFINITION;
     const enemy = definition.enemyId ? getEnemyDefinition(definition.enemyId) : undefined;
-    const level = Math.max(definition.minimumLevel, ...characters.map(character => Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1))));
+    const level = definition.minimumLevel;
     const soloCount = level >= 25 ? 3 : level >= 10 ? 2 : 1;
     const wolfCount = enemy ? 1 : Math.min(5, soloCount + characters.length - 1);
     const healthFactor = soloCount === 3 ? 0.65 : soloCount === 2 ? 0.75 : 1;
@@ -111,7 +114,7 @@ export class BattleService {
 id: `battle:${initiator.playerId}:${encounterId}:${randomUUID()}`, seed, injuryRandomSeed: randomInt(1, 0x100000000), arena, combatants: [
         ...characters.map((character, index) => {
           const characterLevel = Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(character.level) || 1));
-          const equipped=getEquipmentCombatStatistics(getCharacterStatistics(characterLevel),character.weaponTraining,character.equipment);
+          const equipped=getEquipmentCombatStatistics(getCharacterStatistics(),character.weaponTraining,character.equipment,character.armorTraining);
           const stats=character.statistics??equipped;
           const weapon = character.equipment?.mainHand;
           const weaponInjuryUpgrade = weapon && canApplyWeaponInjury(weapon) && isWeaponInjuryUpgrade(weapon.injuryUpgrade) &&
@@ -134,7 +137,7 @@ id: enemy ? `enemy:${encounterId}` : index === 0 ? `${definition.enemyKind}:${en
       ]
 }));
     const participants = new Map(characters.map(character => [character.playerId, { weaponFamily:getEquippedWeaponFamily(character.equipment),shield:hasEquippedShield(character.equipment),shieldAttackBonus:getEquippedShieldAttackBonus(character.equipment)>0,used:new Set<WeaponFamily>(),auto: false }]));
-    const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: enemy?.experienceReward ?? wolfCount * (25 + 15 * level) };
+    const active: ActiveBattle = { participants, initialParticipantCount: characters.length, encounterId, seed, state, experienceReward: enemy?.experienceReward ?? wolfCount * (25 + 15 * level), armorEquipment: Object.fromEntries(characters.map(character => [character.playerId, structuredClone(character.equipment)])) };
     for (const id of participants.keys()) this.battlesByPlayer.set(id, active);
     return this.snapshotFor(active, initiator.playerId);
   }
@@ -235,7 +238,7 @@ id: enemy ? `enemy:${encounterId}` : index === 0 ? `${definition.enemyKind}:${en
     return {
 result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, actorId), finished: active.state.finished, victory,
       participantIds, initialParticipantCount: active.initialParticipantCount, encounterId: active.encounterId, seed: active.seed,
-      ...(active.state.finished ? {usedWeaponFamilies:Object.fromEntries([...active.participants].map(([id,participant])=>[id,[...participant.used]]))}:{}),
+      ...(active.state.finished ? {usedWeaponFamilies:Object.fromEntries([...active.participants].map(([id,participant])=>[id,[...participant.used]])), armorEquipment: active.armorEquipment}:{}),
       ...(active.state.finished ? { playerOutcomes, ...(playerOutcomes[actorId] ? { playerOutcome: playerOutcomes[actorId] } : {}) } : {}), ...(victory ? { experienceReward: active.experienceReward } : {})
 };
   }

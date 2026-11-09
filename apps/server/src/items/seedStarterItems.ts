@@ -165,7 +165,7 @@ export async function seedStarterItems(client: PoolClient, publicBaseUrl = `http
     itemUuid:randomUUID(),versionUuid:randomUUID(),itemId:item.itemId,name:item.name,
     categoryId:item.categoryId,subcategoryId:item.subcategoryId,description:`Podstawowy przedmiot: ${item.name.toLowerCase()}.`,
     stackable:false,maxStack:1,weight:1,minimumLevel:1,
-    specialData:item.weaponFamily?{weaponFamily:item.weaponFamily}:{armorSlot:item.subcategoryId},
+    specialData:item.weaponFamily?{weaponFamily:item.weaponFamily}:{armorSlot:item.subcategoryId,...(item.armorFamily?{armorFamily:item.armorFamily}:{})},
     stats:item.stats.map((stat)=>({...stat,id:randomUUID()}))
   }));
   for (const seed of [...STARTER_ITEMS,...equipment,...STARTER_WEAPON_ITEMS,...PROGRESSION_WEAPON_ITEMS]) {

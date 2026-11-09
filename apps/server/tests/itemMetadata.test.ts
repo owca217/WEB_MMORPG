@@ -55,8 +55,12 @@ describeDatabase("item creator metadata", () => {
       expect.arrayContaining(["PHYSICAL_DAMAGE", "ATTACK_SPEED", "CRIT_CHANCE"])
     );
     expect(armor?.allowedStatCodes).toEqual(
-      expect.arrayContaining(["ARMOR", "MAX_HP", "MAGIC_RESIST"])
+      expect.arrayContaining(["ARMOR", "MAX_HP", "MAGIC_RESIST", "STRENGTH", "DEXTERITY", "VITALITY"])
     );
+    expect(armor?.allowedSpecialFieldCodes).toContain("armorFamily");
+    const armorFamilyField = metadata.specialFields?.find((field) => field.code === "armorFamily");
+    expect(armorFamilyField?.type).toBe("select");
+    expect(armorFamilyField?.options?.map((option) => option.value)).toEqual(["cloth", "leather", "plate"]);
     expect(material?.allowedStatCodes).not.toContain("CRIT_DAMAGE");
     expect(material?.allowedSpecialFieldCodes).toEqual(
       expect.arrayContaining(["quality", "tier", "materialType", "craftingTags"])

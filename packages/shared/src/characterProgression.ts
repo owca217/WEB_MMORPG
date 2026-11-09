@@ -23,18 +23,12 @@ function normalizeLevel(level: number): number {
   return Number.isNaN(level) ? 1 : Math.max(1, Math.min(MAX_CHARACTER_LEVEL, Math.floor(level)));
 }
 
-export function getCharacterStatistics(level: number): CharacterStatistics {
-  const progression = normalizeLevel(level) - 1;
+/** Historical level is accepted for old save readers, but never changes the fixed baseline. */
+export function getCharacterStatistics(_historicalLevel?: number): CharacterStatistics {
   return {
-    strength: 10 + 2 * progression,
-    dexterity: 10 + progression,
-    vitality: 10 + 3 * progression,
-    maxHp: 100 + 30 * progression,
-    maxAp: Math.min(8, 5 + Math.floor(progression / 10)),
-    initiative: 10 + Math.floor(progression / 2),
-    meleeDamage: 20 + 2 * progression,
-    rangedDamage: 15 + progression,
-    armor: 2 * progression
+    strength: 0, dexterity: 0, vitality: 0,
+    maxHp: 100, maxAp: 5, initiative: 10,
+    meleeDamage: 5, rangedDamage: 0, armor: 0
   };
 }
 

@@ -110,7 +110,7 @@ it("keeps the player's battle resources visible during an enemy turn and separat
   hud.update(hero, false, { items: [] }, character);
 
   expect(text("[data-name]")).toBe("Owczy");
-  expect(text("[data-level]")).toBe("11");
+  expect(document.querySelector("[data-level]")).toBeNull();
   expect(text("[data-hp]")).toBe("63/130");
   expect(text("[data-ap]")).toBe("4/6");
   expect(text("[data-initiative]")).toBe("15");

@@ -418,7 +418,7 @@ it("displays the battle summary after scene creation and clears it on the next e
   scene.create();
 
   expect(document.querySelector("[data-battle-result]")?.textContent).toContain("+80 XP");
-  expect(document.querySelector("[data-battle-result]")?.textContent).toContain("poziom 2");
+  expect(document.querySelector("[data-battle-result]")?.textContent).toContain("XP specjalizacji");
   expect(transport.listenerCount("playerState")).toBe(1);
   events.emit("shutdown");
   expect(document.querySelector(".world-hud")).toBeNull();
@@ -659,4 +659,18 @@ it("opens equipment from a HUD slot and equips from the inline backpack onto tha
   await vi.waitFor(()=>expect(playerStateStore.get()?.character.equipment?.mainHand?.instanceId).toBe("sword"));
   expect(slot.title).toContain("Miecz");expect(gameSocket.setEquipmentSlot).toHaveBeenCalledExactlyOnceWith({slot:"mainHand",itemInstanceId:"sword"});
   events.emit("shutdown");
+});
+
+it("opens the independent specialization window from K and both HUD launchers, blocks movement and closes with Escape",()=>{
+ const scene=new WorldScene(),events=new EventEmitter(),input=new EventEmitter();
+ Object.assign(scene,{events,input,cameras:{main:{setBackgroundColor(){},setBounds(){}}},physics:{world:{setBounds(){}}},textures:{exists:()=>false}});
+ scene.init({playerId:"hero"});scene.create();
+ transport.emit("playerState",{character:{playerId:"hero",nickname:"Hero",level:90,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory:{items:[]}});
+ Object.assign(scene,{pointerTarget:{x:200,y:200}});document.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyK",key:"k",bubbles:true}));
+ const panel=document.querySelector<HTMLElement>("[data-specialization-panel]")!;expect(panel.classList.contains("is-hidden")).toBe(false);expect(scene).toMatchObject({pointerTarget:null});
+ input.emit("pointerdown",{button:0,x:120,y:150,worldX:300,worldY:350});expect(scene).toMatchObject({pointerTarget:null});
+ document.querySelector('[data-specialization-viewport]')!.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));expect(panel.classList.contains("is-hidden")).toBe(true);
+ document.querySelector<HTMLButtonElement>('[data-specializations]')!.click();expect(panel.classList.contains("is-hidden")).toBe(false);
+ document.querySelector<HTMLButtonElement>('[data-specialization-panel] [data-close]')!.click();document.querySelector<HTMLButtonElement>('[data-hud-menu-toggle]')!.click();document.querySelector<HTMLButtonElement>('[data-menu-specializations]')!.click();expect(panel.classList.contains("is-hidden")).toBe(false);
+ events.emit("shutdown");expect(document.querySelector('[data-specialization-panel]')).toBeNull();
 });

@@ -265,13 +265,13 @@ describeDatabase("durable Socket.IO authentication", () => {
       const state = await restoredState;
       expect(readsBeforeSave).toBe(0);
       expect(state.character).toMatchObject({
-        playerId: characterId, level: 2, experience: 180, hp: 73,
+        playerId: characterId, level: 1, experience: 0, hp: 73,
         appearance: { gender: "female", skinId: "female-guard" },
         severelyInjured: true, injuries: ["legTrauma"]
       });
       expect(game.services.world.getPlayer(characterId)).toMatchObject({ x: 640, y: 430 });
       expect(await new CharacterRepository(pool!).findById(characterId)).toMatchObject({
-        level: 2, experience: 180, hp: 73, x: 640, y: 430
+        level: 1, experience: 0, hp: 73, x: 640, y: 430
       });
 
       const world = once<WorldStateSnapshot>(replacement, "worldState");

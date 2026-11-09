@@ -55,19 +55,21 @@ describeDb("persistent real equipment",()=>{
     expect(removed.items.find(item=>item.instanceId===sword.instanceId)?.containerInstanceId).toBe(removed.items.find(item=>item.permanentContainer)!.instanceId);
   });
 
-  it("rejects other owners, wrong slots, level requirements, broken gear and unsupported requirements",async()=>{
+  it("ignores historical level gates while retaining ownership, slots, durability and ordinary requirements",async()=>{
     const sword=await grant("training-sword"),helmet=await grant("cloth-helmet"),foreign=await grant("training-axe",bob);
     await expect(set("mainHand",foreign.instanceId)).rejects.toThrow("EQUIPMENT_ITEM_NOT_OWNED");
     await expect(set("mainHand",helmet.instanceId)).rejects.toThrow("EQUIPMENT_SLOT_MISMATCH");
     await pool.query("UPDATE item_versions SET minimum_level=5 WHERE item_id=$1",[sword.itemDefinitionId]);
-    await expect(set("mainHand",sword.instanceId)).rejects.toThrow("EQUIPMENT_LEVEL_REQUIRED");
+    await pool.query("INSERT INTO item_requirements(id,version_id,requirement_type,value_json) SELECT $1,id,'LEVEL','999'::jsonb FROM item_versions WHERE item_id=$2",[randomUUID(),sword.itemDefinitionId]);
+    await set("mainHand",sword.instanceId); await set("mainHand",null);
+    await pool.query("DELETE FROM item_requirements WHERE version_id IN(SELECT id FROM item_versions WHERE item_id=$1)",[sword.itemDefinitionId]);
     await pool.query("UPDATE item_versions SET minimum_level=1 WHERE item_id=$1",[sword.itemDefinitionId]);
     await pool.query("UPDATE item_instances SET durability=0,max_durability=20 WHERE id=$1",[sword.instanceId]);
     await expect(set("mainHand",sword.instanceId)).rejects.toThrow("EQUIPMENT_ITEM_BROKEN");
     await pool.query("UPDATE item_instances SET durability=20 WHERE id=$1",[sword.instanceId]);
-    await pool.query("INSERT INTO item_requirements(id,version_id,requirement_type,code,value_json) SELECT $1,id,'STAT','STRENGTH','11'::jsonb FROM item_versions WHERE item_id=$2",[randomUUID(),sword.itemDefinitionId]);
+    await pool.query("INSERT INTO item_requirements(id,version_id,requirement_type,code,value_json) SELECT $1,id,'STAT','STRENGTH','1'::jsonb FROM item_versions WHERE item_id=$2",[randomUUID(),sword.itemDefinitionId]);
     await expect(set("mainHand",sword.instanceId)).rejects.toThrow("EQUIPMENT_REQUIREMENTS_NOT_MET");
-    await pool.query("UPDATE item_requirements SET value_json='10'::jsonb WHERE version_id IN(SELECT id FROM item_versions WHERE item_id=$1)",[sword.itemDefinitionId]);
+    await pool.query("UPDATE item_requirements SET value_json='0'::jsonb WHERE version_id IN(SELECT id FROM item_versions WHERE item_id=$1)",[sword.itemDefinitionId]);
     await set("mainHand",sword.instanceId);await set("mainHand",null);
     await pool.query("UPDATE item_requirements SET requirement_type='QUEST',code='unknown-quest' WHERE version_id IN(SELECT id FROM item_versions WHERE item_id=$1)",[sword.itemDefinitionId]);
     await expect(set("mainHand",sword.instanceId)).rejects.toThrow("EQUIPMENT_REQUIREMENTS_NOT_MET");
@@ -82,6 +84,18 @@ describeDb("persistent real equipment",()=>{
     const results=await Promise.all([set("mainHand",sword.instanceId),set("mainHand",axe.instanceId)]);
     expect(results).toHaveLength(2);
     expect((await inventory.getSnapshot(alice)).items.filter(item=>item.equippedSlot==="mainHand")).toHaveLength(1);
+  });
+
+  it("checks ordinary attributes supplied by worn gear without letting the candidate satisfy its own requirements",async()=>{
+    const sword=await grant("training-sword"),helmet=await grant("leather-helmet");
+    await pool.query("INSERT INTO item_requirements(id,version_id,requirement_type,code,value_json) SELECT $1,id,'STAT','DEXTERITY','1'::jsonb FROM item_versions WHERE item_id=$2",[randomUUID(),sword.itemDefinitionId]);
+    await expect(set("mainHand",sword.instanceId)).rejects.toThrow("EQUIPMENT_REQUIREMENTS_NOT_MET");
+    await set("helmet",helmet.instanceId);
+    await set("mainHand",sword.instanceId);
+    await pool.query("INSERT INTO item_stat_modifiers(id,version_id,stat_code,modifier_type,value) SELECT $1,id,'DEXTERITY','flat',100 FROM item_versions WHERE item_id=$2",[randomUUID(),sword.itemDefinitionId]);
+    await pool.query("UPDATE item_requirements SET value_json='2'::jsonb WHERE version_id IN(SELECT id FROM item_versions WHERE item_id=$1)",[sword.itemDefinitionId]);
+    await expect(set("mainHand",sword.instanceId)).rejects.toThrow("EQUIPMENT_REQUIREMENTS_NOT_MET");
+    expect((await inventory.getSnapshot(alice)).equipmentSlots?.mainHand).toBe(sword.instanceId);
   });
 
   it("keeps the validated slot when caller input changes during an open transaction",async()=>{
@@ -120,7 +134,7 @@ describeDb("persistent real equipment",()=>{
   it("offers all basic gear without overwriting authored published versions when reseeded",async()=>{
     const merchant=new MerchantService(pool),shop=await merchant.getShop(alice);
     const gear=shop.offers.filter(offer=>offer.categoryId==="weapon"||offer.categoryId==="armor");
-    expect(gear).toHaveLength(15);expect(gear.every(offer=>offer.maxQuantity===1)).toBe(true);
+    expect(gear).toHaveLength(27);expect(gear.every(offer=>offer.maxQuantity===1)).toBe(true);
     const bought=await merchant.purchase(alice,{npcId:"merchant-miro",itemId:"training-sword",quantity:1,requestId:randomUUID()});
     expect(bought.inventory.items.find(item=>item.itemId==="training-sword")?.equipment?.weaponFamily).toBe("sword");
     await pool.query("UPDATE item_versions SET name='Autorski miecz',revision=2 WHERE item_id IN(SELECT id FROM items WHERE item_id='training-sword')");

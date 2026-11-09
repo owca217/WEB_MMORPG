@@ -48,7 +48,7 @@ function chooseHeroCommand(snapshot: BattleSnapshot): BattleCommand {
 
 function simulateBattle(level: number, family:"sword"|"bow"="sword") {
   const service = new BattleService();
-  const modifiers=family==="bow"?[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat" as const,value:12}]:[];
+  const modifiers=[{statCode:"PHYSICAL_DAMAGE",modifierType:"flat" as const,value:24}];
   let snapshot = service.startBattle({...leveledCharacter(level),equipment:combatEquipment(family,false,modifiers)}, "encounter:wolf");
   const actions = { meleeAttack: 0, rangedAttack: 0, move: 0, endTurn: 0, healSelf: 0, healAlly: 0, useWeaponSkill: 0 };
   for (let guard = 0; guard < 2_000; guard += 1) {
@@ -98,7 +98,7 @@ describe("BattleService character state and NPC turns", () => {
     });
   });
 
-  it("derives absent hero combat statistics from level without healing current HP or injuries", () => {
+  it("derives absent hero combat statistics from the fixed baseline without healing current HP or injuries", () => {
     const initial = new BattleService().startBattle({
       ...leveledCharacter(5), hp: 37, severelyInjured: true, injuries: ["concussion"]
     }, "encounter:wolf");
@@ -106,7 +106,7 @@ describe("BattleService character state and NPC turns", () => {
     const wolf = initial.combatants.find((combatant) => !combatant.ownerPlayerId)!;
 
     expect(hero).toMatchObject({ level: 5, hp: 37, injuries: ["concussion"],
-      combatStats: { meleeDamage: 28, rangedDamage: 0, armor: 8,meleeEnabled:true,rangedEnabled:false } });
+      combatStats: { meleeDamage: 5, rangedDamage: 0, armor: 0,meleeEnabled:true,rangedEnabled:false } });
     expect(wolf.initiative).toBeLessThan(hero!.initiative - 2);
   });
 
@@ -125,16 +125,16 @@ describe("BattleService character state and NPC turns", () => {
     expect(storedHero.injuries).toEqual([]);
   });
 
-  it.each([{ level: 1, count: 1 }, { level: 9, count: 1 }, { level: 10, count: 2 },
-    { level: 24, count: 2 }, { level: 25, count: 3 }, { level: 40, count: 3 }])(
-    "starts a level $level pack with $count wolves on distinct valid cells", ({ level, count }) => {
+  it.each([{ level: 1, count: 1 }, { level: 9, count: 1 }, { level: 10, count: 1 },
+    { level: 24, count: 1 }, { level: 25, count: 1 }, { level: 40, count: 1 }])(
+    "starts the same fixed encounter for historical level $level on distinct valid cells", ({ level, count }) => {
       const initial = new BattleService().startBattle(leveledCharacter(level), "encounter:wolf");
       const wolves = initial.combatants.filter((combatant) => !combatant.ownerPlayerId);
       const starts = initial.combatants.map((combatant) => hexKey(combatant.position));
       expect(wolves).toHaveLength(count);
       expect(new Set(starts).size).toBe(starts.length);
       for (const wolf of wolves) {
-        expect(wolf.level).toBe(level);
+        expect(wolf.level).toBe(1);
         expect(wolf.maxHp).toBeGreaterThan(100);
         expect(wolf.combatStats?.meleeDamage).toBeGreaterThan(0);
         expect(wolf.initiative).toBeLessThan(leveledCharacter(level).initiative);
@@ -144,7 +144,7 @@ describe("BattleService character state and NPC turns", () => {
     }
   );
 
-  it("keeps higher-level sword battles longer and winnable with legal attacks and paths", () => {
+  it("keeps identical gear equally effective across historical levels with legal attacks and paths", () => {
     const levels = [1, 5, 10, 25, 40, 100];
     const outcomes = levels.map(level=>simulateBattle(level));
     for (const outcome of outcomes) {
@@ -156,7 +156,7 @@ describe("BattleService character state and NPC turns", () => {
     }
     expect(outcomes[0]!.round).toBeGreaterThanOrEqual(4);
     for (let index = 1; index < outcomes.length; index += 1) {
-      expect(outcomes[index]!.round).toBeGreaterThan(outcomes[index - 1]!.round);
+      expect(outcomes[index]!.round).toBe(outcomes[index - 1]!.round);
     }
   });
 
@@ -166,7 +166,7 @@ describe("BattleService character state and NPC turns", () => {
     expect(outcome.actions.rangedAttack).toBeGreaterThan(0);expect(outcome.actions.meleeAttack).toBe(0);
   });
 
-  it.each([{ level: 1, reward: 40 }, { level: 10, reward: 350 }, { level: 25, reward: 1200 }])(
+  it.each([{ level: 1, reward: 40 }, { level: 10, reward: 40 }, { level: 25, reward: 40 }])(
     "returns $reward XP only for the command that wins a level $level battle", ({ level, reward }) => {
       const victory = simulateBattle(level);
       expect(victory.experienceReward).toBe(reward);

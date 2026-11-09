@@ -72,7 +72,7 @@ async function setup(autoBattleStepMs = 10) {
     await authenticate(socket, token);
     return { id: character.id, socket, token };
   };
-  const equip = async (member:{id:string;socket:Socket},itemId:string,slot:"mainHand"|"offHand"="mainHand") => {
+  const equip = async (member:{id:string;socket:Socket},itemId:string,slot:"mainHand"|"offHand"|"chest"|"pants"|"helmet"|"boots"|"gloves"|"cloak"="mainHand") => {
     const items=await game.services.inventory.addItems(member.id,[{itemId,quantity:1}]);
     const item=items.items.find(item=>item.itemId===itemId)!;
     expect(await member.socket.timeout(2000).emitWithAck("setEquipmentSlot",{slot,itemInstanceId:item.instanceId})).toMatchObject({ok:true});
@@ -123,17 +123,17 @@ describeDatabase("healing staff cross-player Socket.IO",()=>{
   expect(await caster.socket.timeout(1000).emitWithAck("castHealing",{requestId:"notparty",targetId:ally.id})).toMatchObject({ok:false});
   game.services.social.parties.invite(caster.id,ally.id);game.services.social.parties.respond(ally.id,game.services.social.parties.getInvites(ally.id)[0]!.id,true);
   const targets=await caster.socket.timeout(1500).emitWithAck("requestHealingTargets");
-  expect(targets).toMatchObject({ok:true,healingPower:28});expect(targets.targets.map((t:any)=>t.id)).toContain(ally.id);
-  const targetPush=waitFor<PlayerStateSnapshot>(ally.socket,"playerState",s=>s.character.hp===68);
+  expect(targets).toMatchObject({ok:true,healingPower:8});expect(targets.targets.map((t:any)=>t.id)).toContain(ally.id);
+  const targetPush=waitFor<PlayerStateSnapshot>(ally.socket,"playerState",s=>s.character.hp===48);
   const request={requestId:"party-cast-01",targetId:ally.id};
   const result=await caster.socket.timeout(2000).emitWithAck("castHealing",request);
-  expect(result).toMatchObject({ok:true,targetId:ally.id,restoredHp:28});await targetPush;
+  expect(result).toMatchObject({ok:true,targetId:ally.id,restoredHp:8});await targetPush;
   expect(await caster.socket.timeout(2000).emitWithAck("castHealing",request)).toEqual(result);
-  expect(game.services.characters.getSnapshot(ally.id)?.hp).toBe(68);
+  expect(game.services.characters.getSnapshot(ally.id)?.hp).toBe(48);
   expect(game.services.characters.getSnapshot(caster.id)?.weaponTraining?.experience.staff).toBe(0);
   caster.socket.disconnect();ally.socket.disconnect();
   const nextCaster=await connect(),nextAlly=await connect();const restoredCaster=await authenticate(nextCaster,caster.token),restoredAlly=await authenticate(nextAlly,ally.token);
-  expect(restoredCaster.character.weaponTraining?.experience.staff).toBe(0);expect(restoredAlly.character.hp).toBe(68);
+  expect(restoredCaster.character.weaponTraining?.experience.staff).toBe(0);expect(restoredAlly.character.hp).toBe(48);
   expect(await nextCaster.timeout(1000).emitWithAck("castHealing",{requestId:"cooldown-cast",targetId:restoredCaster.character.playerId})).toMatchObject({ok:false,code:"HEAL_COOLDOWN"});
  });
  it("waits for the healed player's durable mutation before reconnecting that player",async()=>{
@@ -148,13 +148,18 @@ describeDatabase("healing staff cross-player Socket.IO",()=>{
   await started;ally.socket.disconnect();const next=await connect();let restoredEarly=false;
   const restoring=authenticate(next,ally.token).then(state=>{restoredEarly=true;return state;});
   try{await new Promise(resolve=>setTimeout(resolve,30));expect(restoredEarly).toBe(false);}finally{resume();}
-  expect(await casting).toMatchObject({ok:true,restoredHp:28});expect((await restoring).character.hp).toBe(68);
+  expect(await casting).toMatchObject({ok:true,restoredHp:8});expect((await restoring).character.hp).toBe(48);
  });
 
  it.each(["staff","sword"] as const)("persists %s battle training and permits shields only with the one-handed weapon",async(family)=>{
   const {game,identity,start,connect,authenticate,equip}=await setup(10),hero=await identity(`SupportAuto${family}`,family==="staff"?30:100);
   await equip(hero,`training-${family}`);
   if(family==="sword")await equip(hero,"training-shield","offHand");
+  else {
+    // A healing staff is support gear; real plate armor makes its solo training fixture survivable.
+    for(const slot of ["helmet","chest","gloves","pants","boots","cloak"] as const)await equip(hero,`plate-${slot}`,slot);
+    game.services.characters.healHp(hero.id);
+  }
   game.services.world.addPlayer({id:hero.id,nickname:`SupportAuto${family}`,x:1290,y:455});
   const finished=waitFor<{outcome:string;experienceGained:number;character:{weaponTraining:{experience:{staff:number;shield:number;sword:number}}}}>(hero.socket,"battleEnded");
   const initial=await start(hero.socket,"auto");

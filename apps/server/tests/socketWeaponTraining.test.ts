@@ -137,13 +137,13 @@ describeDatabase("equipment and battle training Socket.IO", () => {
     const gear = await grant(hero.id, "training-sword", "cloth-chest"), foreign = await grant(other.id, "training-axe");
     expect(await equipment(hero.socket, "chest", gear["training-sword"]!.instanceId)).toMatchObject({ ok: false, code: "EQUIPMENT_SLOT_MISMATCH" });
     expect(await equipment(hero.socket, "mainHand", foreign["training-axe"]!.instanceId)).toMatchObject({ ok: false, code: "EQUIPMENT_ITEM_NOT_OWNED" });
-    expect(await equipment(hero.socket, "mainHand", gear["training-sword"]!.instanceId)).toMatchObject({ ok: true, character: { equipment: { mainHand: { itemId: "training-sword" } }, statistics: { meleeDamage: 32, rangedEnabled: false } } });
-    expect(await equipment(hero.socket, "chest", gear["cloth-chest"]!.instanceId)).toMatchObject({ ok: true, character: { statistics: { armor: 3, meleeDamage: 32 } } });
+    expect(await equipment(hero.socket, "mainHand", gear["training-sword"]!.instanceId)).toMatchObject({ ok: true, character: { equipment: { mainHand: { itemId: "training-sword" } }, statistics: { meleeDamage: 12, rangedEnabled: false } } });
+    expect(await equipment(hero.socket, "chest", gear["cloth-chest"]!.instanceId)).toMatchObject({ ok: true, character: { statistics: { armor: 3, meleeDamage: 12 } } });
     await disconnect(hero.socket);
     const replacement = await connect(), restored = await authenticate(replacement, hero.token);
     expect(restored.inventory.equipmentSlots).toMatchObject({ mainHand: gear["training-sword"]!.instanceId, chest: gear["cloth-chest"]!.instanceId });
     expect(restored.character.equipment?.chest?.instanceId).toBe(gear["cloth-chest"]!.instanceId);
-    expect(restored.character.statistics).toMatchObject({ armor: 3, meleeDamage: 32, rangedEnabled: false });
+    expect(restored.character.statistics).toMatchObject({ armor: 3, meleeDamage: 12, rangedEnabled: false });
     await start(replacement);
     expect(await equipment(replacement, "mainHand", null)).toMatchObject({ ok: false, code: "BATTLE_IN_PROGRESS" });
     expect((await game.services.inventory.getSnapshot(hero.id)).equipmentSlots?.mainHand).toBe(gear["training-sword"]!.instanceId);
@@ -177,29 +177,31 @@ describeDatabase("equipment and battle training Socket.IO", () => {
     const replayRejected = waitFor<{ code: string }>(hero.socket, "commandRejected");
     hero.socket.emit("battleCommand", { type: "endTurn", combatantId: `hero:${hero.id}` });
     expect((await replayRejected).code).toBe("BATTLE_NOT_FOUND");
-    expect(game.services.characters.getSnapshot(hero.id)?.experience).toBe(40);
+    expect(game.services.characters.getSnapshot(hero.id)?.experience).toBe(0);
     expect(training(game.services.characters.getSnapshot(hero.id)!)).toEqual(training(result.character));
     await disconnect(hero.socket);
     const restored = await authenticate(await connect(), hero.token);
     expect(training(restored.character)).toEqual(training(result.character));
-    expect(restored.character.experience).toBe(40);
+    expect(restored.character.experience).toBe(0);
   });
 
-  it("grants combat experience for a real bare-hand victory without training phantom saved styles or carried gear", async () => {
+  it("awards no phantom weapon or armor training from carried gear during bare-hand combat", async () => {
     const { identity, grant, start } = await setup(), hero = await identity();
-    await grant(hero.id, "training-axe", "training-bow", "training-staff", "training-shield");
+    await grant(hero.id, "training-axe", "training-bow", "training-staff", "training-shield", "cloth-chest");
     const ended = waitFor<BattleEnded>(hero.socket, "battleEnded");
     await start(hero.socket, "auto");
     const result = await ended;
-    expect(result).toMatchObject({ outcome: "victory", experienceGained: 40 });
+    expect(result).toMatchObject({ outcome: "defeat", experienceGained: 0 });
     expect(totalTraining(result.character)).toBe(0);
     expect(result.character.equipment?.mainHand).toBeNull();
+    expect(result.character.armorTraining?.experience).toEqual({cloth:0,leather:0,plate:0});
   });
 
-  it("uses final capped combat XP, splits its half budget and refuses a duplicate command while settlement is pending", async () => {
+  it("uses the raw victory reward at the historical XP cap, trains worn armor and refuses duplicate settlement", async () => {
     const cap = getTotalExperienceForLevel(MAX_CHARACTER_LEVEL);
-    const { game, identity, grant, start, lifecycle } = await setup(), hero = await identity("CappedHero", cap - 7);
-    const gear = await grant(hero.id, "training-sword", "training-shield");
+    const { game, identity, grant, start, lifecycle } = await setup(), hero = await identity("CappedHero", cap);
+    const gear = await grant(hero.id, "training-sword", "training-shield", "cloth-chest");
+    await equipment(hero.socket, "chest", gear["cloth-chest"]!.instanceId);
     await equipment(hero.socket, "mainHand", gear["training-sword"]!.instanceId);
     await equipment(hero.socket, "offHand", gear["training-shield"]!.instanceId);
     const battle = await start(hero.socket), entered = deferred(), release = deferred();
@@ -216,18 +218,20 @@ describeDatabase("equipment and battle training Socket.IO", () => {
       hero.socket.emit("battleCommand", { type: "endTurn", combatantId: `hero:${hero.id}` });
       await entered.promise;
       expect(game.services.characters.getSnapshot(hero.id)?.experience).toBe(cap);
-      expect(training(game.services.characters.getSnapshot(hero.id)!)).toMatchObject({ sword: 2, shield: 1, staff: 0 });
+      expect(training(game.services.characters.getSnapshot(hero.id)!)).toMatchObject({ sword: 8, shield: 7, staff: 0 });
       const rejected = waitFor<{ code: string }>(hero.socket, "commandRejected");
       hero.socket.emit("battleCommand", { type: "endTurn", combatantId: `hero:${hero.id}` });
       expect((await rejected).code).toBe("BATTLE_ACTION_PENDING");
       expect(apply).toHaveBeenCalledTimes(1);
       release.resolve();
       const result = await ended;
-      expect(result.experienceGained).toBe(7);
-      expect(totalTraining(result.character)).toBe(3);
-      const stored = (await pool!.query("SELECT experience,weapon_training FROM characters WHERE id=$1", [hero.id])).rows[0];
+      expect(result.experienceGained).toBe(31);
+      expect(totalTraining(result.character)).toBe(15);
+      expect(result.character.armorTraining?.experience).toEqual({cloth:15,leather:0,plate:0});
+      const stored = (await pool!.query("SELECT experience,weapon_training,armor_training FROM characters WHERE id=$1", [hero.id])).rows[0];
       expect(stored.experience).toBe(cap);
-      expect(stored.weapon_training.experience).toMatchObject({ sword: 2, shield: 1, staff: 0 });
+      expect(stored.weapon_training.experience).toMatchObject({ sword: 8, shield: 7, staff: 0 });
+      expect(stored.armor_training.experience).toEqual({cloth:15,leather:0,plate:0});
     } finally { release.resolve(); }
   });
 
@@ -265,7 +269,7 @@ describeDatabase("equipment and battle training Socket.IO", () => {
       await entered.promise; await disconnect(hero.socket);
       const restored = await authenticate(await connect(), hero.token);
       expect(restored.character.equipment?.mainHand?.instanceId).toBe(gear["training-axe"]!.instanceId);
-      expect(restored.character.statistics?.meleeDamage).toBe(35);
+      expect(restored.character.statistics?.meleeDamage).toBe(15);
     } finally { release.resolve(); }
   });
 
@@ -306,7 +310,7 @@ describeDatabase("equipment and battle training Socket.IO", () => {
       release.resolve();
       expect(await authentication).toMatchObject({ ok: true });
       expect((await state).character.equipment?.mainHand?.instanceId).toBe(gear["training-sword"]!.instanceId);
-      expect(game.services.characters.getSnapshot(hero.id)?.statistics?.meleeDamage).toBe(32);
+      expect(game.services.characters.getSnapshot(hero.id)?.statistics?.meleeDamage).toBe(12);
     } finally {
       release.resolve(); pool!.off("acquire", wrap);
       for (const [client, original] of originals) client.query = original;
@@ -336,7 +340,7 @@ describeDatabase("equipment and battle training Socket.IO", () => {
       await disconnect(hero.socket);
       const restored = await authenticate(await connect(), hero.token);
       expect(restored.character.equipment?.mainHand).toBeNull();
-      expect(restored.character.statistics?.meleeDamage).toBe(20);
+      expect(restored.character.statistics?.meleeDamage).toBe(5);
       expect(totalTraining(restored.character)).toBe(0);
     } finally { release.resolve(); }
   });

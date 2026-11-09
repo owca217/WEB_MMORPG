@@ -16,10 +16,11 @@ describe("equipment metadata and projection",()=>{
   });
   it("projects only usable actually equipped single items",()=>{
     const unequipped=sword();delete unequipped.equippedSlot;
-    for(const item of [unequipped,sword({quantity:2}),sword({durability:0}),sword({equippedSlot:"boots"}),sword({equipment:{...sword().equipment!,minimumLevel:20}})]){
+    for(const item of [unequipped,sword({quantity:2}),sword({durability:0}),sword({equippedSlot:"boots"})]){
       expect(getCharacterEquipment({items:[item]},1).mainHand).toBeNull();
     }
     expect(getCharacterEquipment({items:[sword()]},1).mainHand?.instanceId).toBe("sword-1");
+    expect(getCharacterEquipment({items:[sword({equipment:{...sword().equipment!,minimumLevel:20}})]},1).mainHand?.instanceId).toBe("sword-1");
   });
   it("ignores an incompatible shield and never mutates the inventory snapshot",()=>{
     const staff=sword({equipment:{...sword().equipment!,weaponFamily:"staff",twoHanded:true}});
@@ -33,5 +34,10 @@ describe("equipment metadata and projection",()=>{
   it("creates independent empty slot maps",()=>{
     const first=emptyEquipmentSlots(),second=emptyEquipmentSlots();first.mainHand="item";
     expect(second.mainHand).toBeNull();expect(Object.values(second)).toHaveLength(8);
+  });
+  it("classifies only explicit armor metadata, without giving weapon or shield armor mastery",()=>{
+    expect(getEquipmentItemProperties({category:"armor",subcategory:"chest",minimumLevel:1,stats:[],specialData:{armorFamily:"plate"}})).toMatchObject({armorFamily:"plate"});
+    expect(getEquipmentItemProperties({category:"armor",subcategory:"shield",minimumLevel:1,stats:[],specialData:{armorFamily:"plate"}})).not.toHaveProperty("armorFamily");
+    expect(getEquipmentItemProperties({category:"weapon",subcategory:"sword",minimumLevel:1,stats:[],specialData:{armorFamily:"plate"}})).not.toHaveProperty("armorFamily");
   });
 });

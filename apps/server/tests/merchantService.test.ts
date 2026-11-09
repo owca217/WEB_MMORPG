@@ -55,6 +55,15 @@ describeDatabase("persistent merchant purchases and rewards", () => {
     expect((await pool.query("SELECT * FROM character_wallets WHERE character_id=$1", [alice])).rowCount).toBe(1);
   });
 
+  it("offers and sells items with only historical level requirements", async () => {
+    await pool.query("UPDATE item_versions SET minimum_level=99 WHERE item_id=(SELECT id FROM items WHERE item_id='training-sword')");
+    await pool.query("INSERT INTO item_requirements(id,version_id,requirement_type,value_json) SELECT $1,id,'LEVEL','100'::jsonb FROM item_versions WHERE item_id=(SELECT id FROM items WHERE item_id='training-sword')", [randomUUID()]);
+    expect((await service.getShop(alice)).offers.some(item => item.itemId === "training-sword")).toBe(true);
+    expect((await service.purchase(alice, purchase("training-sword"))).inventory.items.some(item => item.itemId === "training-sword")).toBe(true);
+    await pool.query("UPDATE item_requirements SET requirement_type='STAT',code='STRENGTH',value_json='5'::jsonb WHERE version_id IN(SELECT id FROM item_versions WHERE item_id=(SELECT id FROM items WHERE item_id='training-sword'))");
+    expect((await service.getShop(alice)).offers.some(item => item.itemId === "training-sword")).toBe(false);
+  });
+
   it("deducts and grants atomically with request replay bound to owner and payload", async () => {
     const request = purchase("minor-healing-potion", 3);
     const first = await service.purchase(alice, request);

@@ -156,7 +156,7 @@ export class HealingService {
   }
 
   private power(character:CharacterSnapshot):number {
-    return getEquipmentCombatStatistics(getCharacterStatistics(character.level),character.weaponTraining,character.equipment).healingPower??0;
+    return getEquipmentCombatStatistics(getCharacterStatistics(),character.weaponTraining,character.equipment,character.armorTraining).healingPower??0;
   }
   private unavailable(id:string):boolean {return this.pending.has(id)||this.deps.isBusy(id);}
   private cooldown(id:string):number {return Math.max(0,(this.cooldowns.get(id)??0)-this.now());}

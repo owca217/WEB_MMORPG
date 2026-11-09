@@ -234,7 +234,7 @@ export class SocialPanel {
   private playerRow(player: SocialPlayer, suffix = ""): HTMLElement {
     const result = node("div", "", "social-widget__row");
     const info = node("div", "", "social-widget__player");
-    info.append(node("strong", `${player.nickname}${suffix}`), node("small", player.unavailable ? "Konto nieaktywne" : `${player.online ? "Online" : "Offline"}${player.inBattle ? " · w walce" : ""}${player.level === undefined ? "" : ` · poziom ${player.level}`}`));
+    info.append(node("strong", `${player.nickname}${suffix}`), node("small", player.unavailable ? "Konto nieaktywne" : `${player.online ? "Online" : "Offline"}${player.inBattle ? " · w walce" : ""}`));
     result.append(info);
     return result;
   }

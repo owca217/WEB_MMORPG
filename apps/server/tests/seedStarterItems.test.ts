@@ -41,6 +41,7 @@ describeDatabase("starter equipment seeding", () => {
   async function equipmentSnapshot() {
     return (await pool.query(
       `SELECT item.item_id, item.id, version.id AS version_id,
+              version.special_data, version.quality,
               stat.id AS stat_id, stat.stat_code, stat.modifier_type, stat.value
        FROM items item
        JOIN item_versions version ON version.item_id = item.id
@@ -79,15 +80,64 @@ describeDatabase("starter equipment seeding", () => {
     const equipment = await equipmentSnapshot();
     // Current training gear, 66 progression weapons and ten other starter weapons;
     // the author's starter-sword row above must remain untouched.
-    expect(new Set(equipment.map((row) => row.item_id)).size).toBe(91);
+    expect(new Set(equipment.map((row) => row.item_id)).size).toBe(103);
     expect(equipment.find((row) => row.item_id === "training-sword")).toMatchObject({
       stat_code: "PHYSICAL_DAMAGE", modifier_type: "flat", value: "12"
     });
+    for (const family of ["cloth", "leather", "plate"]) {
+      for (const slot of ["helmet", "chest", "gloves", "pants", "boots", "cloak"]) {
+        expect(equipment.find((row) => row.item_id === `${family}-${slot}`)?.special_data)
+          .toEqual({ armorSlot: slot, armorFamily: family });
+      }
+    }
 
     await seedItemMetadata(pool);
 
     expect(await authoredSnapshot()).toEqual(original);
     expect(await equipmentSnapshot()).toEqual(equipment);
+  });
+
+  it("retrofits only untouched legacy cloth metadata and preserves authored versions and owned-copy state", async () => {
+    const legacyIds = ["cloth-helmet", "cloth-chest", "cloth-boots", "cloth-gloves"];
+    await pool.query(`UPDATE item_versions version SET special_data = special_data - 'armorFamily'
+      FROM items item WHERE version.item_id = item.id AND item.item_id = ANY($1::text[])`, [legacyIds]);
+    await pool.query(`UPDATE item_versions SET name = 'Autorska tunika', revision = 3, quality = 'GOOD'
+      WHERE item_id = (SELECT id FROM items WHERE item_id = 'cloth-chest')`);
+    await pool.query(`UPDATE item_versions SET created_by = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      WHERE item_id = (SELECT id FROM items WHERE item_id = 'cloth-boots')`);
+    await pool.query(`UPDATE item_stat_modifiers SET value = 7
+      WHERE version_id = (SELECT version.id FROM item_versions version JOIN items item ON item.id = version.item_id
+        WHERE item.item_id = 'cloth-gloves')`);
+    const instanceId = "23000000-0000-4000-8000-000000000001";
+    await pool.query(`INSERT INTO item_instances (id, player_id, item_id, quantity, quality,
+      durability, max_durability, upgrade_level, affixes, sockets)
+      SELECT $1, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', id, 1, 'EXCELLENT', 9, 40, 2,
+        '[{"code":"preserved"}]'::jsonb, '["quartz"]'::jsonb FROM items WHERE item_id = 'cloth-helmet'`, [instanceId]);
+    const versionsBefore = (await pool.query(`SELECT item.item_id AS slug, version.* FROM items item
+      JOIN item_versions version ON version.item_id = item.id WHERE item.item_id = ANY($1::text[])
+      ORDER BY item.item_id`, [legacyIds])).rows;
+    const instancesBefore = (await pool.query("SELECT * FROM item_instances WHERE id = $1", [instanceId])).rows;
+    const statsBefore = await equipmentSnapshot();
+    await pool.query("DELETE FROM schema_migrations WHERE migration_name = '018_armor_specialization_metadata'");
+
+    await runMigrations(pool);
+
+    const versionsAfter = (await pool.query(`SELECT item.item_id AS slug, version.* FROM items item
+      JOIN item_versions version ON version.item_id = item.id WHERE item.item_id = ANY($1::text[])
+      ORDER BY item.item_id`, [legacyIds])).rows;
+    expect(versionsAfter).toEqual(versionsBefore.map((version) => version.slug === "cloth-helmet"
+      ? { ...version, special_data: { armorSlot: "helmet", armorFamily: "cloth" } } : version));
+    expect((await pool.query("SELECT * FROM item_instances WHERE id = $1", [instanceId])).rows).toEqual(instancesBefore);
+    expect((await equipmentSnapshot()).map(({ special_data: _data, ...row }) => row))
+      .toEqual(statsBefore.map(({ special_data: _data, ...row }) => row));
+    const equipmentAfter = await equipmentSnapshot();
+
+    await pool.query("DELETE FROM schema_migrations WHERE migration_name = '018_armor_specialization_metadata'");
+    await runMigrations(pool);
+    await seedItemMetadata(pool);
+
+    expect(await equipmentSnapshot()).toEqual(equipmentAfter);
+    expect((await pool.query("SELECT * FROM item_instances WHERE id = $1", [instanceId])).rows).toEqual(instancesBefore);
   });
 
   it("upgrades initialized system stat lists additively without replacing authored metadata", async () => {
@@ -114,5 +164,34 @@ describeDatabase("starter equipment seeding", () => {
     expect(mappings.some((row) => row.subcategory_id === "hammer" && row.stat_code === "ARMOR")).toBe(false);
     await runMigrations(pool);
     expect((await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows).toEqual(after);
+  });
+
+  it("adds armor family and attribute mappings without replacing custom lists or changing authored slots", async () => {
+    await pool.query("DELETE FROM category_allowed_special_fields WHERE category_id = 'armor' AND field_code = 'armorFamily'");
+    await pool.query("DELETE FROM category_allowed_stats WHERE category_id = 'armor' AND stat_code IN ('STRENGTH', 'DEXTERITY', 'VITALITY')");
+    await pool.query("INSERT INTO category_allowed_stats(category_id, subcategory_id, stat_code) VALUES ('armor', 'chest', 'FIRE_DAMAGE')");
+    await pool.query("UPDATE item_subcategories SET system = FALSE WHERE id = 'gloves'");
+    const statsBefore = (await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows;
+    const fieldsBefore = (await pool.query("SELECT * FROM category_allowed_special_fields ORDER BY id")).rows;
+    await pool.query("DELETE FROM schema_migrations WHERE migration_name = '018_armor_specialization_metadata'");
+
+    await runMigrations(pool);
+
+    const stats = (await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows;
+    const fields = (await pool.query("SELECT * FROM category_allowed_special_fields ORDER BY id")).rows;
+    for (const row of statsBefore) expect(stats).toContainEqual(row);
+    for (const row of fieldsBefore) expect(fields).toContainEqual(row);
+    for (const slot of [null, "helmet", "chest", "pants", "boots", "cloak"]) {
+      expect(fields.some((row) => row.category_id === "armor" && row.subcategory_id === slot && row.field_code === "armorFamily")).toBe(true);
+      for (const code of ["STRENGTH", "DEXTERITY", "VITALITY"]) {
+        expect(stats.some((row) => row.category_id === "armor" && row.subcategory_id === slot && row.stat_code === code)).toBe(true);
+      }
+    }
+    expect(fields.some((row) => ["gloves", "shield"].includes(row.subcategory_id) && row.field_code === "armorFamily")).toBe(false);
+    expect(stats.some((row) => row.subcategory_id === "gloves" && ["STRENGTH", "DEXTERITY", "VITALITY"].includes(row.stat_code))).toBe(false);
+
+    await runMigrations(pool);
+    expect((await pool.query("SELECT * FROM category_allowed_stats ORDER BY id")).rows).toEqual(stats);
+    expect((await pool.query("SELECT * FROM category_allowed_special_fields ORDER BY id")).rows).toEqual(fields);
   });
 });

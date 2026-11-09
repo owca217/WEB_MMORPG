@@ -6,7 +6,7 @@ Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny ro
 
 ## Instalacja
 
-Pobierz podpisany [Kroniki-Pogranicza-0.1.29.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.29/Kroniki-Pogranicza-0.1.29.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Pobierz podpisany [Kroniki-Pogranicza-0.1.30.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.30/Kroniki-Pogranicza-0.1.30.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -63,6 +63,8 @@ Wersja 0.1.27 dodaje drzewka umiejętności dziewięciu rodzin broni w zakładce
 Wersja 0.1.28 zachowuje tło i zawartość bocznego panelu podczas przeciągania przedmiotów. Sloty pojemników pozostają dostępne do przenoszenia przedmiotów.
 
 Wersja 0.1.29 dodaje opisy aktywnych urazów postaci oraz umożliwia ich całkowite wyleczenie u uzdrowicielki. Leczenie przywraca zdrowie i usuwa zapisane urazy.
+
+Wersja 0.1.30 zastępuje ogólny poziom postaci statystykami wyposażenia i premiami specjalizacji. Osobne okno „Drzewko specjalizacji” otworzysz przyciskiem Specjalizacje (na komputerze także K). Mapa zawiera zachowane techniki broni oraz rozwój pancerzy płóciennych, skórzanych i płytowych. Można ją przesuwać i powiększać, a szczegóły węzła pokazują wymagania i dostępne punkty. Noszone pancerze otrzymują połowę nagrody XP za zwycięstwo, dzieloną według liczby elementów; druga połowa rozwija użyte rodzaje broni. Kupiec oferuje również podstawowe skórzane i płytowe uzbrojenie. Dotychczasowe XP specjalizacji, wyuczone techniki i ekwipunek zostają zachowane.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

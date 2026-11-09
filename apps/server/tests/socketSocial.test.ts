@@ -82,7 +82,7 @@ describeDb("authenticated social Socket.IO",()=>{
     for(const outcome of await Promise.all([ended,bobEnded])) {
       expect(outcome.experienceGained).toBe(44);expect(outcome.partyBonusExperience).toBe(4);
     }
-    for(const id of [alice.id,bob.id])expect((await pool!.query("SELECT experience FROM characters WHERE id=$1",[id])).rows[0].experience).toBe(44);
+    for(const id of [alice.id,bob.id])expect((await pool!.query("SELECT experience FROM characters WHERE id=$1",[id])).rows[0].experience).toBe(0);
     expect((await pool!.query("SELECT experience FROM characters WHERE id=$1",[late.id])).rows[0].experience).toBe(0);
   });
 

@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 import { MAX_WEAPON_EXPERIENCE, normalizeWeaponTraining, type CharacterSnapshot } from "@web-mmorpg/shared";
 import { afterEach, expect, it, vi } from "vitest";
-import { CharacterPanel } from "../src/ui/CharacterPanel";
+import { SpecializationPanel } from "../src/ui/SpecializationPanel";
 import { WeaponSkillTreeView } from "../src/ui/WeaponSkillTreeView";
 
 const training=normalizeWeaponTraining({experience:{sword:MAX_WEAPON_EXPERIENCE,staff:MAX_WEAPON_EXPERIENCE}});
@@ -28,8 +28,8 @@ it("shows separate point budgets, prerequisites and keeps the selected family on
 
 it("learns once, waits for authoritative results, and ignores a late reply after character replacement",async()=>{
  const gate=deferred<any>(),learn=vi.fn().mockReturnValue(gate.promise),changed=vi.fn();
- const panel=new CharacterPanel({onSetEquipmentSlot:vi.fn(),onLearnWeaponSkill:learn,onResetWeaponSkills:vi.fn(),onSkillsChanged:changed});
- panel.update(hero);panel.show();button('[data-character-tab="proficiency"]').click();
+ const panel=new SpecializationPanel({onLearnWeaponSkill:learn,onResetWeaponSkills:vi.fn(),onLearnArmorSkill:vi.fn(),onResetArmorSkills:vi.fn(),onChanged:changed});
+ panel.update(hero);panel.show();
  button('[data-learn-skill="sword:power"]').click();button('[data-learn-skill="sword:power"]').click();
  expect(learn).toHaveBeenCalledExactlyOnceWith("sword:power");
  expect(document.querySelector('[data-skill-node="sword:power"]')?.getAttribute("data-learned")).toBe("false");

@@ -187,6 +187,14 @@ export const ENGINE_SPECIAL_FIELDS: Readonly<Record<string, ItemSpecialFieldDefi
       { value: "wand", label: "Różdżka" }
     ]
   },
+  armorFamily: {
+    code: "armorFamily", label: "Rodzina pancerza", type: "select",
+    options: [
+      { value: "cloth", label: "Płócienny" },
+      { value: "leather", label: "Skórzany" },
+      { value: "plate", label: "Płytowy" }
+    ]
+  },
   armorSlot: {
     code: "armorSlot", label: "Miejsce pancerza", type: "select",
     options: [
@@ -300,7 +308,7 @@ export const ENGINE_SPECIAL_FIELDS: Readonly<Record<string, ItemSpecialFieldDefi
 
 const SPECIAL_FIELDS_BY_CATEGORY = {
   weapon: ["weaponFamily", "durability", "maxDurability", "socketCount"],
-  armor: ["armorSlot", "durability", "maxDurability", "socketCount"],
+  armor: ["armorSlot", "armorFamily", "durability", "maxDurability", "socketCount"],
   jewelry: ["jewelrySlot", "socketCount"],
   consumable: ["uses", "useCooldownMs", "useTimeMs", "effectDurationMs", "consumeOnUse"],
   material: ["quality", "tier", "materialType", "craftingTags"],
@@ -366,6 +374,9 @@ const WEAPON_STATS = [
 ] as const;
 
 const ARMOR_STATS = [
+  "STRENGTH",
+  "DEXTERITY",
+  "VITALITY",
   "ARMOR",
   "MAGIC_RESIST",
   "FIRE_RESIST",
@@ -633,7 +644,7 @@ export const SYSTEM_SUBCATEGORIES: readonly SystemSubcategorySeed[] = [
   { id: "boots", categoryId: "armor", name: "Buty", allowedStatCodes: [...ARMOR_STATS, "MOVE_SPEED", "DODGE_CHANCE"] },
   { id: "pants", categoryId: "armor", name: "Spodnie", allowedStatCodes: ARMOR_STATS },
   { id: "cloak", categoryId: "armor", name: "Płaszcz", allowedStatCodes: ARMOR_STATS },
-  { id: "shield", categoryId: "armor", name: "Tarcza", allowedStatCodes: ["ARMOR", "BLOCK_CHANCE", "BLOCK_POWER", "MAGIC_RESIST", "FIRE_RESIST", "FROST_RESIST", "POISON_RESIST", "LIGHTNING_RESIST"] },
+  { id: "shield", categoryId: "armor", name: "Tarcza", allowedStatCodes: ["ARMOR", "BLOCK_CHANCE", "BLOCK_POWER", "MAGIC_RESIST", "FIRE_RESIST", "FROST_RESIST", "POISON_RESIST", "LIGHTNING_RESIST"], allowedSpecialFieldCodes: ["armorSlot", "durability", "maxDurability", "socketCount"] },
 
   { id: "ring", categoryId: "jewelry", name: "Pierścień", allowedStatCodes: JEWELRY_STATS },
   { id: "amulet", categoryId: "jewelry", name: "Amulet", allowedStatCodes: JEWELRY_STATS },

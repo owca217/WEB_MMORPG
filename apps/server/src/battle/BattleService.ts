@@ -12,6 +12,7 @@ import {
   calculateWeaponInjuryDuration,
   isWeaponInjuryUpgrade,
   receivedBattleHealing,
+  resolveCharacterSkin,
   MAX_CHARACTER_LEVEL,
   BATTLE_ITEM_AP_COST,
   type ConsumableEffects,
@@ -124,7 +125,7 @@ meleeDamage: equipped.meleeEnabled?stats.meleeDamage:0, rangedDamage: equipped.r
             ...(equipped.healingPower !== undefined ? { healingPower: equipped.healingPower } : {}), ...(equipped.blockPercent !== undefined ? { blockPercent: equipped.blockPercent } : {})
 };
           return {
-id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "player" as const, name: character.nickname, level: characterLevel, combatStats,
+id: `hero:${character.playerId}`, ownerPlayerId: character.playerId, side: "player" as const, skinId: resolveCharacterSkin(character.appearance).id, name: character.nickname, level: characterLevel, combatStats,
             weaponSkills: getLearnedWeaponSkills(character.weaponTraining,[...(getEquippedWeaponFamily(character.equipment) ? [getEquippedWeaponFamily(character.equipment)!] : []), ...(hasEquippedShield(character.equipment) ? ["shield" as const] : [])]),
             ...(weaponInjuryUpgrade ? { weaponInjuryUpgrade } : {}),
             hp: character.hp, maxHp: character.maxHp, maxAp: character.maxAp, initiative: character.initiative, position: arena.playerStartCells[index]!, severelyInjured: character.severelyInjured, injuries: [...character.injuries]
@@ -344,6 +345,7 @@ result: { ok: true, state: active.state }, snapshot: this.snapshotFor(active, ac
       combatants: Object.values(state.combatants).map((combatant) => ({
         id: combatant.id,
         ...(combatant.enemyId ? { enemyId: combatant.enemyId } : {}),
+        ...(combatant.skinId ? { skinId: combatant.skinId } : {}),
         side: combatant.side,
         ...(combatant.ownerPlayerId !== undefined
           ? { ownerPlayerId: combatant.ownerPlayerId }

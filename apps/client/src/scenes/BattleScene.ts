@@ -16,6 +16,8 @@ import {
   type WeaponSkillId
 } from "@web-mmorpg/shared";
 import Phaser from "phaser";
+import { getCharacterSkinTextureKey } from "../characters/characterSkinAssets";
+import { preloadCharacterSkins, registerCharacterSkinAnimations } from "../characters/characterSkinSprites";
 import { getEnemySkinAsset, getEnemySkinDisplaySize, getEnemySkinTextureKey, preloadEnemySkins, registerEnemySkinFrames } from "../characters/enemySkinAssets";
 import { gameSocket } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
@@ -23,7 +25,10 @@ import { BattleHud } from "../ui/BattleHud";
 import { BattleAttackCard } from "../ui/BattleAttackCard";
 import { ChatController } from "../ui/ChatController";
 import { SocialController } from "../ui/SocialController";
+import { preloadEnvironmentAssets, registerEnvironmentFrames } from "../world/environmentAssets";
+import { BattleEnvironmentRenderer, getBattlePropTextureKey, preloadBattleProps, registerBattlePropFrames } from "./BattleEnvironmentRenderer";
 import { axialToPixel, battleHexBounds, battleHexPolygon, calculateBattleLayout, type SafeInsets } from "./battleLayout";
+import { battleCharacterSize, battleCharacterSkin, battleEnemyId, battleObjectDepth, registerBattleCharacterFrames } from "./battleVisuals";
 
 export { axialToPixel } from "./battleLayout";
 
@@ -52,6 +57,8 @@ export class BattleScene extends Phaser.Scene {
   private chat: ChatController | null = null;
   private social:SocialController|null=null;
   private readonly renderObjects: Phaser.GameObjects.GameObject[] = [];
+  private environment: BattleEnvironmentRenderer | undefined;
+  private targetMarker: Phaser.GameObjects.Graphics | undefined;
   private unsubscribeState: (() => void) | undefined;
   private unsubscribeEnded: (() => void) | undefined;
   private unsubscribeRejected: (() => void) | undefined;
@@ -75,12 +82,22 @@ export class BattleScene extends Phaser.Scene {
     this.modePending=false;this.modeVersion+=1;
   }
 
-  preload(): void { preloadEnemySkins(this); }
+  preload(): void {
+    preloadEnemySkins(this);
+    preloadCharacterSkins(this);
+    preloadEnvironmentAssets(this);
+    preloadBattleProps(this);
+  }
 
   create(): void {
     registerEnemySkinFrames(this);
+    registerCharacterSkinAnimations(this);
+    registerBattleCharacterFrames(this);
+    registerEnvironmentFrames(this);
+    registerBattlePropFrames(this);
+    this.environment = new BattleEnvironmentRenderer(this);
     this.disposed = false;
-    this.cameras.main.setBackgroundColor(0x17191e);
+    this.cameras.main.setBackgroundColor(0x101d1a);
 
     this.hud = new BattleHud({
       onUseItem: (instanceId) => this.useItem(instanceId),
@@ -130,7 +147,9 @@ export class BattleScene extends Phaser.Scene {
     this.unsubscribePlayer = gameSocket.onPlayerState((state) => {
       if (state.character.playerId !== this.playerId) return;
       playerStateStore.set(state);
-      this.refreshHud();
+      // Reconnects to battles created before appearance metadata still get the owner's skin.
+      if (this.ownCombatant()?.skinId === undefined) this.renderSnapshot();
+      else this.refreshHud();
     });
     this.unsubscribeReauthenticated=gameSocket.onReauthenticated(result=>{
       if(result.ok && !this.disposed)this.scene.start("WorldScene",{playerId:result.characterId});
@@ -160,6 +179,8 @@ export class BattleScene extends Phaser.Scene {
       this.layout = null;
       this.boardZoomed = false;
       this.clearRenderObjects();
+      this.environment?.destroy();
+      this.environment = undefined;
     });
   }
 
@@ -187,7 +208,8 @@ export class BattleScene extends Phaser.Scene {
     this.layout = layout;
     const { centerX, centerY, hexSize } = layout;
 
-    const graphics = this.add.graphics();
+    const texturedGround = this.environment?.render(snapshot, layout, this.renderObjects) ?? false;
+    const graphics = this.add.graphics().setDepth(-9000);
     this.renderObjects.push(graphics);
 
     const blockedKeys = new Set(snapshot.blockedCells.map((cell) => `${cell.q},${cell.r}`));
@@ -201,20 +223,24 @@ export class BattleScene extends Phaser.Scene {
       const y = centerY + local.y;
       const key = `${cell.q},${cell.r}`;
 
-      // Raised edges make the projected ground plane readable without changing hex topology.
-      graphics.fillStyle(0x20291f, 1);
-      graphics.fillPoints(hexPolygon(x, y + Math.max(2, hexSize * 0.14), hexSize - 1), true);
-      const fill = blockedKeys.has(key) ? 0x454b44 : reachable.has(key) ? 0x48774d : (cell.q + cell.r) % 2 ? 0x343e32 : 0x3b4538;
-      graphics.fillStyle(fill, 1);
-      graphics.fillPoints(hexPolygon(x, y, hexSize - 1), true);
-      graphics.lineStyle(reachable.has(key) ? 2 : 1, reachable.has(key) ? 0x98c87f : 0x75806b, 0.9);
+      if (!texturedGround) {
+        graphics.fillStyle(0x263126, 1);
+        graphics.fillPoints(hexPolygon(x, y + Math.max(2, hexSize * 0.13), hexSize - 1), true);
+        graphics.fillStyle(blockedKeys.has(key) ? 0x485442 : (cell.q + cell.r) % 2 ? 0x4b633c : 0x526b40, 1);
+        graphics.fillPoints(hexPolygon(x, y, hexSize - 1), true);
+      }
+      if (reachable.has(key)) {
+        graphics.fillStyle(0x96c88b, 0.12);
+        graphics.fillPoints(hexPolygon(x, y, hexSize - 1), true);
+      }
+      graphics.lineStyle(reachable.has(key) ? 1.5 : 1, reachable.has(key) ? 0xa8d593 : 0xd1d6b0, reachable.has(key) ? 0.6 : 0.24);
       graphics.strokePoints(hexPolygon(x, y, hexSize - 1), true);
 
-      if (blockedKeys.has(key)) {
-        graphics.fillStyle(0x3e3b3a, 1);
-        graphics.fillCircle(x, y, hexSize * 0.48);
-      } else if (coverKeys.has(key)) {
-        graphics.fillStyle(0x826b49, 1);
+      if (blockedKeys.has(key) && !this.textures.exists(getBattlePropTextureKey("mossy-rocks"))) {
+        graphics.fillStyle(0x515a4b, 1);
+        graphics.fillEllipse(x, y, hexSize * 0.95, hexSize * 0.65);
+      } else if (coverKeys.has(key) && !this.textures.exists(getBattlePropTextureKey("fallen-log"))) {
+        graphics.fillStyle(0x826b49, 0.85);
         graphics.fillRoundedRect(
           x - hexSize * 0.42,
           y,
@@ -236,15 +262,20 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
+    this.targetMarker = this.add.graphics().setDepth(-8000);
+    this.renderObjects.push(this.targetMarker);
+    const player = playerStateStore.get();
+    const ownAppearance = player?.character.playerId === this.playerId ? player.character.appearance : undefined;
     for (const combatant of snapshot.combatants) {
-      this.renderCombatant(combatant, layout);
+      this.renderCombatant(combatant, layout, ownAppearance);
     }
     this.refreshAttackCard();
   }
 
   private renderCombatant(
     combatant: CombatantSnapshot,
-    { centerX, centerY, hexSize, labelFontSize, arena }: ReturnType<typeof calculateBattleLayout>
+    { centerX, centerY, hexSize, labelFontSize, arena }: ReturnType<typeof calculateBattleLayout>,
+    ownAppearance?: Record<string, unknown>
   ): void {
     const local = axialToPixel(combatant.position, hexSize);
     const x = centerX + local.x;
@@ -253,49 +284,76 @@ export class BattleScene extends Phaser.Scene {
     const active = combatant.id === this.snapshot?.activeCombatantId;
     const ally=combatant.side==="player" && this.ownCombatant()?.side==="player";
     const fill = combatant.hp <= 0 ? 0x555555 : owned ? 0x5fa6e8 : ally ? 0x6fac75 : 0xcf6a61;
-
+    const enemyId = battleEnemyId(combatant);
+    // Legacy wolves reuse the artwork without inheriting a different enemy's name or level.
     const enemy = combatant.enemyId ? getEnemyDefinition(combatant.enemyId) : undefined;
-    const skin = enemy ? getEnemySkinAsset(enemy.id) : undefined;
-    const textureKey = enemy ? getEnemySkinTextureKey(enemy.id) : "";
-    const hasSprite = Boolean(skin && this.textures.exists(textureKey) && this.textures.get(textureKey).has("idle"));
-    const body = this.add.circle(x, y + hexSize * (hasSprite ? 0.12 : -0.16), Math.max(4, hexSize * 0.38), fill, hasSprite ? 0.35 : 1);
-    body.setStrokeStyle(active ? 4 : 2, active ? 0xffdf77 : 0x17191e);
-    // Labels may share space at phone sizes; every unit remains visible above them.
-    body.setDepth(2);
-    body.setInteractive();
-    body.on("pointerover", () => this.previewCell(combatant.position));
-    body.on("pointerup", (pointer: Phaser.Input.Pointer) => this.selectCell(combatant.position, pointer?.wasTouch ?? false));
+    const skin = enemyId ? getEnemySkinAsset(enemyId) : undefined;
+    const skinId = battleCharacterSkin(combatant, this.playerId, ownAppearance);
+    const textureKey = skin ? getEnemySkinTextureKey(skin.id) : skinId ? getCharacterSkinTextureKey(skinId) : "";
+    const facing = combatant.side === "enemy" ? "west" : "east";
+    const frame = skin ? "idle" : `battle:${facing}`;
+    const hasSprite = Boolean(textureKey && this.textures.exists(textureKey) && this.textures.get(textureKey).has(frame));
+    const footY = y + hexSize * 0.12;
+    const ground = this.add.graphics().setDepth(-7500);
+    ground.fillStyle(0x07110c, combatant.hp > 0 ? 0.44 : 0.2);
+    ground.fillEllipse(x, footY + 1, hexSize * 0.9, hexSize * 0.32);
+    ground.lineStyle(active ? 2 : 1.5, active ? 0xe8c873 : fill, active ? 0.95 : 0.65);
+    ground.strokeEllipse(x, footY, hexSize * 1.03, hexSize * 0.4);
+    this.renderObjects.push(ground);
 
-    if (skin && hasSprite) {
+    let visibleHeight = hexSize * 0.8;
+    if (hasSprite && (skin || skinId)) {
       const bounds = battleHexBounds(hexSize);
-      const size = getEnemySkinDisplaySize(skin, bounds.width * (skin.shape === "humanoid" ? 0.72 : 0.9), bounds.height * 0.85);
-      const sprite = this.add.sprite(x, y + bounds.height * 0.35, textureKey, "idle")
-        .setOrigin(0.5, 1).setDisplaySize(size.width, size.height).setDepth(3);
+      const size = skin
+        ? getEnemySkinDisplaySize(skin, bounds.width * (skin.shape === "humanoid" ? 0.72 : 0.9), hexSize * (skin.shape === "humanoid" ? 1.8 : 1.3))
+        : battleCharacterSize(skinId!, facing, hexSize);
+      visibleHeight = size.height;
+      const sprite = this.add.sprite(x, footY, textureKey, frame)
+        .setOrigin(0.5, 1).setDisplaySize(size.width, size.height).setDepth(battleObjectDepth(footY));
       if (combatant.hp <= 0) sprite.setAlpha(0.4).setTint(0x777777);
-      sprite.setInteractive({ useHandCursor: combatant.hp > 0 });
-      sprite.on("pointerover", () => { if (combatant.hp > 0) this.previewCell(combatant.position); });
-      sprite.on("pointerup", (pointer: Phaser.Input.Pointer) => { if (combatant.hp > 0) this.selectCell(combatant.position, pointer?.wasTouch ?? false); });
+      if (combatant.hp > 0) {
+        // Tall sprites overlap rear hexes; transparent atlas pixels must pass input through.
+        sprite.setInteractive({ useHandCursor: true, pixelPerfect: true, alphaTolerance: 16 });
+        sprite.on("pointerover", () => this.previewCell(combatant.position));
+        sprite.on("pointerup", (pointer: Phaser.Input.Pointer) => this.selectCell(combatant.position, pointer?.wasTouch ?? false));
+      }
       this.renderObjects.push(sprite);
+    } else {
+      const body = this.add.circle(x, y - hexSize * 0.16, Math.max(4, hexSize * 0.38), fill);
+      body.setStrokeStyle(active ? 3 : 2, active ? 0xe8c873 : 0x17271e).setDepth(battleObjectDepth(footY));
+      if (combatant.hp > 0) {
+        body.setInteractive();
+        body.on("pointerover", () => this.previewCell(combatant.position));
+        body.on("pointerup", (pointer: Phaser.Input.Pointer) => this.selectCell(combatant.position, pointer?.wasTouch ?? false));
+      }
+      this.renderObjects.push(body);
     }
 
     const compact = hexSize < 30;
     const fullName = enemy?.name ?? combatant.name;
     const name = compact && fullName.length > 12 ? `${fullName.slice(0, 11)}…` : fullName;
-    const caption = `${name}${compact ? "\n" : " "}${enemy ? `poz. ${enemy.level} · ` : ""}${combatant.hp}/${combatant.maxHp}`;
-    const labelY = y - hexSize * (hasSprite ? 0.72 : 0.5);
+    const caption = `${name}${enemy ? ` · poz. ${enemy.level}` : ""}`;
+    const labelY = footY - visibleHeight - 9;
     const label = this.add.text(x, labelY, caption, {
-      fontFamily: "sans-serif",
-      fontSize: `${labelFontSize}px`,
-      color: "#ffffff",
-      backgroundColor: "#000000aa",
+      fontFamily: "Georgia, serif",
+      fontSize: `${Math.max(9, labelFontSize - 1)}px`,
+      color: owned ? "#e4f2fa" : ally ? "#dcf0d6" : "#f1e5d2",
+      backgroundColor: "#101b16cc",
       padding: { x: 4, y: 2 }
-    }).setOrigin(0.5, 1).setDepth(1);
+    }).setOrigin(0.5, 1).setDepth(10000 + footY);
     label.setPosition(
       Math.max(arena.x + label.width / 2, Math.min(x, arena.x + arena.width - label.width / 2)),
       Math.max(arena.y + label.height, Math.min(labelY, arena.y + arena.height))
     );
 
-    this.renderObjects.push(body, label);
+    const barWidth = Math.max(18, Math.min(54, hexSize * 1.5));
+    const barY = Math.max(arena.y + label.height + 2, labelY + 3);
+    const hpBar = this.add.graphics().setDepth(10001 + footY);
+    hpBar.fillStyle(0x101713, 0.95);
+    hpBar.fillRoundedRect(x - barWidth / 2 - 1, barY - 1, barWidth + 2, 5, 2);
+    hpBar.fillStyle(combatant.hp <= 0 ? 0x687166 : owned ? 0x81b6cf : ally ? 0x82b77a : 0xc57c65, 1);
+    hpBar.fillRoundedRect(x - barWidth / 2, barY, barWidth * Math.max(0, Math.min(1, combatant.hp / Math.max(1, combatant.maxHp))), 3, 1);
+    this.renderObjects.push(label, hpBar);
   }
 
   private activeOwnedCombatant(): CombatantSnapshot | undefined {
@@ -367,6 +425,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshHud(): void {
+    if (!this.selectedTargetId) this.targetMarker?.clear();
     const snapshot = this.snapshot;
     if (!snapshot || !this.hud) return;
     const player = playerStateStore.get();
@@ -418,7 +477,7 @@ export class BattleScene extends Phaser.Scene {
   private selectCell(cell: HexCoord, touch: boolean): void {
     const ally=this.teamMembers().find(unit=>unit.hp>0 && hexKey(unit.position)===hexKey(cell));
     if(ally){
-      this.selectedTargetId=null;this.attackCard?.hide();
+      this.selectedTargetId=null;this.targetMarker?.clear();this.attackCard?.hide();
       if(this.ownCombatant()?.combatStats?.healingPower)this.selectHealingTarget(ally.id);
       else this.hud?.setStatus(`${ally.name}: ${ally.hp}/${ally.maxHp} HP · Drużyna`);
       return;
@@ -432,6 +491,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshAttackCard(): void {
+    this.targetMarker?.clear();
+    const selected = this.snapshot?.combatants.find(unit => unit.id === this.selectedTargetId && unit.hp > 0);
+    if (selected && this.layout && !this.snapshot?.autoBattle && !this.modePending) {
+      const local = axialToPixel(selected.position, this.layout.hexSize);
+      this.targetMarker?.lineStyle(2, 0xe6ac80, 0.95);
+      this.targetMarker?.strokePoints(hexPolygon(this.layout.centerX + local.x, this.layout.centerY + local.y, this.layout.hexSize - 2), true);
+    }
     if(this.snapshot?.autoBattle || this.modePending){this.attackCard?.hide();return;}
     const own = this.ownCombatant();
     const target = this.snapshot?.combatants.find(unit => unit.id === this.selectedTargetId);
@@ -477,5 +543,6 @@ export class BattleScene extends Phaser.Scene {
 
   private clearRenderObjects(): void {
     for (const object of this.renderObjects.splice(0)) object.destroy();
+    this.targetMarker = undefined;
   }
 }

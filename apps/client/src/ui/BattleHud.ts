@@ -3,6 +3,8 @@ import {
   INJURY_LABELS,
   type BattleSnapshot,
   getBattleHealingPreview,
+  getCharacterSkin,
+  resolveCharacterSkin,
   effectiveBattleArmor,
   effectiveBattleBlock,
   receivedBattleHealing,
@@ -17,6 +19,8 @@ import type { BattleHudRegions, LayoutRect } from "../scenes/battleLayout";
 import "./BattleHud.css";
 import { applyItemQualityFrame, itemQualityText } from "./ItemQualityFrame";
 import { BattleWeaponSkills } from "./BattleWeaponSkills";
+import { CHARACTER_SKIN_ATLASES, getCharacterSkinFrame } from "../characters/characterSkinAssets";
+import { resolveItemIconUrl } from "./itemIconAssets";
 
 interface BattleHudHandlers {
   onEndTurn: () => void;
@@ -83,8 +87,11 @@ export class BattleHud {
       <header class="battle-hud__header" data-battle-header>
         <div class="battle-hud__overview">
         <div class="battle-hud__portrait-name">
-          <div class="battle-hud__name" data-name>Brak postaci</div>
-          <div class="battle-hud__identity"><span>Inicjatywa <b data-initiative>—</b></span></div>
+          <div class="battle-hud__portrait" data-battle-portrait role="img" hidden><span class="battle-hud__portrait-sprite" data-battle-portrait-sprite aria-hidden="true"></span></div>
+          <div class="battle-hud__identity-text">
+            <div class="battle-hud__name" data-name>Brak postaci</div>
+            <div class="battle-hud__identity"><span>Inicjatywa <b data-initiative>—</b></span></div>
+          </div>
         </div>
       <section class="battle-hud__resources" aria-label="Zasoby postaci">
         <div class="battle-hud__resource battle-hud__resource--hp">
@@ -206,8 +213,9 @@ export class BattleHud {
     const portrait = this.root.dataset.portrait === "true";
     const hasSkills=this.root.dataset.hasSkills==="true";
     const fallbackHeight = hasSkills?(this.compact?portrait?(healing?272:204):(healing?180:120):(healing?284:230)):(this.compact ? portrait ? healing ? 228 : 160 : healing ? 136 : 76 : healing ? 166 : 112);
-    // Chat/social live outside this root and share its actual action clearance.
-    document.body.style.setProperty("--battle-ui-dock-height", `${actions?.height ?? fallbackHeight}px`);
+    // Right-side chat/social need bottom clearance only when actions span the board.
+    const dockClearance = this.root.dataset.landscapeColumn === "true" ? 0 : actions?.height ?? fallbackHeight;
+    document.body.style.setProperty("--battle-ui-dock-height", `${dockClearance}px`);
     return { ...(header ? { header } : {}), ...(sidebar ? { sidebar } : {}), ...(actions ? { actions } : {}) };
   }
 
@@ -216,6 +224,7 @@ export class BattleHud {
     this.skills.setCompact(this.compact);
     this.root.dataset.compact = String(this.compact);
     this.root.dataset.portrait = String(width < 600);
+    this.root.dataset.landscapeColumn = String(width >= 600 && height < 600);
     this.requireElement("[data-battle-sidebar]").hidden = this.compact && !this.detailsOpen;
   }
 
@@ -291,6 +300,7 @@ export class BattleHud {
     const combatant = this.ownCombatant;
     this.root.dataset.hasFeedback = String(Boolean(this.feedbackElement.textContent));
     this.renderTurnOrder();
+    this.renderPortrait();
     this.requireElement("[data-name]").textContent = combatant?.name ?? "Brak postaci";
     this.requireElement("[data-initiative]").textContent = combatant ? `${combatant.initiative}` : "—";
     this.requireElement("[data-hp]").textContent = combatant ? `${combatant.hp}/${combatant.maxHp}` : "—";
@@ -347,6 +357,24 @@ export class BattleHud {
     this.renderItems();
     this.skills.update(this.battle,combatant,this.canAct()&&!!this.handlers.onUseWeaponSkill);
     this.root.dataset.hasSkills=String(!this.skills.element.hidden);
+  }
+
+  private renderPortrait(): void {
+    const portrait = this.requireElement("[data-battle-portrait]");
+    portrait.hidden = !this.ownCombatant;
+    if (!this.ownCombatant) return;
+    const skin = getCharacterSkin(this.ownCombatant.skinId) ?? resolveCharacterSkin(this.character?.appearance);
+    const atlas = CHARACTER_SKIN_ATLASES[skin.id];
+    const frame = getCharacterSkinFrame(skin.id, 0);
+    const scale = .24;
+    const sprite = this.requireElement("[data-battle-portrait-sprite]");
+    portrait.dataset.skinId = skin.id;
+    portrait.setAttribute("aria-label", `Wygląd postaci ${this.ownCombatant.name}: ${skin.name}`);
+    sprite.style.backgroundImage = `url("${atlas.url}")`;
+    sprite.style.backgroundSize = `${atlas.columns * atlas.frameWidth * scale}px ${atlas.rows * atlas.frameHeight * scale}px`;
+    sprite.style.backgroundPosition = `${-frame.x * scale}px ${-frame.y * scale}px`;
+    sprite.style.width = `${frame.width * scale}px`;
+    sprite.style.height = `${frame.height * scale}px`;
   }
 
   private renderTeam():void {
@@ -425,9 +453,10 @@ export class BattleHud {
       icon.textContent = "+";
       icon.setAttribute("aria-hidden", "true");
       applyItemQualityFrame(icon,item);
-      if (item.iconUrl) {
+      const iconUrl = resolveItemIconUrl(item);
+      if (iconUrl) {
         const image = document.createElement("img");
-        image.src = item.iconUrl;
+        image.src = iconUrl;
         image.alt = "";
         image.addEventListener("error", () => image.remove(), { once: true });
         icon.appendChild(image);

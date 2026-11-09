@@ -1,9 +1,10 @@
-import { hasInjury, type BattleInjuryEffect, type CombatStatistics, type EnemyId, type HexCoord, type InjuryKind, type PlayerId, type WeaponInjuryUpgrade, type WeaponSkillId, type WeaponSkillBuff } from "@web-mmorpg/shared";
+import { hasInjury, type BattleInjuryEffect, type CharacterSkinId, type CombatStatistics, type EnemyId, type HexCoord, type InjuryKind, type PlayerId, type WeaponInjuryUpgrade, type WeaponSkillId, type WeaponSkillBuff } from "@web-mmorpg/shared";
 export { movementApCost, rangedAttackApCost } from "@web-mmorpg/shared";
 
 export interface CombatantState {
   id: string;
   enemyId?: EnemyId;
+  skinId?: CharacterSkinId;
   ownerPlayerId?: PlayerId;
   side: "player" | "enemy";
   name: string;

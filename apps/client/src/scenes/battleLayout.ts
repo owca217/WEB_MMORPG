@@ -70,6 +70,7 @@ export function calculateBattleLayout(
   const availableWidth = right - left;
   const compact = width < 1100 || height < 600;
   const portrait = width < 600;
+  const landscapeColumn = width >= 600 && height < 600;
   const regions: BattleHudRegions = hud && "width" in hud ? { sidebar: hud } : hud ?? {};
   const measured = (rect: LayoutRect | undefined): rect is LayoutRect => Boolean(rect
     && [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width > 0 && rect.height > 0);
@@ -82,16 +83,25 @@ export function calculateBattleLayout(
   };
   const arenaRight = Math.max(left + 1, Math.min(right, sidebar.width > 0 ? sidebar.x - 12 : right));
   const header = measured(regions.header) ? regions.header : {
-    x: left, y: top, width: arenaRight - left, height: compact ? portrait ? 134 : 96 : 92
+    x: left, y: top, width: landscapeColumn ? Math.min(280, availableWidth) : arenaRight - left,
+    height: landscapeColumn ? 134 : compact ? portrait ? 134 : 96 : 92
   };
   const dockHeight = compact ? portrait ? 160 : 76 : 112;
   const actions = measured(regions.actions) ? regions.actions : {
-    x: left, y: Math.max(top, bottom - dockHeight), width: arenaRight - left, height: dockHeight
+    x: left, y: landscapeColumn ? header.y + header.height + 12 : Math.max(top, bottom - dockHeight),
+    width: landscapeColumn ? header.width : arenaRight - left,
+    height: landscapeColumn ? Math.max(1, bottom - header.y - header.height - 12) : dockHeight
   };
-  const arenaBottom = Math.max(top + 1, Math.min(bottom, actions.y - 12));
-  const y = Math.min(arenaBottom - 1, Math.max(top, header.y + header.height + 12));
+  // Compact landscape keeps controls in a narrow left column rather than
+  // subtracting both panels from the height of the board beside them.
+  const columnRight = Math.max(header.x + header.width, actions.x + actions.width);
+  const controlsOnLeft = landscapeColumn && header.x <= left + 1 && actions.x <= left + 1
+    && columnRight <= left + availableWidth * .55;
+  const arenaLeft = controlsOnLeft ? Math.min(arenaRight - 1, columnRight + 12) : left;
+  const arenaBottom = controlsOnLeft ? bottom : Math.max(top + 1, Math.min(bottom, actions.y - 12));
+  const y = controlsOnLeft ? top : Math.min(arenaBottom - 1, Math.max(top, header.y + header.height + 12));
   const arena: LayoutRect = {
-    x: left, y, width: arenaRight - left, height: Math.max(1, arenaBottom - y)
+    x: arenaLeft, y, width: arenaRight - arenaLeft, height: Math.max(1, arenaBottom - y)
   };
   const points = (cells.length ? cells : [{ q: 0, r: 0 }]).map((cell) => axialToPixel(cell, 1));
   const hexBounds = battleHexBounds(1);

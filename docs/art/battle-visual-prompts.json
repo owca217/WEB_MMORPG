@@ -1,0 +1,30 @@
+{
+  "tool": "built-in image_gen",
+  "purpose": "Missing transparent battle props and consumable item icons; existing world character, enemy and terrain art is reused unchanged.",
+  "assets": [
+    {
+      "file": "apps/client/public/assets/battle/mossy-rocks.png",
+      "size": [1254, 1254],
+      "alphaFrame": {"x": 144, "y": 234, "width": 972, "height": 794},
+      "prompt": "Use case: stylized-concept. Asset type: one transparent woodland RPG battle obstacle sprite. One compact connected cluster of three weathered granite boulders with a few small stones, patches of olive moss, a tiny fern growing in one crack. Restrained old-school detailed pixel art matching hand-painted pixel fantasy MMORPG terrain: visibly deliberate pixel clusters, crisp silhouette and subdued olive green, warm gray and brown; no smooth vector illustration, no photorealism. Isometric three-quarter view, looking down about 30 degrees, lighting from upper left. Full object visible centered on a square canvas with 15 percent transparent margin on all sides. Broad stable footprint; highest boulder slightly behind the others. It must read clearly when reduced to 70 pixels wide on a hexagonal battle cell. Very subtle contact shadow directly beneath only. No ground tile, no hex base, no labels, no text, no border, no characters, no scenery or backdrop. Actual transparent alpha background."
+    },
+    {
+      "file": "apps/client/public/assets/battle/fallen-log.png",
+      "size": [1254, 1254],
+      "alphaFrame": {"x": 151, "y": 444, "width": 911, "height": 431},
+      "prompt": "Use case: stylized-concept. Asset type: one transparent woodland RPG battle low-cover sprite. A single thick short fallen oak trunk lying mostly left-to-right with a slight isometric diagonal; rough brown bark, one visible pale cut end with growth rings, a broken side branch, sparse olive moss and two tiny ferns at the foot. Restrained old-school detailed pixel art matching hand-painted pixel fantasy MMORPG terrain: visibly deliberate pixel clusters, crisp silhouette and subdued olive green, chestnut brown and ochre; no smooth vector illustration, no photorealism. Isometric three-quarter view, looking down about 30 degrees, lighting from upper left. Full object visible centered on a square canvas with 15 percent transparent margin on all sides. Wide low silhouette, clearly lower than an upright character, reads when reduced to 70 pixels wide on one battle hex. Very subtle contact shadow directly beneath only. No ground tile, no hex base, no labels, no text, no border, no characters, no scenery or backdrop. Actual transparent alpha background."
+    },
+    {
+      "file": "apps/client/public/assets/items/field-bandage.png",
+      "prompt": "Use case: stylized-concept. Asset type: one small fantasy RPG inventory item icon, transparent PNG. Subject: a compact roll of clean ivory linen field bandage, with a short loose strip of folded cloth and a small simple wooden fastening pin. One centered object, diagonally viewed from slightly above, fills about 78 percent of a square canvas, fully visible. Style: restrained detailed hand-painted pixel art for an old-school woodland MMORPG; deliberate crisp pixel clusters, warm ivory, beige shadows and muted brown, light from upper left, clear readable silhouette at 32 pixels. Match natural mossy woodland game art, no vector symbols or photorealism. Actual transparent alpha background, small contact shadow only. No wounds, no blood, no person, no hands, no lettering, no labels, no medical cross symbol, no UI frame, no border, no scenery."
+    },
+    {
+      "file": "apps/client/public/assets/items/minor-healing-potion.png",
+      "prompt": "Use case: stylized-concept. Asset type: one small fantasy RPG inventory item icon, transparent PNG. Subject: a small squat round glass healing-potion bottle filled with deep ruby-red liquid, a simple tan cork, and a narrow brown cord around its short neck. One centered object, viewed from slightly above, fills about 78 percent of a square canvas, fully visible. Style: restrained detailed hand-painted pixel art for an old-school woodland MMORPG; deliberate crisp pixel clusters, subtle warm glass highlights, rich readable red liquid, muted brown cork, light from upper left, clear chunky silhouette at 32 pixels. Match natural mossy woodland game art, no vector symbols or photorealism. Actual transparent alpha background, small contact shadow only. No lettering, no label, no medical cross or heart symbol, no UI frame, no border, no scenery, no hands, no extra objects, no magical particles."
+    },
+    {
+      "file": "apps/client/public/assets/items/invigorating-tonic.png",
+      "prompt": "Use case: stylized-concept. Asset type: one small fantasy RPG inventory item icon, transparent PNG. Subject: a slender angular glass vigor-tonic flask filled with vivid deep blue liquid, a simple tan cork, a narrow brown cord around its neck, and a small plain brass neck ring. One centered object, viewed from slightly above, fills about 78 percent of a square canvas, fully visible. Style: restrained detailed hand-painted pixel art for an old-school woodland MMORPG; deliberate crisp pixel clusters, subtle cool glass highlights, rich readable blue liquid, muted brown cork and old brass, light from upper left, clear chunky silhouette at 32 pixels. Match natural mossy woodland game art, no vector symbols or photorealism. Actual transparent alpha background, small contact shadow only. No lettering, no label, no lightning or medical cross symbol, no UI frame, no border, no scenery, no hands, no extra objects, no magical particles."
+    }
+  ]
+}

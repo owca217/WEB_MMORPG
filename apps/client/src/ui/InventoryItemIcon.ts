@@ -1,4 +1,5 @@
 import { PERMANENT_BACKPACK_ICON_PATH, type InventoryItem } from "@web-mmorpg/shared";
+import { resolveItemIconUrl } from "./itemIconAssets";
 
 // Used when a catalog item has no illustration yet, or its image cannot load.
 const GLYPHS: Record<string, string> = {
@@ -50,7 +51,7 @@ export function inventoryItemIcon(item: InventoryItem): HTMLSpanElement {
     root.replaceChildren(glyph);
   };
   showFallback();
-  const url = item.permanentContainer ? `${import.meta.env.BASE_URL}${PERMANENT_BACKPACK_ICON_PATH}` : item.iconUrl;
+  const url = item.permanentContainer ? `${import.meta.env.BASE_URL}${PERMANENT_BACKPACK_ICON_PATH}` : resolveItemIconUrl(item);
   if (url) {
     const image = document.createElement("img");
     image.alt = "";

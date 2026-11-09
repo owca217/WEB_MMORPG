@@ -3,6 +3,7 @@ import type { CombatStatistics } from "./characterProgression";
 import type { EnemyId } from "./enemies";
 import type { BattleInjuryEffect } from "./injuries";
 import type { WeaponSkillId } from "./weaponSkills";
+import type { CharacterSkinId } from "./characterSkins";
 
 export interface WeaponSkillBuff { armorBonus: number; blockBonus: number; remainingTurns: number }
 
@@ -37,6 +38,7 @@ export type InjuryKind =
 export interface CombatantSnapshot {
   id: EntityId;
   enemyId?: EnemyId;
+  skinId?: CharacterSkinId;
   side?: "player" | "enemy";
   ownerPlayerId?: PlayerId;
   name: string;

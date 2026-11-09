@@ -1,6 +1,6 @@
 .battle-attack-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 40%);
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 36%);
   align-content: center;
   align-items: center;
   gap: 5px 12px;
@@ -11,10 +11,12 @@
   font: 12px/1.25 "Trebuchet MS", sans-serif;
   pointer-events: auto;
 }
+.battle-attack-card__identity { display: grid; gap: 2px; min-width: 0; }
+.battle-attack-card__label { color: var(--rpg-muted, #bfb39b); font-size: 9px; line-height: 1.2; letter-spacing: .08em; text-transform: uppercase; }
 .battle-attack-card strong { overflow: hidden; color: var(--rpg-gold, #ead19b); font: 700 16px/1.2 Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
 .battle-attack-card button {
   grid-column: 2;
-  grid-row: 1 / 4;
+  grid-row: 1 / 3;
   min-height: 44px;
   padding: 8px;
   border: 1px solid var(--rpg-border, #ad8f57);
@@ -29,12 +31,16 @@
 .battle-attack-card button:hover:enabled { border-color: var(--rpg-gold, #dfbe78); }
 .battle-attack-card button:disabled { opacity: .5; cursor: default; }
 .battle-attack-card button:focus-visible { outline: 2px solid var(--rpg-gold, #ffdf8d); outline-offset: 2px; }
-.battle-attack-card [data-hit-chance], .battle-attack-card [data-average-damage] { grid-column: 1; color: var(--rpg-muted, #c5c0ae); font-size: 11px; }
-.battle-attack-card small { grid-column: 1 / -1; color: #e7aa94; font-size: 10px; }
-.battle-attack-card small:empty, .battle-attack-card [hidden] { display: none; }
+.battle-attack-card__metrics { grid-column: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; min-width: 0; color: var(--rpg-text, #f0e6d0); font-size: 11px; font-variant-numeric: tabular-nums; }
+.battle-attack-card [data-hit-chance] { color: var(--rpg-success, #bad29c); }
+.battle-attack-card [data-average-damage] { color: var(--rpg-gold, #dec084); }
+.battle-attack-card small { grid-column: 1 / -1; max-height: 26px; overflow-y: auto; color: var(--rpg-danger, #e7aa94); font-size: 10px; line-height: 1.25; }
+.battle-attack-card small:empty, .battle-attack-card [data-average-damage]:empty, .battle-attack-card [hidden] { display: none; }
 .battle-attack-card[data-empty="true"] { grid-template-columns: 1fr; }
 .battle-attack-card[data-empty="true"] strong { font-size: 14px; }
+.battle-attack-card[data-empty="true"] [data-hit-chance] { color: var(--rpg-muted, #bfb39b); }
+.battle-attack-card[data-available="false"] [data-hit-chance] { color: var(--rpg-muted, #bfb39b); }
 .battle-hud[data-compact="true"] .battle-attack-card { gap: 4px 8px; font-size: 11px; }
 .battle-hud[data-compact="true"] .battle-attack-card strong { font-size: 14px; }
-.battle-hud[data-portrait="true"] .battle-attack-card { grid-template-columns: minmax(0, 1fr) 142px; }
+.battle-hud[data-portrait="true"] .battle-attack-card { grid-template-columns: minmax(0, 1fr) 132px; }
 .battle-hud[data-portrait="true"] .battle-attack-card[data-empty="true"] { grid-template-columns: 1fr; }

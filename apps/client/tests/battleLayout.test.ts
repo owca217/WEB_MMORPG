@@ -82,12 +82,39 @@ describe("battle arena between the measured header, right details and action doc
     }
   });
 
-  it("reserves compact header and dock before measurement and handles an empty arena", () => {
+  it.each([
+    { insets: { top: 0, right: 0, bottom: 0, left: 0 }, hud: undefined },
+    { insets: { top: 0, right: 20, bottom: 12, left: 20 }, hud: {
+      header: { x: 32, y: 12, width: 280, height: 134 },
+      actions: { x: 32, y: 158, width: 280, height: 208 }
+    } }
+  ])("gives compact landscape a readable full-height arena beside the left control column", ({ insets, hud }) => {
+    const layout = calculateBattleLayout(844, 390, cells, hud, insets);
+    expect(layout.arena.x).toBe(layout.header.x + layout.header.width + 12);
+    expect(layout.arena.x).toBeGreaterThanOrEqual(layout.actions.x + layout.actions.width + 12);
+    expect(layout.arena.y).toBe(insets.top + 12);
+    expect(layout.arena.y + layout.arena.height).toBe(390 - insets.bottom - 12);
+    expect(layout.hexSize).toBeGreaterThanOrEqual(20);
+    for (const cell of cells) {
+      const local = axialToPixel(cell, layout.hexSize);
+      const x = layout.centerX + local.x;
+      const y = layout.centerY + local.y;
+      for (const point of layoutHelpers.battleHexPolygon(x, y, layout.hexSize)) {
+        expect(point.x).toBeGreaterThanOrEqual(layout.arena.x);
+        expect(point.x).toBeLessThanOrEqual(layout.arena.x + layout.arena.width);
+        expect(point.y).toBeGreaterThanOrEqual(layout.arena.y);
+        expect(point.y).toBeLessThanOrEqual(layout.arena.y + layout.arena.height);
+      }
+      expect(y - layout.hexSize * .5 - 32).toBeGreaterThanOrEqual(layout.arena.y);
+    }
+  });
+
+  it("reserves the landscape control column before measurement and handles an empty arena", () => {
     const layout = calculateBattleLayout(844, 390, [], undefined);
     expect(layout.sidebar.width).toBe(0);
-    expect(layout.arena.x).toBe(12);
-    expect(layout.arena.y).toBe(layout.header.y + layout.header.height + 12);
-    expect(layout.arena.y + layout.arena.height).toBe(layout.actions.y - 12);
+    expect(layout.arena.x).toBe(304);
+    expect(layout.arena.y).toBe(12);
+    expect(layout.arena.y + layout.arena.height).toBe(378);
     expect(Number.isFinite(layout.centerX)).toBe(true);
     expect(Number.isFinite(layout.centerY)).toBe(true);
     expect(layout.hexSize).toBeGreaterThan(0);

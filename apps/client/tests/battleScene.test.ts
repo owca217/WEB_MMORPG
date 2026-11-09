@@ -48,50 +48,58 @@ const initialBattle: BattleSnapshot = {
   finished: false
 };
 
-function createScene(snapshot = initialBattle, width = 800, height = 600, loadedEnemyIds: string[] = []) {
+function createScene(snapshot = initialBattle, width = 800, height = 600, loadedAssetIds: string[] = []) {
   const scene = new BattleScene();
   const events = new EventEmitter();
   const start = vi.fn(() => events.emit("shutdown"));
   const scaleEvents = new EventEmitter();
   const polygons: Array<Array<{ x: number; y: number }>> = [];
   const zones: Array<{ x: number; y: number; width: number; height: number; handlers: Map<string, (pointer?: {wasTouch:boolean}) => void> }> = [];
-  const bodies: Array<{ x: number; y: number; radius: number; fill:number }> = [];
+  const bodies: Array<{ x: number; y: number; radius: number; fill:number; inputCalls:unknown[] }> = [];
   const captions: string[] = [];
   const drawable = () => ({
-    displayWidth: 0, displayHeight: 0, alpha: 1, tint: undefined as number | undefined,
+    displayWidth: 0, displayHeight: 0, alpha: 1, tint: undefined as number | undefined, depth: 0,
     handlers: new Map<string, (pointer?: {wasTouch:boolean}) => void>(),
+    inputCalls: [] as unknown[],
     width: 80,
     height: 16,
     destroy() {},
     setOrigin() { return this; },
     setPosition() { return this; },
-    setDepth() { return this; },
+    setDepth(depth:number) { this.depth=depth;return this; },
     setStrokeStyle() { return this; },
-    setInteractive() { return this; },
+    setInteractive(config?:unknown) { this.inputCalls.push(config);return this; },
     on(event: string, handler: (pointer?: {wasTouch:boolean}) => void) { this.handlers.set(event,handler); return this; },
     setDisplaySize(width:number,height:number) { this.displayWidth=width;this.displayHeight=height;return this; },
     setAlpha(alpha:number) { this.alpha=alpha;return this; },
     setTint(tint:number) { this.tint=tint;return this; },
-    lineStyle() {},
-    fillStyle() {},
+    clear() { return this; },
+    lineStyle() { return this; },
+    fillStyle() { return this; },
     fillPoints() {},
     fillCircle() {},
+    fillEllipse() { return this; },
+    strokeEllipse() { return this; },
+    fillRect() { return this; },
     fillRoundedRect() {},
     strokePoints(points: Array<{ x: number; y: number }>) { polygons.push(points); }
   });
-  const sprites: Array<ReturnType<typeof drawable> & { x:number;y:number;key:string }> = [];
+  const sprites: Array<ReturnType<typeof drawable> & { x:number;y:number;key:string;frame:string|number|undefined }> = [];
+  const images: typeof sprites = [];
   const image=vi.fn();
   const scale = Object.assign(scaleEvents, { width, height });
 
   Object.assign(scene, {
     cameras: { main: { setBackgroundColor() {}, setViewport: vi.fn(), centerX: width / 2, centerY: height / 2, width, height } },
     scale,
-    load:{image},textures:{exists:(key:string)=>loadedEnemyIds.some(id=>key===`enemy-skin:${id}`),get:()=>({has:()=>true})},
+    load:{image},textures:{exists:(key:string)=>loadedAssetIds.some(id=>key===id || key===`enemy-skin:${id}`),get:()=>({has:()=>true,setFilter(){},add:()=>({setTrim(){}})})},
+    anims:{exists:()=>true},
     add: {
       graphics: drawable,
-      circle: (x: number, y: number, radius: number, fill:number) => { bodies.push({ x, y, radius, fill }); return drawable(); },
+      circle: (x: number, y: number, radius: number, fill:number) => { const body=drawable();bodies.push({ x, y, radius, fill, inputCalls:body.inputCalls }); return body; },
       text:(_x:number,_y:number,caption:string)=>{captions.push(caption);return drawable();},
-      sprite:(x:number,y:number,key:string)=>{const sprite={...drawable(),x,y,key};sprites.push(sprite);return sprite;},
+      sprite:(x:number,y:number,key:string,frame?:string|number)=>{const sprite={...drawable(),x,y,key,frame};sprites.push(sprite);return sprite;},
+      image:(x:number,y:number,key:string,frame?:string|number)=>{const image={...drawable(),x,y,key,frame};images.push(image);return image;},
       zone: (x: number, y: number, zoneWidth: number, zoneHeight: number) => {
         const zone = { x, y, width: zoneWidth, height: zoneHeight, handlers: new Map<string, (pointer?: {wasTouch:boolean}) => void>() };
         zones.push(zone);
@@ -103,10 +111,55 @@ function createScene(snapshot = initialBattle, width = 800, height = 600, loaded
   });
   scene.init({ playerId: "character-1", snapshot });
   scene.create();
-  return { scene, events, start, scale, polygons, zones, bodies, sprites, image, captions };
+  return { scene, events, start, scale, polygons, zones, bodies, sprites, images, image, captions };
 }
 
 describe("BattleScene completion", () => {
+  it.each(["male-traveler","male-scout","male-guard","female-traveler","female-scout","female-guard"] as const)("uses the selected %s skin in battle and the ally's own skin",skinId=>{
+    const own={...initialBattle.combatants[0]!,side:"player" as const,skinId};
+    const ally={...own,id:"hero:ally",ownerPlayerId:"ally",skinId:"female-scout" as const,position:{q:1,r:0}};
+    const {events,sprites,bodies}=createScene({...initialBattle,cells:[own.position,ally.position],combatants:[own,ally]},1280,800,[`character-skin:${skinId}`,"character-skin:female-scout"]);
+    expect(sprites.map(sprite=>sprite.key)).toEqual([`character-skin:${skinId}`,"character-skin:female-scout"]);
+    expect(sprites[0]!.frame).toBe("battle:east");
+    expect(sprites[0]!.displayHeight).toBeGreaterThan(50);
+    expect(sprites[1]!.depth).toBeGreaterThan(sprites[0]!.depth);
+    expect(bodies).toHaveLength(0);
+    events.emit("shutdown");
+  });
+
+  it("uses the world wolf texture for legacy wolf ids and preserves its touch selection",()=>{
+    const wolf={...initialBattle.combatants[0]!,id:"wolf:pack:0",ownerPlayerId:"wolf",name:"Wilk",position:{q:1,r:0}};
+    const {events,sprites,captions}=createScene({...initialBattle,cells:[{q:0,r:0},wolf.position],combatants:[...initialBattle.combatants,wolf]},420,700,["forest-wolf"]);
+    expect(sprites).toHaveLength(1);expect(sprites[0]!.key).toBe("enemy-skin:forest-wolf");
+    expect(captions.at(-1)).toBe(wolf.name);
+    const commands:unknown[]=[];transport.on("battleCommand",value=>commands.push(value));
+    sprites[0]!.handlers.get("pointerup")!({wasTouch:true});
+    expect(commands).toEqual([]);expect(document.querySelector("[data-attack-preview]")?.textContent).toContain("Wilk");
+    events.emit("shutdown");
+  });
+
+  it("recovers only the owner's appearance from older snapshots and preserves the ally's default",()=>{
+    playerStateStore.set({character:{playerId:"character-1",nickname:"Hero",appearance:{skinId:"female-guard"},level:1,hp:100,maxHp:100,maxAp:5,initiative:10,severelyInjured:false,injuries:[]},inventory:{items:[]}});
+    const own={...initialBattle.combatants[0]!,side:"player" as const};
+    const ally={...own,id:"hero:ally",ownerPlayerId:"ally",position:{q:1,r:0}};
+    const {events,sprites}=createScene({...initialBattle,cells:[own.position,ally.position],combatants:[own,ally]},1280,800,["character-skin:female-guard","character-skin:male-traveler"]);
+    expect(sprites.map(sprite=>sprite.key)).toEqual(["character-skin:female-guard","character-skin:male-traveler"]);
+    transport.emit("playerState",{character:{...playerStateStore.get()!.character,appearance:{skinId:"male-traveler"}},inventory:{items:[]}});
+    expect(sprites.at(-2)!.key).toBe("character-skin:male-traveler");
+    events.emit("shutdown");
+  });
+
+  it("sorts generated obstacles with the units by ground position and keeps blocked cells noninteractive",()=>{
+    const cells=[{q:0,r:0},{q:1,r:0},{q:2,r:0}];
+    const own={...initialBattle.combatants[0]!,skinId:"male-scout" as const,position:cells[1]!};
+    const {events,images,sprites,zones}=createScene({...initialBattle,cells,blockedCells:[cells[0]!],coverCells:[cells[2]!],combatants:[own]},1280,800,["character-skin:male-scout","battle-prop:mossy-rocks","battle-prop:fallen-log"]);
+    expect(images.map(image=>image.key)).toEqual(["battle-prop:mossy-rocks","battle-prop:fallen-log"]);
+    expect(images.every(image=>image.frame==="prop")).toBe(true);
+    expect(images[0]!.depth).toBeLessThan(sprites[0]!.depth);
+    expect(images[1]!.depth).toBeGreaterThan(sprites[0]!.depth);
+    expect(zones).toHaveLength(2);
+    events.emit("shutdown");
+  });
   it("sends a learned technique once through the dock and waits for the server",()=>{
     const hero={...initialBattle.combatants[0]!,side:"player" as const,weaponSkills:["sword:power" as const],combatStats:{meleeDamage:30,rangedDamage:0,armor:0}};
     const enemy:BattleSnapshot["combatants"][number]={...hero,id:"wolf",side:"enemy",name:"Wilk",position:{q:1,r:0},weaponSkills:[]};
@@ -124,16 +177,17 @@ describe("BattleScene completion", () => {
     const snapshot={...initialBattle,cells:[{q:0,r:0},{q:1,r:0}],combatants:[...initialBattle.combatants,enemy]};
     const {scene,events,sprites,bodies,zones,image,captions}=createScene(snapshot,420,700,["forest-bandit"]);
     scene.preload();
-    expect(image).toHaveBeenCalledTimes(4);
+    expect(image.mock.calls.map(call=>call[0])).toEqual(expect.arrayContaining(["enemy-skin:feral-rat","character-skin:male-traveler","character-skin:female-guard","environment:meadow-grass","environment:forest-floor","battle-prop:mossy-rocks","battle-prop:fallen-log"]));
+    expect(image.mock.calls.map(call=>call[0])).not.toContain("enemy-skin:forest-bandit");
     expect(sprites).toHaveLength(1);
     const sprite=sprites[0]!;
     expect(sprite.key).toBe("enemy-skin:forest-bandit");
     const zone=zones[1]!;
     expect(sprite.displayWidth).toBeLessThanOrEqual(zone.width);
-    expect(sprite.displayHeight).toBeLessThanOrEqual(zone.height);
+    expect(sprite.displayHeight).toBeLessThanOrEqual(zone.height*1.5);
     expect(sprite.displayHeight).toBeGreaterThan(0);
-    expect(bodies).toHaveLength(2);
-    expect(bodies[1]!.y + bodies[1]!.radius).toBeGreaterThan(sprite.y);
+    expect(sprite.inputCalls).toEqual([{useHandCursor:true,pixelPerfect:true,alphaTolerance:16}]);
+    expect(bodies).toHaveLength(1);
     expect(captions.at(-1)).toContain("poz. 7");
     const commands:unknown[]=[];transport.on("battleCommand",command=>commands.push(command));
     sprite.handlers.get("pointerup")!({wasTouch:true});
@@ -143,7 +197,8 @@ describe("BattleScene completion", () => {
     const deadSprite=sprites.at(-1)!;
     expect(deadSprite.alpha).toBeLessThan(0.6);
     expect(deadSprite.tint).toBeDefined();
-    deadSprite.handlers.get("pointerup")!();
+    expect(deadSprite.inputCalls).toEqual([]);
+    expect(deadSprite.handlers.has("pointerup")).toBe(false);
     expect(commands).toHaveLength(0);
     events.emit("shutdown");
   });
@@ -153,6 +208,15 @@ describe("BattleScene completion", () => {
     const {events,sprites,bodies}=createScene({...initialBattle,combatants:[...initialBattle.combatants,enemy]});
     expect(sprites).toHaveLength(0);
     expect(bodies).toHaveLength(2);
+    events.emit("shutdown");
+  });
+
+  it("keeps unavailable dead art visible without giving its fallback body an input area",()=>{
+    const dead={...initialBattle.combatants[0]!,id:"wolf:dead",ownerPlayerId:"enemy",hp:0,position:{q:1,r:0}};
+    const {events,bodies}=createScene({...initialBattle,cells:[{q:0,r:0},dead.position],combatants:[...initialBattle.combatants,dead]});
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]!.inputCalls).toHaveLength(1);
+    expect(bodies[1]!.inputCalls).toEqual([]);
     events.emit("shutdown");
   });
 

@@ -1,8 +1,9 @@
 /* @vitest-environment jsdom */
 
-import type { CharacterSnapshot, CombatantSnapshot, InventoryItem, InventorySnapshot, InventoryUpdateResult } from "@web-mmorpg/shared";
+import { BASE_CHARACTER_SKINS, type CharacterSnapshot, type CombatantSnapshot, type InventoryItem, type InventorySnapshot, type InventoryUpdateResult } from "@web-mmorpg/shared";
 import { beforeEach, expect, it, vi } from "vitest";
 import { BattleHud } from "../src/ui/BattleHud";
+import { CHARACTER_SKIN_ATLASES, getCharacterSkinFrame } from "../src/characters/characterSkinAssets";
 
 const hero: CombatantSnapshot = {
   id: "hero", ownerPlayerId: "player", name: "Owczy", level: 11,
@@ -46,6 +47,47 @@ function handlers(onUseItem: (instanceId: string) => Promise<InventoryUpdateResu
 
 beforeEach(() => document.body.replaceChildren());
 
+it.each(BASE_CHARACTER_SKINS)("uses the authoritative $id skin and its idle frame for the battle portrait", (skin) => {
+  const hud = new BattleHud(handlers());
+  hud.update({ ...hero, skinId: skin.id }, true, { items: [] }, { ...character, appearance: { skinId: "male-traveler" } });
+  const portrait = document.querySelector<HTMLElement>("[data-battle-portrait]")!;
+  const sprite = document.querySelector<HTMLElement>("[data-battle-portrait-sprite]")!;
+  const frame = getCharacterSkinFrame(skin.id, 0);
+  expect(portrait.hidden).toBe(false);
+  expect(portrait.dataset.skinId).toBe(skin.id);
+  expect(portrait.getAttribute("aria-label")).toContain(skin.name);
+  expect(sprite.style.backgroundImage).toContain(CHARACTER_SKIN_ATLASES[skin.id].url);
+  expect(sprite.style.backgroundPosition).toBe(`0px ${-frame.y * .24}px`);
+  expect(text("[data-hp]")).toBe("63/130");
+  hud.destroy();
+});
+
+it("falls back to the current character appearance for older battle snapshots and hides a missing hero portrait", () => {
+  const hud = new BattleHud(handlers());
+  hud.update(hero, true, { items: [] }, { ...character, appearance: { skinId: "female-guard" } });
+  const portrait = document.querySelector<HTMLElement>("[data-battle-portrait]")!;
+  expect(portrait.dataset.skinId).toBe("female-guard");
+  hud.update(hero, true, { items: [] }, { ...character, appearance: { gender: "female" } });
+  expect(portrait.dataset.skinId).toBe("female-traveler");
+  hud.update(undefined, false, { items: [] });
+  expect(portrait.hidden).toBe(true);
+  hud.destroy();
+});
+
+it("uses bundled bandage art in battle and preserves the quality frame and glyph on image failure", () => {
+  const hud = new BattleHud(handlers());
+  hud.update(hero, true, { items: [medicine("bandage", { itemId: "field-bandage", quality: "GOOD" })] });
+  const icon = document.querySelector<HTMLElement>('[data-item-instance-id="bandage"] .battle-hud__item-icon')!;
+  const image = icon.querySelector("img")!;
+  expect(image.getAttribute("src")).toContain("assets/items/field-bandage.png");
+  expect(icon.dataset.itemQuality).toBe("GOOD");
+  image.dispatchEvent(new Event("error"));
+  expect(icon.querySelector("img")).toBeNull();
+  expect(icon.textContent).toContain("+");
+  expect(icon.dataset.itemQuality).toBe("GOOD");
+  hud.destroy();
+});
+
 it("shows temporary shield protection and the effective armor without changing base statistics",()=>{
   const hud=new BattleHud(handlers());
   hud.update({...hero,combatStats:{...hero.combatStats!,blockPercent:10},weaponSkillBuffs:[{armorBonus:15,blockBonus:30,remainingTurns:2}]},true,{items:[]},character);
@@ -69,6 +111,12 @@ it("keeps healing in the compact dock while Back closes details and preserves re
   hud.getLayoutRegions();
   expect(document.body.style.getPropertyValue("--battle-ui-dock-height")).toBe("240px");
   measuredDock.mockRestore();
+  hud.setViewport(844, 390);
+  hud.getLayoutRegions();
+  expect(document.body.style.getPropertyValue("--battle-ui-dock-height")).toBe("0px");
+  hud.setViewport(390, 844);
+  hud.getLayoutRegions();
+  expect(document.body.style.getPropertyValue("--battle-ui-dock-height")).toBe("228px");
   expect(text("[data-battle-round]")).toBe("Runda 4");
   expect([...document.querySelectorAll("[data-turn-combatant]")].map(row => row.getAttribute("data-turn-combatant"))).toEqual([ally.id, healer.id]);
   expect(document.querySelector('[data-turn-combatant="ally"]')?.getAttribute("aria-current")).toBe("true");

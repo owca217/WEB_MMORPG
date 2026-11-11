@@ -5,13 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("phaser", () => ({
   default: {
-    Scene: class {}
+    Scene: class {},
+    Scenes: { Events: { SHUTDOWN: "shutdown" } }
   }
 }));
 
 import { AuthApi, AuthApiRequestError } from "../src/net/AuthApi";
-import { AuthPanel } from "../src/scenes/AuthScene";
-import { SessionStateStore } from "../src/state/SessionStateStore";
+import { AuthPanel, AuthScene } from "../src/scenes/AuthScene";
+import { SessionStateStore, sessionStateStore } from "../src/state/SessionStateStore";
+import { gameSocket } from "../src/net/GameSocket";
+import { SESSION_TOKEN_STORAGE_KEY } from "../src/state/SessionStateStore";
+import type { GoogleSignInAdapter, GoogleSignInCallbacks } from "../src/net/GoogleSignIn";
 
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -45,6 +49,7 @@ function api(overrides: Partial<Record<keyof AuthApi, unknown>> = {}): AuthApi {
     logout: vi.fn(),
     getCharacter: vi.fn(),
     createCharacter: vi.fn(),
+    getAuthProviders: vi.fn().mockResolvedValue({ google: { enabled: false, clientId: null } }),
     ...overrides
   } as unknown as AuthApi;
 }
@@ -55,7 +60,166 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+it.each(["rejection", "not-ok response"])("restores a usable Google choice after HTTP success and socket %s, then signs in on retry", async failure => {
+  let credentialCallback!: (response: { credential: string; state: string }) => void;
+  vi.stubGlobal("google", { accounts: { id: {
+    initialize: (config: { callback: typeof credentialCallback }) => { credentialCallback = config.callback; },
+    renderButton: (host: HTMLElement, config: { state: string }) => {
+      const button = document.createElement("button"); button.type = "button"; button.dataset.testGoogleChoice = "";
+      const callback = credentialCallback;
+      button.addEventListener("click", () => callback({ credential: `id-token-${config.state}`, state: config.state }));
+      host.append(button);
+    }
+  } } });
+  vi.spyOn(AuthApi.prototype, "getAuthProviders").mockResolvedValue({ google: { enabled: true, clientId: "server-client" } });
+  const challenge = vi.spyOn(AuthApi.prototype, "createGoogleChallenge")
+    .mockResolvedValueOnce({ challengeId: "first-challenge", nonce: "first-nonce", clientId: "server-client" })
+    .mockResolvedValueOnce({ challengeId: "retry-challenge", nonce: "retry-nonce", clientId: "server-client" });
+  const session: SessionView = { accountUsername: "google_account", accountRole: "PLAYER", character: { state: "active", characterId: "hero", nickname: "Owczy" } };
+  const login = vi.spyOn(AuthApi.prototype, "loginWithGoogle")
+    .mockResolvedValueOnce({ token: "failed-socket-session", session })
+    .mockResolvedValueOnce({ token: "retry-session", session });
+  const authenticate = vi.spyOn(gameSocket, "authenticate");
+  if (failure === "rejection") authenticate.mockRejectedValueOnce(new Error("Socket unavailable"));
+  else authenticate.mockResolvedValueOnce({ ok: false, code: "AUTHENTICATION_FAILED", message: "Socket unavailable" });
+  authenticate.mockResolvedValueOnce({ ok: true, characterId: "hero", locationId: "forest-settlement-01" });
+  const disconnect = vi.spyOn(gameSocket, "disconnect").mockImplementation(() => {});
+  const scene = new AuthScene(), start = vi.fn(); let shutdown!: () => void;
+  Object.assign(scene, { events: { once: (_name: string, callback: () => void) => { shutdown = callback; } }, scene: { start } });
+  sessionStateStore.reset(); scene.create();
+  try {
+    const host = document.querySelector<HTMLElement>(".auth-scene")!;
+    await vi.waitFor(() => expect(host.querySelector("[data-test-google-choice]")).not.toBeNull());
+    click(host, "[data-test-google-choice]");
+    await vi.waitFor(() => expect(host.querySelector("[data-auth-error]")?.textContent).not.toBe(""));
+    expect(sessionStateStore.getToken()).toBeNull();
+    expect(sessionStateStore.getSession()).toBeNull();
+    expect(localStorage.getItem(SESSION_TOKEN_STORAGE_KEY)).toBeNull();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(host.querySelector("[data-test-google-choice]")).not.toBeNull());
+    expect(challenge).toHaveBeenCalledTimes(2);
+    click(host, "[data-test-google-choice]");
+    await vi.waitFor(() => expect(start).toHaveBeenCalledExactlyOnceWith("WorldScene", { playerId: "hero" }));
+    expect(login).toHaveBeenNthCalledWith(1, "first-challenge", "id-token-first-nonce");
+    expect(login).toHaveBeenNthCalledWith(2, "retry-challenge", "id-token-retry-nonce");
+    expect(sessionStateStore.getToken()).toBe("retry-session");
+  } finally { shutdown(); sessionStateStore.reset(); vi.unstubAllGlobals(); }
+});
+
+it.each([
+  ["shutdown", true], ["session replacement", true], ["mode switch", true],
+  ["shutdown", false], ["session replacement", false], ["mode switch", false]
+] as const)("does not enter the world or revive login when socket authentication completes after %s (ok=%s)", async (change, ok) => {
+  vi.spyOn(AuthApi.prototype, "getAuthProviders").mockResolvedValue({ google: { enabled: false, clientId: null } });
+  const session: SessionView = { accountUsername: "Owczy", accountRole: "PLAYER", character: { state: "active", characterId: "hero", nickname: "Owczy" } };
+  vi.spyOn(AuthApi.prototype, "login").mockResolvedValue({ token: "first-token", session });
+  let resolveSocket!: (response: Awaited<ReturnType<typeof gameSocket.authenticate>>) => void;
+  const authenticate = vi.spyOn(gameSocket, "authenticate").mockImplementation(() => new Promise(resolve => { resolveSocket = resolve; }));
+  const scene = new AuthScene(), start = vi.fn();
+  let shutdown!: () => void;
+  Object.assign(scene, { events: { once: (_name: string, callback: () => void) => { shutdown = callback; } }, scene: { start } });
+  sessionStateStore.reset(); scene.create();
+  const host = document.querySelector<HTMLElement>(".auth-scene")!;
+  input(host, "username", "Owczy"); input(host, "password", "current-password"); submit(host);
+  await vi.waitFor(() => expect(authenticate).toHaveBeenCalledWith("first-token"));
+  if (change === "shutdown") { shutdown(); sessionStateStore.reset(); }
+  else if (change === "mode switch") click(host, "[data-auth-mode='register']");
+  else sessionStateStore.setAuthenticated("other-session", session);
+  const currentToken = sessionStateStore.getToken();
+  resolveSocket(ok ? { ok: true, characterId: "hero", locationId: "forest-settlement-01" } : { ok: false, code: "AUTHENTICATION_FAILED", message: "Late failure" });
+  await flush();
+  expect(start).not.toHaveBeenCalled();
+  expect(sessionStateStore.getToken()).toBe(currentToken);
+  if (change === "mode switch") expect(host.querySelector("[data-auth-panel]")?.getAttribute("data-mode")).toBe("register");
+  shutdown(); sessionStateStore.reset();
+});
+
 describe("AuthPanel", () => {
+  function googleSetup(overrides: Partial<Record<keyof AuthApi, unknown>> = {}) {
+    let callbacks!: GoogleSignInCallbacks;
+    const mount = vi.fn<GoogleSignInAdapter["mount"]>(async (_host, _challenge, options) => { callbacks = options; });
+    const challenge = { challengeId: "login-challenge", nonce: "login-nonce", clientId: "server-client" };
+    const authApi = api({
+      getAuthProviders: vi.fn().mockResolvedValue({ google: { enabled: true, clientId: "server-client" } }),
+      createGoogleChallenge: vi.fn().mockResolvedValue(challenge),
+      ...overrides
+    });
+    const store = new SessionStateStore(localStorage), host = document.createElement("div"), route = vi.fn();
+    const panel = new AuthPanel(host, authApi, store, route, { mount });
+    panel.mount();
+    return { authApi, panel, host, store, route, mount, challenge, callbacks: () => callbacks };
+  }
+
+  it("prefetches a server challenge before offering Google and stores only the resulting game session", async () => {
+    const session: SessionView = { accountUsername: "google_generated", accountRole: "PLAYER", character: { state: "none" } };
+    const loginWithGoogle = vi.fn().mockResolvedValue({ token: "google-game-token", session });
+    const setup = googleSetup({ loginWithGoogle });
+    await vi.waitFor(() => expect(setup.mount).toHaveBeenCalledTimes(1));
+    expect(setup.authApi.createGoogleChallenge).toHaveBeenCalledWith("login");
+    expect(setup.mount.mock.calls[0]?.[1]).toEqual(setup.challenge);
+    expect(setup.host.querySelector<HTMLElement>("[data-google-login]")?.hidden).toBe(false);
+    setup.callbacks().onCredential("opaque-google-id-token");
+    await vi.waitFor(() => expect(setup.store.getToken()).toBe("google-game-token"));
+    expect(loginWithGoogle).toHaveBeenCalledExactlyOnceWith("login-challenge", "opaque-google-id-token");
+    expect(setup.route).toHaveBeenCalledWith("google-game-token", session);
+    expect(JSON.stringify(localStorage)).not.toContain("opaque-google-id-token");
+    setup.panel.unmount();
+  });
+
+  it("keeps local fields and mode navigation usable after Google cancellation or provider failure", async () => {
+    const setup = googleSetup();
+    await vi.waitFor(() => expect(setup.mount).toHaveBeenCalledTimes(1));
+    input(setup.host, "username", "Owczy"); input(setup.host, "password", "local-password");
+    setup.callbacks().onError({ code: "GOOGLE_CANCELLED" });
+    expect(setup.host.querySelector("[data-auth-error]")?.textContent).toBe("");
+    setup.callbacks().onError(new Error("Google unavailable"));
+    expect(setup.host.querySelector<HTMLInputElement>("[name='password']")?.value).toBe("local-password");
+    expect(setup.store.getToken()).toBeNull();
+    click(setup.host, "[data-auth-mode='register']");
+    expect(setup.host.querySelector("[data-auth-panel]")?.getAttribute("data-mode")).toBe("register");
+    expect(setup.callbacks().signal.aborted).toBe(true);
+    setup.panel.unmount();
+  });
+
+  it("ignores an earlier Google callback after switching mode", async () => {
+    const loginWithGoogle = vi.fn();
+    const setup = googleSetup({ loginWithGoogle });
+    await vi.waitFor(() => expect(setup.mount).toHaveBeenCalledTimes(1));
+    const callbacks = setup.callbacks();
+    click(setup.host, "[data-auth-mode='recover']");
+    callbacks.onCredential("late-token");
+    await flush();
+    expect(loginWithGoogle).not.toHaveBeenCalled();
+    expect(setup.route).not.toHaveBeenCalled();
+    expect(setup.store.getToken()).toBeNull();
+    setup.panel.unmount();
+  });
+
+  it.each(["unmount", "session replacement"])("discards a pending Google login after %s", async (change) => {
+    let resolveLogin!: (result: unknown) => void;
+    const loginWithGoogle = vi.fn(() => new Promise(resolve => { resolveLogin = resolve; }));
+    const setup = googleSetup({ loginWithGoogle });
+    await vi.waitFor(() => expect(setup.mount).toHaveBeenCalledTimes(1));
+    setup.callbacks().onCredential("google-token");
+    const session: SessionView = { accountUsername: "NewAccount", accountRole: "PLAYER", character: { state: "none" } };
+    if (change === "unmount") setup.panel.unmount();
+    else setup.store.setAuthenticated("other-token", session);
+    resolveLogin({ token: "late-game-token", session });
+    await flush();
+    expect(setup.route).not.toHaveBeenCalled();
+    expect(setup.store.getToken()).toBe(change === "unmount" ? null : "other-token");
+    setup.panel.unmount();
+  });
+
+  it("keeps password login available when provider discovery is unavailable", async () => {
+    const setup = googleSetup({ getAuthProviders: vi.fn().mockRejectedValue(new Error("unavailable")) });
+    await flush();
+    expect(setup.mount).not.toHaveBeenCalled();
+    expect(setup.host.querySelector<HTMLElement>("[data-google-login]")?.hidden).toBe(true);
+    expect(setup.host.querySelector<HTMLButtonElement>("[type='submit']")?.disabled).toBe(false);
+    setup.panel.unmount();
+  });
+
   it("switches between login, register and recovery modes", () => {
     const host = document.createElement("div");
     const panel = new AuthPanel(host, api(), new SessionStateStore(localStorage), vi.fn());
@@ -161,7 +325,9 @@ describe("AuthPanel", () => {
     let resolveResponse!: (response: Response) => void;
     const fetcher = vi.fn(
       (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Promise<Response>((resolve) => {
+        String(_input).endsWith("/api/auth/providers")
+          ? Promise.resolve(new Response(JSON.stringify({ google: { enabled: false, clientId: null } })))
+          : new Promise<Response>((resolve) => {
           resolveResponse = resolve;
         })
     );
@@ -182,8 +348,8 @@ describe("AuthPanel", () => {
     input(host, "password", "very-secret-password");
     submit(host);
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [url, request] = fetcher.mock.calls[0] ?? [];
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const [url, request] = fetcher.mock.calls[1] ?? [];
     expect(url).toBe("https://game.example.test/api/auth/login");
     expect(request?.method).toBe("POST");
     expect(JSON.parse(String(request?.body))).toEqual({

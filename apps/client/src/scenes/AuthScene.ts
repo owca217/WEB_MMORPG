@@ -1,6 +1,7 @@
 import type { SessionView } from "@web-mmorpg/shared";
 import Phaser from "phaser";
-import { AuthApi, AuthApiNetworkError, AuthApiRequestError } from "../net/AuthApi";
+import { AuthApi, AuthApiNetworkError, AuthApiRequestError, type GoogleAuthChallenge } from "../net/AuthApi";
+import { googleSignIn, isGoogleCancelled, type GoogleSignInAdapter } from "../net/GoogleSignIn";
 import { resolveGameServerUrl } from "../hosting";
 import { gameSocket } from "../net/GameSocket";
 import { sessionStateStore, type SessionStateStore } from "../state/SessionStateStore";
@@ -27,23 +28,58 @@ export class AuthPanel {
   private mode: AuthMode = "login";
   private recoveryUsername = "";
   private isSubmitting = false;
+  private googleSubmitting = false;
+  private mounted = false;
+  private viewVersion = 0;
+  private googleController: AbortController | undefined;
+  private googleRefresh: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly host: HTMLElement,
     private readonly api: AuthApi,
     private readonly store: SessionStateStore,
-    private readonly onAuthenticated: AuthenticatedRoute
+    private readonly onAuthenticated: AuthenticatedRoute,
+    private readonly google: GoogleSignInAdapter = googleSignIn
   ) {}
 
   mount(): void {
+    this.mounted = true;
     this.render();
   }
 
   unmount(): void {
+    this.mounted = false;
+    this.viewVersion++;
+    this.invalidateGoogle();
+    this.isSubmitting = false;
     this.host.replaceChildren();
   }
 
+  resumeAfterConnectionFailure(token: string, error: unknown): void {
+    if (!this.mounted || this.mode !== "login" || this.store.getToken() !== token) return;
+    this.store.reset();
+    const version = ++this.viewVersion;
+    this.invalidateGoogle();
+    this.isSubmitting = false; this.googleSubmitting = false;
+    const form = this.host.querySelector<HTMLFormElement>("[data-auth-form]");
+    if (form) {
+      delete form.dataset.busy;
+      for (const input of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button")) input.disabled = false;
+      const submit = form.querySelector<HTMLButtonElement>("[type='submit']");
+      if (submit) submit.textContent = this.submitLabel();
+    }
+    const status = this.host.querySelector<HTMLElement>("[data-auth-status]");
+    if (status) { status.textContent = ""; delete status.dataset.state; }
+    for (const button of this.host.querySelectorAll<HTMLButtonElement>("[data-auth-mode]")) button.disabled = false;
+    this.showGoogleError(error);
+    void this.prepareGoogle(version);
+  }
+
   private render(prefillUsername = ""): void {
+    const version = ++this.viewVersion;
+    this.invalidateGoogle();
+    this.isSubmitting = false;
+    this.googleSubmitting = false;
     this.host.innerHTML = `
       <section class="auth-panel login-panel" data-auth-panel data-mode="${this.mode}">
         <header class="auth-panel__header">
@@ -62,6 +98,10 @@ export class AuthPanel {
           <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
           <p class="form-error" data-auth-error role="alert" aria-live="assertive"></p>
         </form>
+        <section class="google-sign-in" data-google-login hidden aria-label="Logowanie Google">
+          <div class="google-sign-in__button" data-google-button></div>
+          <p class="google-sign-in__hint">Masz już konto gry? Zaloguj się loginem i hasłem, a potem wybierz Menu → Konto → Połącz z Google.</p>
+        </section>
         <div class="auth-recovery-modal is-hidden" data-recovery-modal role="dialog" aria-modal="true">
           <div class="auth-recovery-modal__card">
             <h2>Zapisz kod odzyskiwania</h2>
@@ -78,7 +118,7 @@ export class AuthPanel {
       button.setAttribute("aria-pressed", String(button.dataset.authMode === this.mode));
       button.addEventListener("click", () => {
         const next = button.dataset.authMode as AuthMode | undefined;
-        if (this.isSubmitting || !next || next === this.mode) return;
+        if ((this.isSubmitting && !this.googleSubmitting) || !next || next === this.mode) return;
         this.mode = next;
         this.render(next === "login" ? prefillUsername : "");
       });
@@ -90,6 +130,86 @@ export class AuthPanel {
         event.preventDefault();
         void this.submit();
       });
+    if (this.mode === "login") void this.prepareGoogle(version);
+  }
+
+  private invalidateGoogle(): void {
+    this.googleController?.abort();
+    this.googleController = undefined;
+    if (this.googleRefresh) clearTimeout(this.googleRefresh);
+    this.googleRefresh = undefined;
+  }
+
+  private current(version: number, token: string | null): boolean {
+    return this.mounted && version === this.viewVersion && this.store.getToken() === token;
+  }
+
+  private async prepareGoogle(version: number): Promise<void> {
+    this.invalidateGoogle();
+    const controller = new AbortController();
+    this.googleController = controller;
+    const token = this.store.getToken();
+    const holder = this.host.querySelector<HTMLElement>("[data-google-login]");
+    const button = this.host.querySelector<HTMLElement>("[data-google-button]");
+    if (!holder || !button) return;
+    holder.hidden = true;
+    const active = (): boolean => !controller.signal.aborted && this.current(version, token) && this.mode === "login" && !this.isSubmitting;
+    try {
+      const providers = await this.api.getAuthProviders();
+      if (!active() || !providers.google.enabled || !providers.google.clientId) return;
+      const challenge = await this.api.createGoogleChallenge("login");
+      if (!active()) return;
+      holder.hidden = false;
+      await this.google.mount(button, challenge, {
+        signal: controller.signal,
+        onCredential: idToken => { if (active()) void this.submitGoogle(challenge, idToken, version, token); },
+        onError: error => {
+          if (!active() || isGoogleCancelled(error)) return;
+          this.showGoogleError(error);
+        }
+      });
+      if (!active()) return;
+      // Renew before the server's five-minute challenge expiry, without opening a popup.
+      this.googleRefresh = setTimeout(() => { if (active()) void this.prepareGoogle(version); }, 4 * 60_000);
+    } catch {
+      // Discovery, challenge or GIS failures must leave local authentication usable.
+      if (active()) holder.hidden = true;
+    }
+  }
+
+  private showGoogleError(error: unknown): void {
+    const element = this.host.querySelector<HTMLElement>("[data-auth-error]");
+    if (!element) return;
+    element.dataset.errorKind = errorKind(error);
+    element.textContent = error instanceof Error && !(error instanceof AuthApiRequestError)
+      ? error.message : errorMessage(error);
+  }
+
+  private async submitGoogle(challenge: GoogleAuthChallenge, idToken: string, version: number, token: string | null): Promise<void> {
+    if (!this.current(version, token) || this.isSubmitting) return;
+    this.invalidateGoogle();
+    this.isSubmitting = true; this.googleSubmitting = true;
+    const form = this.host.querySelector<HTMLFormElement>("[data-auth-form]")!;
+    const status = this.host.querySelector<HTMLElement>("[data-auth-status]")!;
+    const error = this.host.querySelector<HTMLElement>("[data-auth-error]")!;
+    error.textContent = "";
+    status.textContent = "Łączenie z serwerem…"; status.dataset.state = "connecting";
+    for (const input of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button")) input.disabled = true;
+    try {
+      const result = await this.api.loginWithGoogle(challenge.challengeId, idToken);
+      if (!this.current(version, token)) return;
+      this.store.setAuthenticated(result.token, result.session);
+      this.onAuthenticated(result.token, result.session);
+    } catch (requestError) {
+      if (this.current(version, token)) this.showGoogleError(requestError);
+    } finally {
+      if (this.mounted && version === this.viewVersion) {
+        this.isSubmitting = false; this.googleSubmitting = false;
+        status.textContent = ""; delete status.dataset.state;
+        for (const input of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button")) input.disabled = false;
+        if (this.current(version, token)) void this.prepareGoogle(version);
+      }
+    }
   }
 
   private fields(prefillUsername: string): string {
@@ -131,6 +251,8 @@ export class AuthPanel {
     if (!form || !error || !status || !submitButton || this.isSubmitting) return;
 
     const mode = this.mode;
+    const version = this.viewVersion;
+    const token = this.store.getToken();
     const data = new FormData(form);
     const username = String(data.get("username") ?? "").trim();
     const password =
@@ -159,6 +281,7 @@ export class AuthPanel {
       return;
     }
 
+    this.invalidateGoogle();
     this.isSubmitting = true;
     status.textContent = "Łączenie z serwerem…";
     status.dataset.state = "connecting";
@@ -173,6 +296,7 @@ export class AuthPanel {
     try {
       if (mode === "register") {
         const result = await this.api.register(username, password, passwordConfirmation);
+        if (!this.current(version, token)) return;
         this.recoveryUsername = username;
         this.showRecoveryCode(result.recoveryCode);
         return;
@@ -187,6 +311,7 @@ export class AuthPanel {
           newPassword,
           passwordConfirmation
         );
+        if (!this.current(version, token)) return;
         this.store.reset();
         this.recoveryUsername = username;
         this.showRecoveryCode(result.recoveryCode);
@@ -194,12 +319,15 @@ export class AuthPanel {
       }
 
       const result = await this.api.login(username, password);
+      if (!this.current(version, token)) return;
       this.store.setAuthenticated(result.token, result.session);
       this.onAuthenticated(result.token, result.session);
     } catch (requestError) {
+      if (!this.current(version, token)) return;
       error.dataset.errorKind = errorKind(requestError);
       error.textContent = errorMessage(requestError);
     } finally {
+      if (!this.mounted || version !== this.viewVersion) return;
       this.isSubmitting = false;
       status.textContent = "";
       delete status.dataset.state;
@@ -210,6 +338,7 @@ export class AuthPanel {
       for (const button of this.host.querySelectorAll<HTMLButtonElement>("[data-auth-mode]")) {
         button.disabled = false;
       }
+      if (mode === "login" && this.current(version, token)) void this.prepareGoogle(version);
     }
   }
 
@@ -270,6 +399,10 @@ export class AuthScene extends Phaser.Scene {
   }
 
   private async routeAuthenticated(token: string, session: SessionView): Promise<void> {
+    const host = this.host;
+    const view = host?.querySelector("[data-auth-panel]");
+    const active = (): boolean => Boolean(host && this.host === host && host.querySelector("[data-auth-panel]") === view && sessionStateStore.getToken() === token);
+    if (!active()) return;
     if (session.character.state === "none") {
       this.cleanup();
       this.scene.start("CharacterCreatorScene");
@@ -285,15 +418,14 @@ export class AuthScene extends Phaser.Scene {
 
     try {
       const socketResult = await gameSocket.authenticate(token);
+      if (!active()) return;
       if (!socketResult.ok) throw new Error(socketResult.message);
       this.cleanup();
       this.scene.start("WorldScene", { playerId: socketResult.characterId });
     } catch (error) {
-      const errorElement = this.host?.querySelector<HTMLElement>("[data-auth-error]");
-      if (errorElement) {
-        errorElement.dataset.errorKind = errorKind(error);
-        errorElement.textContent = errorMessage(error);
-      }
+      if (!active()) return;
+      gameSocket.disconnect();
+      this.panel?.resumeAfterConnectionFailure(token, error);
     }
   }
 

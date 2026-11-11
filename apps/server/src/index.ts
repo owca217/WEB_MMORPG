@@ -12,6 +12,9 @@ import { CharacterLifecycleService } from "./character/CharacterLifecycleService
 import { createPool } from "./db/createPool";
 import { runMigrations } from "./db/migrate";
 import { createAuthRouter } from "./http/createAuthRouter";
+import { createGoogleAuthRouter } from "./http/createGoogleAuthRouter";
+import { GoogleAuthService } from "./auth/GoogleAuthService";
+import { Router } from "express";
 import { createItemIconRouter } from "./http/createItemIconRouter";
 import { createHttpApp } from "./http/createHttpApp";
 import { ItemCatalogService } from "./items/ItemCatalogService";
@@ -49,14 +52,17 @@ async function startServer(): Promise<void> {
   const audit = new AdminAuditRepository(pool);
   const accountAdmin = new AccountAdminService(pool, audit, connections);
   const iconStorage = createIconStorage(pool, resolvePublicServerBaseUrl());
+  const apiRouter = Router();
+  apiRouter.use(createAuthRouter({ authService, characterService: characters, connections }));
+  apiRouter.use(createGoogleAuthRouter({
+    authService,
+    googleService: new GoogleAuthService(pool, authService, process.env.GOOGLE_WEB_CLIENT_ID),
+    connections
+  }));
 
   const app = createHttpApp({
     itemIconRouter: createItemIconRouter(pool),
-    apiRouter: createAuthRouter({
-      authService,
-      characterService: characters,
-      connections
-    }),
+    apiRouter,
     adminRouter: createAdminRouter({
       authService,
       accountAdmin,

@@ -5,7 +5,7 @@ import type {
   RegisterResponse,
   SessionView
 } from "@web-mmorpg/shared";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {
   hashPassword,
   validatePassword,
@@ -45,6 +45,12 @@ export interface LoginServiceResult {
   accountId: string;
   token: string;
   session: SessionView;
+}
+
+export interface LoginSessionGrant {
+  accountId: string;
+  token: string;
+  account: Pick<AccountRecord, "id" | "username" | "role">;
 }
 
 export interface RecoveryServiceResult {
@@ -122,24 +128,18 @@ export class AuthService {
     }
 
     const account = await this.accounts.findByNormalizedUsername(username.normalized);
-    if (!account || !(await verifyPassword(account.passwordHash, password))) {
+    if (!account?.passwordHash || !(await verifyPassword(account.passwordHash, password))) {
       throw new AuthError("INVALID_CREDENTIALS", 401, "Invalid username or password.");
     }
     if (account.status !== "active") {
       throw new AuthError("ACCOUNT_DISABLED", 403, "This account is not active.");
     }
 
-    const token = generateSessionToken();
-    const expiresAt = new Date(Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000);
     const client = await this.pool.connect();
+    let grant: LoginSessionGrant;
     try {
       await client.query("BEGIN");
-      await new SessionRepository(client).replaceActiveSession({
-        id: randomUUID(),
-        accountId: account.id,
-        tokenHash: hashOpaqueSecret(token),
-        expiresAt
-      });
+      grant = await this.issueSession(account.id, client);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -147,12 +147,28 @@ export class AuthService {
     } finally {
       client.release();
     }
+    return this.completeLogin(grant);
+  }
 
-    return {
-      accountId: account.id,
-      token,
-      session: await this.createSessionView(account, new Date())
-    };
+  /** Called inside a transaction by trusted local and federated authentication paths. */
+  async issueSession(accountId: string, client: PoolClient): Promise<LoginSessionGrant> {
+    await client.query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE", [accountId]);
+    const account = await new AccountRepository(client).findById(accountId);
+    if (!account) throw new AuthError("UNAUTHORIZED", 401, "Authentication is required.");
+    if (account.status !== "active") throw new AuthError("ACCOUNT_DISABLED", 403, "This account is not active.");
+    const token = generateSessionToken();
+    await new SessionRepository(client).replaceActiveSession({
+      id: randomUUID(),
+      accountId,
+      tokenHash: hashOpaqueSecret(token),
+      expiresAt: new Date(Date.now() + this.sessionTtlDays * 24 * 60 * 60 * 1000)
+    });
+    return { accountId, token, account: { id: account.id, username: account.username, role: account.role } };
+  }
+
+  /** Lifecycle reads may need another connection, so callers must release their transaction first. */
+  async completeLogin(grant: LoginSessionGrant): Promise<LoginServiceResult> {
+    return { accountId: grant.accountId, token: grant.token, session: await this.createSessionView(grant.account, new Date()) };
   }
 
   async validateToken(token: string, now = new Date()): Promise<ValidatedAuthSession | null> {
@@ -204,7 +220,7 @@ export class AuthService {
 
     const account = await this.accounts.findByNormalizedUsername(username.normalized);
     const suppliedRecoveryHash = hashOpaqueSecret(recoveryCode.trim().toUpperCase());
-    if (!account || !secureHashEquals(account.recoveryCodeHash, suppliedRecoveryHash)) {
+    if (!account?.recoveryCodeHash || !secureHashEquals(account.recoveryCodeHash, suppliedRecoveryHash)) {
       throw new AuthError(
         "INVALID_RECOVERY_CODE",
         401,
@@ -239,7 +255,7 @@ export class AuthService {
     };
   }
 
-  private async createSessionView(account: AccountRecord, now: Date): Promise<SessionView> {
+  private async createSessionView(account: Pick<AccountRecord, "id" | "username" | "role">, now: Date): Promise<SessionView> {
     return {
       accountUsername: account.username,
       accountRole: account.role,

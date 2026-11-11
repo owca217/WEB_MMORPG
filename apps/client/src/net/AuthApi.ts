@@ -11,6 +11,22 @@ export interface AuthApiErrorPayload {
   message: string;
 }
 
+export interface AuthProviders {
+  google: { enabled: boolean; clientId: string | null };
+}
+
+export interface GoogleAuthChallenge {
+  challengeId: string;
+  nonce: string;
+  clientId: string;
+}
+
+export interface GoogleAccountStatus {
+  linked: boolean;
+  canLink: boolean;
+  googleEnabled: boolean;
+}
+
 export interface CharacterRecordView {
   id: string;
   accountId: string;
@@ -77,6 +93,35 @@ export class AuthApi {
       method: "POST",
       body: JSON.stringify({ username, password })
     });
+  }
+
+  getAuthProviders(): Promise<AuthProviders> {
+    return this.request<AuthProviders>("/api/auth/providers");
+  }
+
+  createGoogleChallenge(intent: "login" | "link", token?: string): Promise<GoogleAuthChallenge> {
+    return this.request<GoogleAuthChallenge>("/api/auth/google/challenge", {
+      method: "POST",
+      body: JSON.stringify({ intent })
+    }, token);
+  }
+
+  loginWithGoogle(challengeId: string, idToken: string): Promise<LoginResponse> {
+    return this.request<LoginResponse>("/api/auth/google/login", {
+      method: "POST",
+      body: JSON.stringify({ challengeId, idToken })
+    });
+  }
+
+  getGoogleAccount(token: string): Promise<GoogleAccountStatus> {
+    return this.request<GoogleAccountStatus>("/api/account/google", {}, token);
+  }
+
+  linkGoogleAccount(token: string, input: { challengeId: string; idToken: string; password: string }): Promise<GoogleAccountStatus> {
+    return this.request<GoogleAccountStatus>("/api/account/google/link", {
+      method: "POST",
+      body: JSON.stringify(input)
+    }, token);
   }
 
   getSession(token: string): Promise<SessionView> {

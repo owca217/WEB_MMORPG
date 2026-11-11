@@ -16,6 +16,39 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("AuthApi", () => {
+  it("uses nonce challenges and bearer-authenticated Google account linking without profile data", async () => {
+    const providers = { google: { enabled: true, clientId: "web-client" } };
+    const challenge = { challengeId: "challenge", nonce: "nonce", clientId: "web-client" };
+    const status = { linked: false, canLink: true, googleEnabled: true };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(providers))
+      .mockResolvedValueOnce(jsonResponse(challenge))
+      .mockResolvedValueOnce(jsonResponse({ token: "google-session", session }))
+      .mockResolvedValueOnce(jsonResponse(status))
+      .mockResolvedValueOnce(jsonResponse(challenge))
+      .mockResolvedValueOnce(jsonResponse({ ...status, linked: true, canLink: false }));
+    const api = new AuthApi("https://game.example/", fetcher);
+
+    await expect(api.getAuthProviders()).resolves.toEqual(providers);
+    await expect(api.createGoogleChallenge("login")).resolves.toEqual(challenge);
+    await expect(api.loginWithGoogle("challenge", "id-token")).resolves.toEqual({ token: "google-session", session });
+    await expect(api.getGoogleAccount("game-token")).resolves.toEqual(status);
+    await api.createGoogleChallenge("link", "game-token");
+    await expect(api.linkGoogleAccount("game-token", { challengeId: "challenge", idToken: "id-token", password: "current-password" })).resolves.toMatchObject({ linked: true });
+
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      "https://game.example/api/auth/providers", "https://game.example/api/auth/google/challenge",
+      "https://game.example/api/auth/google/login", "https://game.example/api/account/google",
+      "https://game.example/api/auth/google/challenge", "https://game.example/api/account/google/link"
+    ]);
+    for (const index of [0, 1, 2]) expect(new Headers(fetcher.mock.calls[index]![1]?.headers).has("Authorization")).toBe(false);
+    for (const index of [3, 4, 5]) expect(new Headers(fetcher.mock.calls[index]![1]?.headers).get("Authorization")).toBe("Bearer game-token");
+    expect(JSON.parse(String(fetcher.mock.calls[1]![1]?.body))).toEqual({ intent: "login" });
+    expect(JSON.parse(String(fetcher.mock.calls[4]![1]?.body))).toEqual({ intent: "link" });
+    expect(JSON.parse(String(fetcher.mock.calls[2]![1]?.body))).toEqual({ challengeId: "challenge", idToken: "id-token" });
+    expect(JSON.parse(String(fetcher.mock.calls[5]![1]?.body))).toEqual({ challengeId: "challenge", idToken: "id-token", password: "current-password" });
+  });
+
   it("invokes fetch with the browser global as its receiver", async () => {
     let receiver: unknown;
     const fetcher = function (this: unknown): Promise<Response> {

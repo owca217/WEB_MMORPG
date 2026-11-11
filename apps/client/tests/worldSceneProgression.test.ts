@@ -27,9 +27,36 @@ import { socialStateStore } from "../src/state/SocialStateStore";
 import { SocialController } from "../src/ui/SocialController";
 import { AuthPanel } from "../src/scenes/AuthScene";
 import { AuthApi } from "../src/net/AuthApi";
+import { googleSignIn } from "../src/net/GoogleSignIn";
 import { SessionStateStore, sessionStateStore } from "../src/state/SessionStateStore";
 
 let transport: EventEmitter;
+
+it("opens account linking from Menu and cancels its pending work as soon as logout starts", async () => {
+  let resolveLogout!: () => void;
+  sessionStateStore.setAuthenticated("game-token", { accountUsername: "Owczy", accountRole: "PLAYER", character: { state: "active", characterId: "hero", nickname: "Owczy" } });
+  const status = vi.spyOn(AuthApi.prototype, "getGoogleAccount").mockResolvedValue({ linked: false, canLink: true, googleEnabled: true });
+  vi.spyOn(AuthApi.prototype, "logout").mockImplementation(() => new Promise(resolve => { resolveLogout = resolve; }));
+  const cleanup = vi.spyOn(googleSignIn, "signOut").mockResolvedValue(undefined);
+  vi.spyOn(gameSocket, "disconnect").mockImplementation(() => {});
+  const scene = new WorldScene(), events = new EventEmitter(), destinations: string[] = [];
+  Object.assign(scene, { events, cameras: { main: { setBackgroundColor() {}, setBounds() {} } }, physics: { world: { setBounds() {} } }, textures: { exists: () => false }, input: { on() {} }, scene: { start: (key: string) => { destinations.push(key); events.emit("shutdown"); } } });
+  scene.init({ playerId: "hero" }); scene.create();
+  try {
+    document.querySelector<HTMLButtonElement>("[data-hud-menu-toggle]")!.click();
+    document.querySelector<HTMLButtonElement>("[data-account]")!.click();
+    await vi.waitFor(() => expect(status).toHaveBeenCalledExactlyOnceWith("game-token"));
+    expect(document.querySelector<HTMLElement>("[data-account-panel]")?.hidden).toBe(false);
+    document.querySelector<HTMLButtonElement>("[data-logout]")!.click();
+    expect(document.querySelector<HTMLElement>("[data-account-panel]")?.hidden).toBe(true);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(destinations).toEqual([]);
+    resolveLogout();
+    await vi.waitFor(() => expect(destinations).toEqual(["AuthScene"]));
+    expect(sessionStateStore.getToken()).toBeNull();
+    expect(document.querySelector("[data-account-panel]")).toBeNull();
+  } finally { events.emit("shutdown"); sessionStateStore.reset(); }
+});
 
 it.each([false,true])("releases real Phaser key captures after logout and restores movement on re-entry (typing=%s)",async typing=>{
   // Use Phaser's real keyboard implementations: a disabled scene plugin does not

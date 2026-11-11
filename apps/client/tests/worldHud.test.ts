@@ -26,9 +26,9 @@ it("shows the name without general level, mounts gear slots and shows abbreviate
 });
 
 it("opens options and independent party/trade windows from Menu, closing the menu first", () => {
-  const onOptions=vi.fn(),onParty=vi.fn(),onTrade=vi.fn();
-  const hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onOptions,onParty,onTrade});
-  for(const [selector,callback] of [["[data-options]",onOptions],["[data-party]",onParty],["[data-trade]",onTrade]] as const) {
+  const onOptions=vi.fn(),onParty=vi.fn(),onTrade=vi.fn(),onAccount=vi.fn();
+  const hud=new WorldHud({onCharacter:vi.fn(),onAdmin:vi.fn(),onOptions,onParty,onTrade,onAccount});
+  for(const [selector,callback] of [["[data-options]",onOptions],["[data-party]",onParty],["[data-trade]",onTrade],["[data-account]",onAccount]] as const) {
     document.querySelector<HTMLButtonElement>("[data-hud-menu-toggle]")!.click();
     document.querySelector<HTMLButtonElement>(selector)!.click();
     expect(document.querySelector<HTMLElement>("[data-hud-menu]")!.hidden).toBe(true);

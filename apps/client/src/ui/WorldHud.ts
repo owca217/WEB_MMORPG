@@ -25,6 +25,7 @@ interface WorldHudHandlers {
   onChat?: () => void;
   onSocial?: () => void;
   onOptions?: () => void;
+  onAccount?: () => void;
   onParty?: () => void;
   onTrade?: () => void;
   onLayoutChange?: () => void;
@@ -110,7 +111,7 @@ export class WorldHud {
         <span class="world-hud__nav-hint">Kliknij na mapie, aby iść <span aria-hidden="true">·</span> WASD</span>
         <button type="button" class="world-hud__menu-toggle" data-hud-menu-toggle aria-controls="world-hud-menu" aria-expanded="false">${glyph("menu")}<span>Menu</span></button>
       </nav>
-      <div class="world-hud__menu" id="world-hud-menu" data-hud-menu hidden><span>Menu gry</span><button type="button" data-menu-specializations>Specjalizacje</button><button type="button" data-options>Opcje</button><button type="button" data-party>Drużyna</button><button type="button" data-trade>Handel</button><button type="button" data-healing hidden>Leczenie</button><button type="button" data-admin hidden>Panel ADMIN</button><button type="button" data-logout>Wyloguj się</button><button type="button" data-menu-close data-close>Zamknij menu</button></div>
+      <div class="world-hud__menu" id="world-hud-menu" data-hud-menu hidden><span>Menu gry</span><button type="button" data-menu-specializations>Specjalizacje</button><button type="button" data-account>Konto</button><button type="button" data-options>Opcje</button><button type="button" data-party>Drużyna</button><button type="button" data-trade>Handel</button><button type="button" data-healing hidden>Leczenie</button><button type="button" data-admin hidden>Panel ADMIN</button><button type="button" data-logout>Wyloguj się</button><button type="button" data-menu-close data-close>Zamknij menu</button></div>
     `;
     for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend"]) this.root.addEventListener(type, event => event.stopPropagation());
     document.body.appendChild(this.root);
@@ -154,6 +155,7 @@ export class WorldHud {
     this.require("[data-hud-chat]").addEventListener("click", () => handlers.onChat?.());
     this.require("[data-hud-social]").addEventListener("click", () => handlers.onSocial?.());
     this.require("[data-options]").addEventListener("click", () => { this.closePanel(); handlers.onOptions?.(); });
+    this.require("[data-account]").addEventListener("click", () => { this.closePanel(); handlers.onAccount?.(); });
     this.require("[data-party]").addEventListener("click", () => { this.closePanel(); handlers.onParty?.(); });
     this.require("[data-trade]").addEventListener("click", () => { this.closePanel(); handlers.onTrade?.(); });
     this.require("[data-admin]").addEventListener("click", () => { this.closePanel(); handlers.onAdmin(); });

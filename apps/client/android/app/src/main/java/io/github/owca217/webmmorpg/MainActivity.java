@@ -10,6 +10,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(GoogleSignInPlugin.class);
         super.onCreate(savedInstanceState);
         getBridge().getWebView().setOverScrollMode(View.OVER_SCROLL_NEVER);
         hideSystemBars();

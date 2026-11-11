@@ -5,7 +5,7 @@ describe('bundled Android client', () => {
   it('uses local bundled assets and the shared HTTPS game server regardless of web hosting defaults', () => {
     const env = getAndroidBuildEnvironment({ VITE_BASE_PATH: '/WEB_MMORPG/', VITE_GAME_SERVER_URL: '' });
     expect(env.VITE_BASE_PATH).toBe('/');
-    expect(env.VITE_GAME_SERVER_URL).toBe('https://web-mmorpg-server.onrender.com');
+    expect(env.VITE_GAME_SERVER_URL).toBe('https://borderland-chronicles-krystian.onrender.com');
   });
 
   it('permits a separately configured HTTPS game server without sending credentials in the URL', () => {

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function getAndroidBuildEnvironment(env = process.env) {
-  const server = new URL(env.ANDROID_GAME_SERVER_URL || 'https://web-mmorpg-server.onrender.com');
+  const server = new URL(env.ANDROID_GAME_SERVER_URL || 'https://borderland-chronicles-krystian.onrender.com');
   if (server.protocol !== 'https:' || server.username || server.password || server.search || server.hash || server.pathname !== '/') {
     throw new Error('ANDROID_SERVER_MUST_BE_HTTPS_ORIGIN');
   }

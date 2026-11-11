@@ -1,6 +1,6 @@
 # Dodatkowe logowanie przez Google — projekt integracji
 
-Stan: projekt do zatwierdzenia; kod produktu i konfiguracja Google nie zostały jeszcze zmienione.
+Stan: zatwierdzony przez użytkownika 11 listopada 2026 r.; implementacja i konfiguracja w toku.
 
 ## Uzgodniony cel
 

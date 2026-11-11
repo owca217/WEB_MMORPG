@@ -1,12 +1,12 @@
 # Kroniki Pogranicza — klient Android
 
-Klient jest pakowany przez Capacitor 8 z tego samego kodu Phaser co wersja przeglądarkowa. APK zawiera grafiki i kod interfejsu. Logowanie, postacie, doświadczenie, ekwipunek i rozgrywka korzystają z serwera `https://web-mmorpg-server.onrender.com` i istniejących kont. Gra wymaga internetu.
+Klient jest pakowany przez Capacitor 8 z tego samego kodu Phaser co wersja przeglądarkowa. APK zawiera grafiki i kod interfejsu. Logowanie, postacie, doświadczenie, ekwipunek i rozgrywka korzystają z serwera `https://borderland-chronicles-krystian.onrender.com` i istniejących kont. Gra wymaga internetu.
 
 Wybór implementacyjny: pakiet Android z lokalnymi zasobami zapewnia wspólny rozwój gry i instalację z APK. Osobne przepisanie gry na silnik natywny powieliłoby kod; samo otwieranie strony w WebView uzależniałoby ekran startowy od pobrania całego klienta. Nie ustawiamy produkcyjnego `server.url` w konfiguracji Capacitor.
 
 ## Instalacja
 
-Pobierz podpisany [Kroniki-Pogranicza-0.1.31.apk](https://github.com/owca217/WEB_MMORPG/releases/download/android-v0.1.31/Kroniki-Pogranicza-0.1.31.apk). Otwórz go na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
+Lokalne wydanie 0.1.33 (kod wersji 34): [Borderland-Chronicles-0.1.33.apk](../artifacts/android/Borderland-Chronicles-0.1.33.apk) do instalacji na telefonie oraz [Borderland-Chronicles-0.1.33.aab](../artifacts/android/Borderland-Chronicles-0.1.33.aab) do przesłania do Google Play. Otwórz APK na telefonie i, jeśli Android tego zażąda, zezwól tej aplikacji pobierającej plik na instalację. Zaloguj się na dotychczasowe konto gry. Aktualizacja z poprzednich wersji używa tego samego podpisu i zachowuje dane aplikacji.
 
 Wersja 0.1.1 zastępuje przycisk Ekwipunek czterema slotami na pojemniki w panelu gry. Kliknięcie slotu otwiera wybór własnego przedmiotu kategorii Pojemniki; przypisanie jest sprawdzane przez serwer i zapisane przy postaci.
 
@@ -67,6 +67,10 @@ Wersja 0.1.29 dodaje opisy aktywnych urazów postaci oraz umożliwia ich całkow
 Wersja 0.1.30 zastępuje ogólny poziom postaci statystykami wyposażenia i premiami specjalizacji. Osobne okno „Drzewko specjalizacji” otworzysz przyciskiem Specjalizacje (na komputerze także K). Mapa zawiera zachowane techniki broni oraz rozwój pancerzy płóciennych, skórzanych i płytowych. Można ją przesuwać i powiększać, a szczegóły węzła pokazują wymagania i dostępne punkty. Noszone pancerze otrzymują połowę nagrody XP za zwycięstwo, dzieloną według liczby elementów; druga połowa rozwija użyte rodzaje broni. Kupiec oferuje również podstawowe skórzane i płytowe uzbrojenie. Dotychczasowe XP specjalizacji, wyuczone techniki i ekwipunek zostają zachowane.
 
 Wersja 0.1.31 odświeża wygląd walki. Gracze i członkowie drużyny używają wybranych skórek ze świata gry; portret postaci pokazuje tę samą skórkę. Plansza korzysta z tekstur terenu, przeciwnicy z istniejących grafik, a przeszkody i osłony otrzymują nowe omszałe skały i powalone pnie. Bandaż, mikstura leczenia i tonik wigoru mają nowe ikony także w plecaku. Oznaczenia zasięgu ruchu, wyboru celu i aktywnej tury pozostają widoczne na teksturowanym podłożu. Na niskim ekranie poziomym sterowanie zajmuje boczną kolumnę, pozostawiając planszy całą wysokość ekranu.
+
+Wersja 0.1.32 łączy aplikację z serwerem na koncie Krystiana: `https://borderland-chronicles-krystian.onrender.com`. Pakiet pozostaje `io.github.owca217.webmmorpg`, a kod wersji wzrasta do 33. Wydanie zachowuje funkcje wersji 0.1.31 i korzysta z przeniesionej bazy kont oraz postaci.
+
+Wersja 0.1.33 dodaje obsługę opcjonalnego logowania Google na Androidzie oraz w przeglądarce. Istniejące konto można połączyć w Menu → Konto → Połącz z Google, potwierdzając obecne hasło gry. Funkcja wymaga skonfigurowania rzeczywistych klientów OAuth w Google Cloud i `GOOGLE_WEB_CLIENT_ID` na serwerze; do czasu konfiguracji działa zwykły formularz konta. Aplikacja pobiera publiczny identyfikator klienta z serwera. Nie zapisuje danych profilu Google ani tokenów Google. Zwykły login i hasło pozostają dostępne. Konto utworzone przez Google korzysta z Google do odzyskania dostępu.
 
 Wymagania: Android 7 (API 24) lub nowszy oraz aktualny Android System WebView / Chrome (wersja co najmniej 111). Aplikacja działa w poziomie i wymaga wyłącznie uprawnienia do internetu. Przycisk Wstecz zamyka otwarty panel, a następnie minimalizuje grę.
 

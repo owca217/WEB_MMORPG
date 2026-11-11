@@ -39,7 +39,7 @@ describeDatabase("initial ADMIN bootstrap", () => {
 
     const account = await new AccountRepository(pool).findByNormalizedUsername("owczyadmin");
     expect(account).toMatchObject({ role: "ADMIN", status: "active" });
-    expect(await verifyPassword(account!.passwordHash, BOOTSTRAP_PASSWORD)).toBe(true);
+    expect(await verifyPassword(account!.passwordHash!, BOOTSTRAP_PASSWORD)).toBe(true);
     expect(account!.recoveryCodeHash).toBe(hashOpaqueSecret(BOOTSTRAP_RECOVERY));
     expect(JSON.stringify(account)).not.toContain(BOOTSTRAP_PASSWORD);
     expect(JSON.stringify(account)).not.toContain(BOOTSTRAP_RECOVERY);

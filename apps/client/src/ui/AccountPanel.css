@@ -1,0 +1,8 @@
+.game-panel.account-panel { z-index: 1140; width: min(440px, calc(100vw - 24px - var(--safe-area-left, 0px) - var(--safe-area-right, 0px))); max-height: calc(100dvh - 24px - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px)); }
+.account-panel[hidden], .account-panel [hidden] { display: none; }
+.account-panel__hint { color: var(--rpg-muted, #c9c4b9); font-size: 13px; line-height: 1.5; }
+.account-panel__form { display: grid; gap: 12px; }
+.account-panel__form label { display: grid; gap: 8px; }
+.account-panel__form input { box-sizing: border-box; min-width: 0; width: 100%; }
+.account-panel .google-sign-in { text-align: center; }
+.account-panel button { min-height: 44px; }

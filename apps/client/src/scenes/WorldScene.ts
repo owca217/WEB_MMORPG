@@ -8,11 +8,13 @@ import { resolveGameServerUrl } from "../hosting";
 import { moveTowardTarget, resolveKeyboardIntent } from "../input/WorldInput";
 import { AdminApi } from "../net/AdminApi";
 import { AuthApi } from "../net/AuthApi";
+import { googleSignIn } from "../net/GoogleSignIn";
 import { gameSocket, type BattleResultSummary } from "../net/GameSocket";
 import { playerStateStore } from "../state/PlayerStateStore";
 import { sessionStateStore } from "../state/SessionStateStore";
 import { logoutSession } from "../state/logoutSession";
 import { AdminPanel } from "../ui/AdminPanel";
+import { AccountPanel } from "../ui/AccountPanel";
 import { HealingPanel } from "../ui/HealingPanel";
 import { CharacterPanel } from "../ui/CharacterPanel";
 import { SpecializationPanel } from "../ui/SpecializationPanel";
@@ -93,6 +95,8 @@ export class WorldScene extends Phaser.Scene {
   private pendingDialogueNpcId:string|null=null;
   private pendingNpcAction:{npcId:string;action:"talk"|"shop";lastDistance:number;progressAt:number;lastConfirmedPosition?:WorldPoint}|null=null;
   private adminPanel: AdminPanel | undefined;
+  private accountPanel: AccountPanel | undefined;
+  private loggingOut = false;
   private chat: ChatController | undefined;
   private social:SocialController|undefined;
   private optionsPanel:OptionsPanel|undefined;
@@ -118,6 +122,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   init(data: WorldSceneData): void {
+    this.loggingOut = false;
     this.playerId = data.playerId;
     this.battleResult = data.battleResult;
     this.pointerTarget = null;
@@ -292,6 +297,7 @@ export class WorldScene extends Phaser.Scene {
       import.meta.env.VITE_GAME_SERVER_URL,
       import.meta.env.DEV
     );
+    this.accountPanel = new AccountPanel(new AuthApi(serverUrl), sessionStateStore);
     if (session?.accountRole === "ADMIN") {
       this.adminPanel = new AdminPanel(
         new AdminApi(serverUrl, () => sessionStateStore.getToken()),
@@ -313,6 +319,12 @@ export class WorldScene extends Phaser.Scene {
       onChat: () => { this.hud?.closePanel(); this.cancelMovement(); this.chat?.toggle(); },
       onSocial: () => { this.hud?.closePanel(); this.cancelMovement(); this.social?.toggle(); },
       onOptions:()=>{this.cancelMovement();this.dismissPlayerMenu();this.dismissNpcWindows();this.encounterMenu?.hide();this.selectedEncounterId=null;this.optionsPanel?.show();},
+      onAccount:()=>{
+        if(this.loggingOut)return;
+        this.cancelMovement();this.dismissPlayerMenu();this.dismissNpcWindows();
+        this.encounterMenu?.hide();this.selectedEncounterId=null;
+        this.optionsPanel?.hide();void this.accountPanel?.show();
+      },
       onParty:()=>this.social?.openParty(),
       onTrade:()=>this.social?.openTrade(),
       onLayoutChange: () => { this.cancelMovement(); if (!this.hud?.isPanelOpen) this.containerContents?.cancelInteraction(); this.updateWorldViewport(); },
@@ -707,6 +719,10 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private async logout(serverUrl: string): Promise<void> {
+    if (this.loggingOut) return;
+    this.loggingOut = true;
+    this.accountPanel?.hide();
+    void googleSignIn.signOut();
     const authApi = new AuthApi(serverUrl);
     await logoutSession({
       token: sessionStateStore.getToken(),
@@ -786,6 +802,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.accountPanel?.destroy();this.accountPanel=undefined;
     this.equipmentRequestVersion++;this.equipmentPending=false;
     this.clearNavigation();this.pendingFinalIntent=false;
     this.healingPanel?.destroy();this.healingPanel=undefined;

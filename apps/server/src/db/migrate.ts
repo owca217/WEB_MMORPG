@@ -74,6 +74,10 @@ const MIGRATIONS = [
   {
     name: "018_armor_specialization_metadata",
     url: new URL("./migrations/018_armor_specialization_metadata.sql", import.meta.url)
+  },
+  {
+    name: "019_google_auth",
+    url: new URL("./migrations/019_google_auth.sql", import.meta.url)
   }
 ] as const;
 

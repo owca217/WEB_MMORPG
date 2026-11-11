@@ -5,8 +5,8 @@ export interface AccountRecord {
   id: string;
   username: string;
   usernameNormalized: string;
-  passwordHash: string;
-  recoveryCodeHash: string;
+  passwordHash: string | null;
+  recoveryCodeHash: string | null;
   status: AccountStatus;
   role: AccountRole;
   createdAt: Date;
@@ -17,8 +17,8 @@ interface AccountRow {
   id: string;
   username: string;
   username_normalized: string;
-  password_hash: string;
-  recovery_code_hash: string;
+  password_hash: string | null;
+  recovery_code_hash: string | null;
   status: AccountStatus;
   role: AccountRole;
   created_at: Date;
@@ -49,8 +49,8 @@ export class AccountRepository {
     id: string;
     username: string;
     usernameNormalized: string;
-    passwordHash: string;
-    recoveryCodeHash: string;
+    passwordHash: string | null;
+    recoveryCodeHash: string | null;
     role?: AccountRole;
     status?: AccountStatus;
   }): Promise<AccountRecord> {

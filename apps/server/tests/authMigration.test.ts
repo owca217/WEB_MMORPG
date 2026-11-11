@@ -87,7 +87,8 @@ describeDatabase("additive account auth migration", () => {
       { migration_name: "015_weapon_injury_upgrades" },
       { migration_name: "016_progression_weapon_metadata" },
       { migration_name: "017_armor_specializations" },
-      { migration_name: "018_armor_specialization_metadata" }
+      { migration_name: "018_armor_specialization_metadata" },
+      { migration_name: "019_google_auth" }
     ]);
   });
 
